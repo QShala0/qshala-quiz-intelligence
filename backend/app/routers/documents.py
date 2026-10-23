@@ -1,11 +1,12 @@
+import asyncio
 import logging
 import os
 import shutil
 import uuid
 from typing import List, Optional
-from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
-from backend.app.database import get_db
+from backend.app.database import get_db, is_postgres
 from backend.app.models.document import Document, Slide
 from backend.app.schemas.document import DocumentResponse, IngestionStatusResponse, SlideResponse
 from backend.app.services.ingestion.pipeline import IngestionPipeline, INGESTION_STATUS_REGISTRY
@@ -41,9 +42,45 @@ MAX_FILE_SIZE_MB = MAX_FILE_SIZE_BYTES / (1024 * 1024)
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
+
+def _dispatch_ingestion(db: Session, doc_id: str) -> None:
+    """Starts ingestion for a freshly-uploaded document.
+
+    On Postgres (production) the document is simply left PENDING: a separate
+    ingestion worker process (backend/worker.py) polls for PENDING documents
+    and runs the pipeline there, so a big deck's memory/CPU use never shares
+    a process with the one serving search traffic. The worker reports its
+    own progress and watches for cancellation through the documents table
+    (progress_percentage, current_step, cancel_requested) since it has no
+    visibility into this process's in-memory registry/cancel set.
+
+    On SQLite (local/dev) there is no separate worker to run locally, so
+    ingestion still runs in this process, same as it always has.
+    """
+    if is_postgres:
+        logger.info(f"[UPLOAD] document queued for the ingestion worker: id={doc_id}, status=PENDING")
+        return
+
+    INGESTION_STATUS_REGISTRY[doc_id] = {
+        "document_id": doc_id,
+        "status": "PROCESSING",
+        "progress_percentage": 5,
+        "current_step": "1. Extracting content",
+        "slides_processed": 0,
+        "questions_extracted": 0,
+        "error": None
+    }
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if doc:
+        doc.processing_status = "PROCESSING"
+        db.commit()
+
+    pipeline = IngestionPipeline()
+    asyncio.create_task(pipeline.run(doc_id))
+    logger.info(f"[UPLOAD] ingestion started in-process (local/dev, no pgvector) for doc_id={doc_id}")
+
 @router.post("/upload", response_model=DocumentResponse)
 async def upload_document(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     year: Optional[int] = Form(None),
@@ -114,7 +151,7 @@ async def upload_document(
             file_type=ext.replace(".", ""),
             storage_path=storage_path,
             file_size_bytes=file_size,
-            processing_status="PROCESSING"
+            processing_status="PENDING"
         )
         db.add(doc)
         db.commit()
@@ -124,29 +161,13 @@ async def upload_document(
         db.rollback()
         raise HTTPException(status_code=500, detail="Database error while registering document.")
 
-    logger.info(f"[UPLOAD] document record created: id={doc_id}, status=PROCESSING")
-
-    # Initialize tracking
-    INGESTION_STATUS_REGISTRY[doc_id] = {
-        "document_id": doc_id,
-        "status": "PROCESSING",
-        "progress_percentage": 5,
-        "current_step": "1. Extracting content",
-        "slides_processed": 0,
-        "questions_extracted": 0,
-        "error": None
-    }
-
-    # Run ingestion pipeline asynchronously with its own database session
-    pipeline = IngestionPipeline()
-    background_tasks.add_task(pipeline.run, doc_id)
-    logger.info(f"[UPLOAD] background ingestion scheduled for doc_id={doc_id}")
+    logger.info(f"[UPLOAD] document record created: id={doc_id}, status=PENDING")
+    _dispatch_ingestion(db, doc_id)
 
     return doc
 
 @router.post("/upload-chunk")
 async def upload_document_chunk(
-    background_tasks: BackgroundTasks,
     chunk: UploadFile = File(...),
     upload_id: str = Form(...),
     chunk_index: int = Form(...),
@@ -247,7 +268,7 @@ async def upload_document_chunk(
             file_type=ext.replace(".", ""),
             storage_path=storage_path,
             file_size_bytes=file_size,
-            processing_status="PROCESSING"
+            processing_status="PENDING"
         )
         db.add(doc)
         db.commit()
@@ -258,19 +279,7 @@ async def upload_document_chunk(
         raise HTTPException(status_code=500, detail="Database error while registering document.")
 
     logger.info(f"[UPLOAD-CHUNK] file reassembled successfully: doc_id={doc_id}, size={file_size} bytes")
-
-    INGESTION_STATUS_REGISTRY[doc_id] = {
-        "document_id": doc_id,
-        "status": "PROCESSING",
-        "progress_percentage": 5,
-        "current_step": "1. Extracting content",
-        "slides_processed": 0,
-        "questions_extracted": 0,
-        "error": None
-    }
-
-    pipeline = IngestionPipeline()
-    background_tasks.add_task(pipeline.run, doc_id)
+    _dispatch_ingestion(db, doc_id)
 
     return {
         "status": "COMPLETED",
@@ -314,6 +323,29 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Ingestion already completed; delete the document instead.")
 
     request_doc_cancel(document_id)
+
+    if is_postgres:
+        # The pipeline may be running in a separate worker process, which has
+        # no visibility into this process's in-memory registry -- so absence
+        # from the registry no longer means "nothing is running" the way it
+        # does in the single-process (local/dev) case below. There's no
+        # reliable way from here to tell "actively running in the worker"
+        # apart from "genuinely orphaned", so an active-looking row is always
+        # just flagged and left for whichever process owns it (if any) to
+        # notice and clean up at its next checkpoint -- same as a same-process
+        # cancel already does. A row stuck from a crashed worker (rare) won't
+        # self-heal this way; deleting it directly still works unconditionally.
+        if doc.processing_status in ("PENDING", "CLAIMED", "PROCESSING"):
+            doc.cancel_requested = True
+            db.commit()
+            return {"status": "CANCELLING", "document_id": document_id}
+        purge_document(db, document_id)
+        INGESTION_STATUS_REGISTRY[document_id] = {
+            "document_id": document_id, "status": "CANCELLED", "progress_percentage": 0,
+            "current_step": "Upload cancelled", "slides_processed": 0, "questions_extracted": 0, "error": None,
+        }
+        return {"status": "CANCELLED", "document_id": document_id}
+
     reg = INGESTION_STATUS_REGISTRY.get(document_id)
     if reg and reg.get("status") == "PROCESSING":
         reg["current_step"] = "Cancelling..."
@@ -354,11 +386,16 @@ def get_ingestion_status(document_id: str, db: Session = Depends(get_db)):
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    # The pipeline may be running in a separate worker process (production,
+    # Postgres), which has no way to write into this process's in-memory
+    # registry -- these columns are what it reports progress through instead.
+    default_pct = 100 if doc.processing_status == "COMPLETED" else 0
+    default_step = "Completed" if doc.processing_status == "COMPLETED" else doc.processing_status
     return {
         "document_id": doc.id,
         "status": doc.processing_status,
-        "progress_percentage": 100 if doc.processing_status == "COMPLETED" else 0,
-        "current_step": "Completed" if doc.processing_status == "COMPLETED" else doc.processing_status,
+        "progress_percentage": doc.progress_percentage if doc.progress_percentage is not None else default_pct,
+        "current_step": doc.current_step or default_step,
         "slides_processed": doc.slide_count,
         "questions_extracted": doc.question_count,
         "error": doc.processing_error
@@ -370,9 +407,13 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    reg = INGESTION_STATUS_REGISTRY.get(document_id)
-    if reg and reg.get("status") == "PROCESSING":
-        request_doc_cancel(document_id)  # stop the running pipeline instead of orphaning it
+    # The pipeline may be running in this process (local/dev) or in a
+    # separate worker (production) -- request_doc_cancel() covers the former,
+    # the cancel_requested column (polled by the worker) covers the latter.
+    if doc.processing_status in ("PENDING", "CLAIMED", "PROCESSING"):
+        request_doc_cancel(document_id)  # stops a same-process pipeline instead of orphaning it
+        doc.cancel_requested = True
+        db.commit()
 
     if os.path.exists(doc.storage_path):
         try:

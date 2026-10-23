@@ -24,8 +24,15 @@ class Document(Base):
     file_size_bytes = Column(BigInteger, default=0)
     slide_count = Column(Integer, default=0)
     question_count = Column(Integer, default=0)
-    processing_status = Column(String(50), default="PENDING")  # PENDING, PROCESSING, COMPLETED, FAILED
+    processing_status = Column(String(50), default="PENDING")  # PENDING, CLAIMED, PROCESSING, COMPLETED, FAILED, CANCELLED
     processing_error = Column(Text, nullable=True)
+    # Cross-process ingestion state: the pipeline may run in a separate worker
+    # process from the one serving this API, so progress and cancellation are
+    # mirrored through these columns rather than the in-memory registry/set
+    # that work when everything runs in one process.
+    progress_percentage = Column(Integer, default=0)
+    current_step = Column(String(255), nullable=True)
+    cancel_requested = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
