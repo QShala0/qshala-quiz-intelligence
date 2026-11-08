@@ -492,6 +492,11 @@ class JobQueueService:
                 provenance_decks=[{"document_id": doc_id, "slide_id": q_data.get("slide_id")}],
                 occurrence_count=1,
                 question_type=q_data.get("question_type", "SLIDE_QA"),
+                question_format=q_data.get("question_format") or "STANDARD_QA",
+                format_payload=q_data.get("format_payload"),
+                play_mode=q_data.get("play_mode"),
+                slot=q_data.get("slot") or "LIVE",
+                topic_label=q_data.get("topic_label"),
                 source_year=q_data.get("source_year", 2024),
                 round_number=q_data.get("round_number"),
                 # Multi-modal & duplicate fields

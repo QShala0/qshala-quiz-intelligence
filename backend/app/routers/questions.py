@@ -2,11 +2,11 @@ import asyncio
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func, desc, asc, String
+from sqlalchemy import or_, and_, func, desc, asc, String
 from backend.app.database import get_db
 from backend.app.models.question import Question
 from backend.app.models.document import Document, Slide
-from backend.app.schemas.question import QuestionResponse, QuestionUpdate, DuplicateResolveRequest
+from backend.app.schemas.question import QuestionResponse, QuestionUpdate, DuplicateResolveRequest, ArrangeOrderUpdate
 from backend.app.services.retrieval.hybrid_retriever import HybridRetriever
 
 router = APIRouter(prefix="/questions", tags=["Knowledge Base Questions"])
@@ -122,6 +122,9 @@ def to_question_response(q: Question, doc: Optional[Document], slide: Optional[S
         question_format=getattr(q, "question_format", None) or getattr(q, "question_type", "STANDARD_QA") or "STANDARD_QA",
         format_data=getattr(q, "format_data", None) or getattr(q, "format_payload", None),
         format_payload=getattr(q, "format_payload", None) or getattr(q, "format_data", None),
+        play_mode=getattr(q, "play_mode", None),
+        slot=getattr(q, "slot", None) or "LIVE",
+        topic_label=getattr(q, "topic_label", None),
         image_refs=clean_imgs,
         question_images=clean_q_imgs,
         answer_images=clean_ans_imgs,
@@ -359,6 +362,8 @@ async def search_questions(
     document_title: Optional[str] = Query(None),
     question_format: Optional[str] = Query(None, description="Filter by format: CONNECT_4, STEPPED_CLUE, ARRANGE_ORDER, BUZZER, QA, VISUAL_CLUE, AUDIO_CLUE, VIDEO_CLUE"),
     format: Optional[str] = Query(None, description="Alias for question_format"),
+    slot: Optional[str] = Query(None, description="LIVE | RESERVE | EXAMPLE"),
+    play_mode: Optional[str] = Query(None, description="BUZZER | DIRECTED | PASS | AUDIENCE | TIEBREAK | ALL_ON_SCREEN | BUFFER"),
     sort_by: Optional[str] = Query("created_at"),
     sort_order: Optional[str] = Query("desc"),
     limit: int = Query(50, ge=1, le=200),
@@ -376,6 +381,8 @@ async def search_questions(
     doc_title_str = document_title if isinstance(document_title, str) and document_title.strip() else None
     fmt_raw = question_format or format
     fmt_str = fmt_raw.strip().upper() if isinstance(fmt_raw, str) and fmt_raw.strip() else None
+    slot_str = slot.strip().upper() if isinstance(slot, str) and slot.strip() else None
+    play_mode_str = play_mode.strip().upper() if isinstance(play_mode, str) and play_mode.strip() else None
     grade_min_val = grade_min if isinstance(grade_min, int) else None
     grade_max_val = grade_max if isinstance(grade_max, int) else None
     _allowed_sort = {"created_at", "question_text", "topic", "subtopic", "difficulty",
@@ -456,6 +463,10 @@ async def search_questions(
             q_builder = q_builder.filter(Question.grade_min >= grade_min_val)
         if grade_max_val is not None:
             q_builder = q_builder.filter(Question.grade_max <= grade_max_val)
+        if slot_str:
+            q_builder = q_builder.filter(Question.slot == slot_str)
+        if play_mode_str:
+            q_builder = q_builder.filter(Question.play_mode == play_mode_str)
         if fmt_str:
             target_fmts = [fmt_str]
             if fmt_str in ("CONNECT_4", "CONNECT"):
@@ -552,6 +563,28 @@ def _needs_review_ids(db: Session):
     return needs_review, well_tagged
 
 
+def _confirm_format_reading(q: Question) -> bool:
+    """Mark a flagged format reading as checked by a person (it leaves the review queue). True if it changed."""
+    import copy
+    fp = q.format_payload
+    ex = fp.get("extraction") if isinstance(fp, dict) else None
+    if not isinstance(ex, dict) or not ex.get("needs_review"):
+        return False
+    new = copy.deepcopy(fp)
+    new["extraction"].update({"needs_review": False, "reviewed": True, "route": "accept"})
+    q.format_payload = new
+    return True
+
+
+def _format_flagged_clause():
+    """Questions whose format reading was flagged at ingestion (confidence < 0.7, an unreadable Arrange order, a List It
+    that does not add up...) and that nobody has confirmed yet. Portable text match on the stored payload so it
+    behaves the same on SQLite and Postgres."""
+    from sqlalchemy import cast, String as _S
+    txt = cast(Question.format_payload, _S)
+    return and_(Question.format_payload.isnot(None), txt.like('%"needs_review": true%'), ~txt.like('%"reviewed": true%'))
+
+
 @router.get("/needs-review", response_model=List[QuestionResponse])
 def list_review_candidates(
     limit: int = Query(100, ge=1, le=200),
@@ -564,7 +597,7 @@ def list_review_candidates(
     items = db.query(Question, Document, Slide).\
         outerjoin(Document, Question.document_id == Document.id).\
         outerjoin(Slide, Question.slide_id == Slide.id).\
-        filter(Question.id.in_(needs_review), ~Question.id.in_(well_tagged)).\
+        filter(or_(and_(Question.id.in_(needs_review), ~Question.id.in_(well_tagged)), _format_flagged_clause())).\
         order_by(desc(Question.created_at)).\
         offset(offset).limit(limit).all()
     return _enrich(db, [to_question_response(q, doc, slide) for q, doc, slide in items])
@@ -574,7 +607,7 @@ def list_review_candidates(
 def review_candidates_count(db: Session = Depends(get_db)):
     needs_review, well_tagged = _needs_review_ids(db)
     n = db.query(func.count(Question.id)).filter(
-        Question.id.in_(needs_review), ~Question.id.in_(well_tagged)
+        or_(and_(Question.id.in_(needs_review), ~Question.id.in_(well_tagged)), _format_flagged_clause())
     ).scalar()
     return {"count": int(n or 0)}
 
@@ -593,6 +626,7 @@ def accept_review(question_id: str, db: Session = Depends(get_db)):
         filter(Question.id == question_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Question not found")
+    _confirm_format_reading(item[0])
 
     tag = db.query(QshalaTag).filter(
         QshalaTag.question_id == question_id).\
@@ -785,10 +819,83 @@ def update_question(
         q.explanation = payload.explanation.strip()
     if payload.visual_clues is not None:
         q.visual_clues = payload.visual_clues.strip() or None
+    if payload.slot is not None:
+        slot_v = payload.slot.strip().upper()
+        if slot_v not in ALLOWED_SLOTS:
+            raise HTTPException(status_code=400, detail=f"slot must be one of {sorted(ALLOWED_SLOTS)}")
+        q.slot = slot_v
+    if payload.play_mode is not None:
+        pm = payload.play_mode.strip().upper()
+        if pm and pm not in ALLOWED_PLAY_MODES:
+            raise HTTPException(status_code=400, detail=f"play_mode must be one of {sorted(ALLOWED_PLAY_MODES)}")
+        q.play_mode = pm or None
 
     db.commit()
     db.refresh(q)
     return _enrich_one(db, to_question_response(q, doc, slide))
+
+ALLOWED_SLOTS = {"LIVE", "RESERVE", "EXAMPLE"}
+ALLOWED_PLAY_MODES = {"BUZZER", "DIRECTED", "PASS", "AUDIENCE", "TIEBREAK", "ALL_ON_SCREEN", "BUFFER"}
+
+
+@router.put("/{question_id}/arrange-order", response_model=QuestionResponse)
+def set_arrange_order(question_id: str, body: ArrangeOrderUpdate, db: Session = Depends(get_db)):
+    """Enter (or clear) the correct order of an Arrange the Order question by hand.
+
+    The deck never states the order; it is computed only when the reveal values parse. When it could not be, a
+    person enters it here (order_source becomes "human") and the question leaves the format review queue."""
+    import copy
+    item = db.query(Question, Document, Slide).\
+        outerjoin(Document, Question.document_id == Document.id).\
+        outerjoin(Slide, Question.slide_id == Slide.id).\
+        filter(Question.id == question_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Question not found")
+    q, doc, slide = item
+    fp = q.format_payload
+    if (q.question_format or "") != "ARRANGE_ORDER" or not isinstance(fp, dict) or not fp.get("items"):
+        raise HTTPException(status_code=400, detail="Not an Arrange the Order question")
+    labels = sorted(int(i["label"]) for i in fp["items"])
+    order = list(body.correct_order)
+    new = copy.deepcopy(fp)
+    ex = new.setdefault("extraction", {})
+    names = {int(i["label"]): i.get("text") or str(i["label"]) for i in fp["items"]}
+    if not order:
+        new["correct_order"], new["order_source"] = [], "none"
+        ex.update({"needs_review": True, "reviewed": False, "route": "review"})
+        q.answer = "Correct order not recorded"
+        ordered = [names[l] for l in labels]
+    else:
+        if sorted(order) != labels:
+            raise HTTPException(status_code=400, detail=f"correct_order must list each label exactly once: {labels}")
+        new["correct_order"], new["order_source"] = order, "human"
+        ex.update({"needs_review": False, "reviewed": True, "route": "accept"})
+        reasons = [r for r in (ex.get("reasons") or []) if "order" not in r.lower()]
+        ex["reasons"] = reasons + ["order entered by hand"]
+        ordered = [names[l] for l in order]
+        q.answer = " \u2192 ".join(ordered)
+    q.question_text = (str(fp.get("prompt") or "") + " " + ", ".join(ordered)).strip()
+    q.format_payload = new
+    db.commit()
+    db.refresh(q)
+    return _enrich_one(db, to_question_response(q, doc, slide))
+
+
+@router.post("/{question_id}/accept-format-review", response_model=QuestionResponse)
+def accept_format_review(question_id: str, db: Session = Depends(get_db)):
+    """A person has checked the format reading of a flagged question: it leaves the review queue."""
+    item = db.query(Question, Document, Slide).\
+        outerjoin(Document, Question.document_id == Document.id).\
+        outerjoin(Slide, Question.slide_id == Slide.id).\
+        filter(Question.id == question_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Question not found")
+    q, doc, slide = item
+    if _confirm_format_reading(q):
+        db.commit()
+        db.refresh(q)
+    return _enrich_one(db, to_question_response(q, doc, slide))
+
 
 @router.post("/{question_id}/tags", response_model=QuestionResponse)
 def add_question_tag(
