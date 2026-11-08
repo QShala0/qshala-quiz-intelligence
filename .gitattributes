@@ -1,0 +1,1 @@
+backend/app/services/ingestion/pptx_parser.py text eol=crlf

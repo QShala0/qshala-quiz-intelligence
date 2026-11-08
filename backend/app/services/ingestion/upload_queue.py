@@ -185,9 +185,13 @@ def _reclaim_stale(db: Session) -> None:
     """Check and reconcile stale or terminated PROCESSING jobs, so they stop blocking the queue."""
     from datetime import timedelta
     cutoff = _now() - timedelta(minutes=STALE_PROCESSING_MINUTES)
-    processing_jobs = (db.query(IngestionJob)
-             .filter(IngestionJob.source_type == SOURCE, IngestionJob.status.in_(["PROCESSING", "CANCELLING"]))
-             .all())
+    try:
+        processing_jobs = (db.query(IngestionJob)
+                 .filter(IngestionJob.source_type == SOURCE, IngestionJob.status.in_(["PROCESSING", "CANCELLING"]))
+                 .all())
+    except Exception as e:
+        logger.warning("[QUEUE] _reclaim_stale failed to query processing jobs: %s", e)
+        return 0
 
     reclaimed = 0
     for job in processing_jobs:
@@ -260,10 +264,17 @@ def claim_next(db: Session) -> "IngestionJob | None":
     from sqlalchemy import text
 
     if is_postgres:
-        # Held until this transaction ends (commit/rollback); no leaked locks. Serialises claimers.
-        db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _ADVISORY_LOCK_KEY})
+        try:
+            # Held until this transaction ends (commit/rollback); no leaked locks. Serialises claimers.
+            db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _ADVISORY_LOCK_KEY})
+        except Exception as e:
+            logger.warning("[QUEUE] could not acquire advisory lock: %s", e)
+            return None
 
-    _reclaim_stale(db)   # a dead PROCESSING job must not block the queue forever
+    try:
+        _reclaim_stale(db)   # a dead PROCESSING job must not block the queue forever
+    except Exception as e:
+        logger.warning("[QUEUE] _reclaim_stale failed: %s", e)
 
     busy = (db.query(IngestionJob)
             .filter(IngestionJob.source_type == SOURCE, IngestionJob.status.in_(["PROCESSING", "CANCELLING"]))

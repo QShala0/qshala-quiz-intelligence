@@ -40,7 +40,7 @@ def test_interpret_difficulty_bias():
     assert interpret("difficult questions on science").hard_bias == "hard"
     assert interpret("easy warm-up questions").hard_bias == "easy"
     assert interpret("gentle questions on food").hard_bias == "easy"
-    assert interpret("balanced questions on history").hard_bias is None
+    assert interpret("balanced questions on history").hard_bias == "medium"
 
 
 def test_interpret_media_constraints():

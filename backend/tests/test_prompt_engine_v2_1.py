@@ -74,7 +74,7 @@ def test_ask_20_from_bank_of_10_on_topic_no_padding(monkeypatch):
             "primary_audience": None,
         })
 
-    monkeypatch.setattr(engine, "_load_bank", lambda db: fake_bank)
+    monkeypatch.setattr(engine, "_load_bank", lambda db, slots=None: fake_bank)
 
     mock_db = MagicMock()
     res = engine.build_draft(mock_db, prompt="20 questions on sports", count=20)
@@ -140,7 +140,7 @@ def test_gemini_failure_falls_back_to_regex(monkeypatch):
         "geo_region": None,
         "primary_audience": None,
     }]
-    monkeypatch.setattr(engine, "_load_bank", lambda db: fake_bank)
+    monkeypatch.setattr(engine, "_load_bank", lambda db, slots=None: fake_bank)
     res = engine.build_draft(mock_db, prompt="10 questions on banking", count=10)
     assert "brief" in res
     assert "questions" in res

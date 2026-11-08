@@ -442,6 +442,12 @@ def ensure_schema_columns():
                     except Exception:
                         pass  # table not created yet, or column already exists
             conn.commit()
+            if is_postgres:
+                try:
+                    conn.exec_driver_sql("SET lock_timeout = DEFAULT;")
+                    conn.commit()
+                except Exception:
+                    pass
 
         # One-time backfill of content_hash and topics for legacy questions
         try:
