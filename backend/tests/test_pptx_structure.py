@@ -39,9 +39,13 @@ def test_list_it_overlays_classified_from_pixels(parsed):
     assert len(overlays) == 9
     assert sum(o["overlay_class"] == "tick" for o in overlays) == 6
     assert sum(o["overlay_class"] == "cross" for o in overlays) == 3
-    # entrance animations are in the main sequence, one per overlay, click order = shape order
-    assert [a["cls"] for a in s["animations"]] == ["entr"] * 9
-    assert [a["target_id"] for a in s["animations"]] == [sid for sid, _ in info["list_it"]["overlays"]]
+    # clicking an option plays an entrance effect on its overlay (interactive sequences, nothing in the main one)
+    assert s["animations"] == []
+    inter = s["interactive_animations"]
+    assert [a["cls"] for a in inter] == ["entr"] * 9
+    assert [a["target_id"] for a in inter] == [sid for sid, _ in info["list_it"]["overlays"]]
+    assert [a["trigger_id"] for a in inter] == info["list_it"]["option_ids"]
+    assert inter[0]["trigger_name"] == "Option 1"
     # each overlay's nearest option (by centre) is the option it was built next to
     opts = [x for x in s["shapes"] if x["name"].startswith("Option")]
     truth = dict(info["list_it"]["overlays"])

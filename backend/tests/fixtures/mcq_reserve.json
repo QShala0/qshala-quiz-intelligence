@@ -11,6 +11,7 @@
   "layout_name": "Section Header",
   "shapes": [],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  },
@@ -26,6 +27,7 @@
   "layout_name": "Section Header",
   "shapes": [],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  },
@@ -132,6 +134,7 @@
    }
   ],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": true,
   "timer_seconds": 60,
   "metadata_json": {
@@ -150,6 +153,7 @@
   "layout_name": "Title Only",
   "shapes": [],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  },
@@ -165,6 +169,7 @@
   "layout_name": "Title and Content",
   "shapes": [],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  },
@@ -271,6 +276,7 @@
    }
   ],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": true,
   "timer_seconds": 60,
   "metadata_json": {
@@ -289,6 +295,7 @@
   "layout_name": "Title Only",
   "shapes": [],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  },
@@ -304,6 +311,7 @@
   "layout_name": "Title and Content",
   "shapes": [],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  },
@@ -319,6 +327,7 @@
   "layout_name": "Section Header",
   "shapes": [],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  },
@@ -425,6 +434,7 @@
    }
   ],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": true,
   "timer_seconds": 60,
   "metadata_json": {
@@ -468,6 +478,7 @@
    }
   ],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  },
@@ -483,6 +494,7 @@
   "layout_name": "Title Only",
   "shapes": [],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  },
@@ -498,6 +510,7 @@
   "layout_name": "Title and Content",
   "shapes": [],
   "animations": [],
+  "interactive_animations": [],
   "has_timer": false,
   "timer_seconds": null
  }

@@ -59,7 +59,7 @@ def pic_shape(sid, name, label, x, y, w, h, groups=None, path=None, kind="image"
 
 
 def slide(n, texts=(), title=None, hidden=False, layout="Title and Content", shapes=(), anims=(), notes="",
-          images=(), videos=(), noise_timer=False):
+          images=(), videos=(), noise_timer=False, inter=()):
     shapes = list(shapes)
     if noise_timer:
         shapes.append(pic_shape(900 + n, "Timer 1min", "timer-video", 0, 0, 100, 100, kind="video"))
@@ -84,6 +84,7 @@ def slide(n, texts=(), title=None, hidden=False, layout="Title and Content", sha
         "layout_name": layout,
         "shapes": shapes,
         "animations": list(anims),
+        "interactive_animations": list(inter),
         "has_timer": noise_timer,
         "timer_seconds": 60 if noise_timer else None,
     }
@@ -124,9 +125,9 @@ def listit_slide(n, correct, wrong, team_label=None, hidden=False, option_count=
         shapes.append(pic_shape(30 + i, f"Picture {i + 3}", "overlay-a" if is_right != swap_names else "overlay-b",
                                 (40 + col * 320 + 240) * EMU, (120 + row * 90 + 5) * EMU, 50 * EMU, 50 * EMU,
                                 overlay="tick" if is_right else "cross"))
-        anims.append({"order": i + 1, "cls": "entr", "preset": 1, "node_type": "clickEffect",
-                      "target_id": 30 + i, "target_name": f"Picture {i + 3}"})
-    return slide(n, ["List It!"] + ([team_label] if team_label else []), shapes=shapes, anims=anims,
+        anims.append({"order": i + 1, "trigger_id": 10 + i, "trigger_name": f"Option {i + 1}", "cls": "entr",
+                      "preset": 22, "target_id": 30 + i, "target_name": f"Picture {i + 3}"})
+    return slide(n, ["List It!"] + ([team_label] if team_label else []), shapes=shapes, inter=anims,
                  hidden=hidden, noise_timer=True)
 
 
@@ -169,7 +170,7 @@ def connect_slide(n, n_pics, hint=None, video=None, title="Connect", hidden=Fals
 def build_dsu():
     s = []
     s += [slide(3, ["Welcome to the finals"], layout="Title Slide"),
-          slide(4, ["Rules", "6 Topics & 2 questions in each topic"]),
+          slide(4, ["Quiz guidelines", "Please keep phones on silent"]),
           slide(5, ["Structure of the quiz"]),
           slide(9, ["Topic board", "SUSTAINABILITY\nENTREPRENEURSHIP\nTECHNOLOGY"], layout="Section Header")]
     # --- Topicator, round 1
@@ -197,7 +198,8 @@ def build_dsu():
           listit_slide(93, ["Apple", "Microsoft", "Toyota", "Coca-Cola", "Samsung", "IBM"],
                        ["General Motors", "McDonald's", "Nvidia"], team_label="Team 9")]
     # --- Image Reveal, round 3
-    s += [slide(108, ["IMAGE REVEAL\nROUND 3", "+20 / -15", "4 clues"], layout="Section Header"),
+    s += [slide(107, ["IMAGE REVEAL\nROUND 3"], layout="Section Header"),
+          slide(108, ["Round 3: Image Reveal", "4 questions. On Buzzer.", "+20 / -15"]),
           slide(109, ["EXAMPLE"], layout="Section Header"),
           slide(110, ["Who is this?"], noise_timer=True), answer_marker(111), slide(112, ["Steve Jobs"]),
           divider(113, "Question 1"),
@@ -210,7 +212,8 @@ def build_dsu():
     s += [slide(129, ["AUDIENCE QUESTIONS"], layout="Section Header")]
     s += qa(130, "Which band played the 2025 Mumbai tour?", "Coldplay")
     # --- Connect, round 4
-    s += [slide(133, ["CONNECT\nROUND 4", "+20 for correct, -10 for wrong"], layout="Section Header"),
+    s += [slide(133, ["CONNECT\nROUND 4"], layout="Section Header"),
+          slide(134, ["Connect", "6 questions. All on the buzzer", "+20 for a correct answer"]),
           slide(135, ["EXAMPLE"], layout="Section Header"),
           connect_slide(136, 4), answer_marker(137), slide(138, ["Fruits"]),
           divider(139, "Question 1"),

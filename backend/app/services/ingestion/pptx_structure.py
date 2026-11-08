@@ -33,7 +33,7 @@ def _xp(el, expr):
 MD5Fn = Callable[[str], Optional[str]]
 OverlayFn = Callable[[str], str]
 
-# A slide needs at least this many entrance-animated pictures before overlay colours are read.
+# A slide needs at least this many entrance-animated pictures (main or click-triggered) before overlay colours are read.
 MIN_OVERLAYS = 6
 
 
@@ -116,6 +116,32 @@ def read_animations(slide, id_to_name: Dict[int, str]) -> List[Dict[str, Any]]:
     return out
 
 
+def read_interactive_animations(slide, id_to_name: Dict[int, str]) -> List[Dict[str, Any]]:
+    """Effects played when a shape is clicked (interactive sequences): List It reveals each overlay when its option is
+    clicked. Kept apart from the main sequence, which alone carries the Image Reveal order."""
+    timing = slide._element.find("{%s}timing" % NS["p"])
+    if timing is None:
+        return []
+    out: List[Dict[str, Any]] = []
+    for seq in _xp(timing, './/p:cTn[@nodeType="interactiveSeq"]'):
+        trig = _xp(seq, "./p:stCondLst/p:cond/p:tgtEl/p:spTgt/@spid")
+        trigger_id = int(trig[0]) if trig else None
+        for ctn in _xp(seq, ".//p:cTn[@presetClass]"):
+            spids = _xp(ctn, ".//p:spTgt/@spid")
+            if not spids:
+                continue
+            try:
+                preset = int(ctn.get("presetID", "0"))
+            except ValueError:
+                preset = 0
+            tid = int(spids[0])
+            out.append({"order": len(out) + 1, "trigger_id": trigger_id,
+                        "trigger_name": id_to_name.get(trigger_id, "") if trigger_id is not None else "",
+                        "cls": ctn.get("presetClass"), "preset": preset, "target_id": tid,
+                        "target_name": id_to_name.get(tid, "")})
+    return out
+
+
 def _walk(slide, shapes, groups: List[Dict], path: List[str], out: List[Dict[str, Any]], md5_fn: Optional[MD5Fn]) -> None:
     for s in shapes:
         try:
@@ -163,7 +189,8 @@ def _walk(slide, shapes, groups: List[Dict], path: List[str], out: List[Dict[str
 
 def extract_slide_structure(slide, md5_fn: Optional[MD5Fn] = None, overlay_fn: Optional[OverlayFn] = None) -> Dict[str, Any]:
     """{hidden, layout_name, shapes, animations} for one python-pptx slide. Never raises."""
-    result: Dict[str, Any] = {"hidden": False, "layout_name": "", "shapes": [], "animations": []}
+    result: Dict[str, Any] = {"hidden": False, "layout_name": "", "shapes": [], "animations": [],
+                              "interactive_animations": []}
     try:
         result["hidden"] = slide._element.get("show") == "0"
     except Exception:
@@ -177,8 +204,9 @@ def extract_slide_structure(slide, md5_fn: Optional[MD5Fn] = None, overlay_fn: O
         _walk(slide, slide.shapes, [], [], shapes, md5_fn)
         id_to_name = {s["id"]: s["name"] for s in shapes}
         anims = read_animations(slide, id_to_name)
+        inter = read_interactive_animations(slide, id_to_name)
         if overlay_fn is not None:
-            entering = {a["target_id"] for a in anims if a["cls"] == "entr"}
+            entering = {a["target_id"] for a in anims + inter if a["cls"] == "entr"}
             cands = [s for s in shapes if s["id"] in entering and s["type"] == "PICTURE" and s.get("_zip_name")]
             if len(cands) >= MIN_OVERLAYS:
                 for s in cands:
@@ -191,6 +219,7 @@ def extract_slide_structure(slide, md5_fn: Optional[MD5Fn] = None, overlay_fn: O
             s.pop("_zip_name", None)
         result["shapes"] = shapes
         result["animations"] = anims
+        result["interactive_animations"] = inter
     except Exception as e:
         logger.warning("slide structure unreadable: %s", e)
     return result

@@ -12,7 +12,8 @@ sys.path.insert(0, str(FIX))
 
 DECKS = ["dsu_mini", "listit_reserve", "three_clues_reserve", "arrange_reserve", "mcq_reserve", "hotspot_reserve"]
 SLIDE_KEYS = {"slide_number", "title", "extracted_text", "speaker_notes", "image_paths", "video_paths",
-              "all_media_items", "hidden", "layout_name", "shapes", "animations"}
+              "all_media_items", "hidden", "layout_name", "shapes", "animations",
+              "interactive_animations"}
 SHAPE_KEYS = {"id", "name", "type", "text", "x", "y", "w", "h", "groups", "path", "media_md5", "media_kind",
               "overlay_class"}
 ANIM_KEYS = {"order", "cls", "preset", "node_type", "target_id", "target_name"}
@@ -60,7 +61,7 @@ def test_dsu_has_the_documented_cases():
     ov = [s for s in li["shapes"] if s["overlay_class"]]
     assert sum(o["overlay_class"] == "tick" for o in ov) == 6 and sum(o["overlay_class"] == "cross" for o in ov) == 3
     assert len([s for s in li["shapes"] if s["name"].startswith("Option")]) == 9
-    assert len(li["animations"]) == 9
+    assert len(li["interactive_animations"]) == 9 and li["animations"] == []
     assert d[23]["hidden"] and not d[26]["hidden"]
     ir = d[114]
     badges = [s["text"] for s in ir["shapes"] if re.match(r"^\d \| \+\d+/-?\d+$", s["text"] or "")]
@@ -94,7 +95,7 @@ def test_generated_pptx_structure(tmp_path):
     assert len(prs.slides) == 4
     with zipfile.ZipFile(out) as z:
         s1, s2, s3, s4 = (z.read(f"ppt/slides/slide{i}.xml").decode() for i in range(1, 5))
-    assert s1.count("presetClass=\"entr\"") == 9 and s1.count("<p:pic>") == 9
+    assert s1.count("presetClass=\"entr\"") == 9 and s1.count("<p:pic>") == 9 and s1.count("interactiveSeq") == 9
     assert s2.count("nodeType=\"mainSeq\"") == 1 and s2.count("nodeType=\"interactiveSeq\"") == 1
     assert s2.count("presetClass=\"exit\"") == 5 and s2.count("<p:grpSp>") == 4   # 4 main + 1 decoy
     assert s3.count("<p:grpSp>") == 4

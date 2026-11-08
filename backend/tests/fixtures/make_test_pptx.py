@@ -3,7 +3,8 @@
     python backend/tests/fixtures/make_test_pptx.py out.pptx
 
 Slides
-  1  List It        9 text-box options + 9 overlay pictures (green tick x6, red cross x3), entrance animations
+  1  List It        9 text-box options + 9 overlay pictures (green tick x6, red cross x3); clicking an option
+                    plays an entrance effect on its overlay (interactiveSeq, as in the real decks)
   2  Image Reveal   full picture + 4 groups (cover tile + "n | +x/-y" badge); p:timing has a mainSeq with
                     4 exit effects (preset 10) AND an interactiveSeq with a decoy exit effect
   3  Arrange        4 groups (label, name, picture); the groups are scaled (ext != chExt) to test transforms
@@ -107,19 +108,20 @@ def build(path) -> dict:
     # ---- 1. List It
     s1 = prs.slides.add_slide(blank)
     _textbox(s1.shapes, "List It!", 300000, 50000, 2000000, 400000, "Title 1")
-    main, texts = [], OPTIONS_CORRECT + OPTIONS_WRONG
+    inter, texts = [], OPTIONS_CORRECT + OPTIONS_WRONG
     overlays = []
     for i, t in enumerate(texts):
         col, row = i % 3, i // 3
         x, y = 500000 + col * 2800000, 700000 + row * 1300000
-        _textbox(s1.shapes, t, x, y, 2200000, 500000, f"Option {i + 1}")
+        opt = _textbox(s1.shapes, t, x, y, 2200000, 500000, f"Option {i + 1}")
         right = t in OPTIONS_CORRECT
         pic = _pic(s1.shapes, (30, 160, 60) if right else (200, 40, 40), "tick" if right else "cross",
                    x + 2250000, y, 450000, 450000, f"Picture {i + 3}")   # names say nothing about colour
         overlays.append((pic.shape_id, right))
-        main.append((pic.shape_id, "entr", 1))
-    _set_timing(s1, _timing_xml(main))
-    info["list_it"] = {"slide": 1, "overlays": overlays, "options": texts}
+        inter.append((opt.shape_id, pic.shape_id, "entr", 22))     # clicking an option reveals its overlay
+    _set_timing(s1, _timing_xml([], interactive=inter))
+    info["list_it"] = {"slide": 1, "overlays": overlays, "options": texts,
+                       "option_ids": [t for t, _, _, _ in inter]}
 
     # ---- 2. Image Reveal
     s2 = prs.slides.add_slide(blank)

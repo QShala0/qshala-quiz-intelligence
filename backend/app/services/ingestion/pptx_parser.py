@@ -621,7 +621,11 @@ class PPTXParser:
 
             def _walk_shapes_recursive(shapes_collection):
                 for s in shapes_collection:
-                    if getattr(s, "shape_type", None) == MSO_SHAPE_TYPE.GROUP or hasattr(s, "shapes"):
+                    try:
+                        s_type = s.shape_type
+                    except NotImplementedError:      # python-pptx cannot name some shape kinds (raises, not None)
+                        s_type = None
+                    if s_type == MSO_SHAPE_TYPE.GROUP or hasattr(s, "shapes"):
                         try:
                             yield from _walk_shapes_recursive(s.shapes)
                         except Exception:
@@ -823,6 +827,7 @@ class PPTXParser:
                 "layout_name": structure["layout_name"],
                 "shapes": structure["shapes"],
                 "animations": structure["animations"],
+                "interactive_animations": structure["interactive_animations"],
                 "metadata_json": {
                     "shape_count": len(slide.shapes),
                     "has_notes": bool(speaker_notes),
