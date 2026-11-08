@@ -211,6 +211,8 @@ def test_real_dsu_gate(mp):
     for q, mode in ((102, "AUDIENCE"), (130, "AUDIENCE")):
         assert unit_at(a, q).play_mode == mode
     assert unit_at(a, 224).section == "BUFFER" and unit_at(a, 224).round_name is None
+    assert unit_at(a, 224).play_mode == "BUFFER"             # a section of its own, not a buzzer round
+    assert all(u.play_mode == "BUFFER" for u in a.units if u.section == "BUFFER")
 
 
 @pytest.mark.parametrize("deck,units", [

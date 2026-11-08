@@ -414,7 +414,7 @@ def analyze_deck(slides: List[Dict[str, Any]]) -> DeckAnalysis:
         elif section == SECTION_TIEBREAK_NAME:
             mode = "TIEBREAK"
         elif section == SECTION_BUFFER_NAME:
-            mode = "BUZZER"
+            mode = "BUFFER"         # its own section, not a buzzer round (decided with the product owner)
         elif team is not None:
             mode = "DIRECTED"
         else:
