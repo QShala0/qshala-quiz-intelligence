@@ -29,11 +29,21 @@ def _lc(v: Any) -> str:
 
 
 # ------------------------------------------------------------------ hard filters
+_FORMAT_ALIASES = {"CONNECT_4": "CONNECT", "THREE_CLUE": "STEPPED_CLUE", "QA": "STANDARD_QA", "SLIDE_QA": "STANDARD_QA",
+                   "MULTIPLE_CHOICE": "MCQ"}
+
+
+def canon_format(f: Optional[str]) -> str:
+    """One name per format: CONNECT_4 and CONNECT, THREE_CLUE and STEPPED_CLUE, QA and STANDARD_QA are the same thing."""
+    f = (f or "STANDARD_QA").upper()
+    return _FORMAT_ALIASES.get(f, f)
+
+
 def passes_hard(c: Candidate, filters: Dict[str, Any], format_filter: Optional[str] = None,
                 skip: Optional[str] = None) -> bool:
     """True if the candidate satisfies every hard rule. `skip` ignores one rule (used to count what a rule blocks)."""
     f = filters or {}
-    if skip != "format" and format_filter and (c.get("question_format") or "STANDARD_QA") != format_filter:
+    if skip != "format" and format_filter and canon_format(c.get("question_format")) != canon_format(format_filter):
         return False
     if skip != "no_images" and f.get("no_images"):
         # Real image lists only. `image_dependent` is a loose "short question" heuristic, so it is NOT used here.

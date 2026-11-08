@@ -155,6 +155,9 @@ class QuizGenerator:
             limit=max(req.question_count * 4, 30)
         )
 
+        # Reserve spares and example slides never go into a generated quiz
+        retrieved_items = [it for it in retrieved_items if (getattr(it["question"], "slot", None) or "LIVE") == "LIVE"]
+
         context_data = ContextBuilder.build_prompt_context(retrieved_items)
         evidence_context = context_data["evidence_context"]
         source_mapping = context_data["source_mapping"]
@@ -210,6 +213,7 @@ class QuizGenerator:
                     "grade_max": grade_max,
                     "topic": hist_q.topic,
                     "question_type": hist_q.question_type,
+                    "format_payload": getattr(hist_q, "format_payload", None),
                     "image_refs": list(getattr(hist_q, "image_refs", []) or []),
                     "question_images": list(getattr(hist_q, "question_images", []) or []),
                     "answer_images": list(getattr(hist_q, "answer_images", []) or []),
@@ -374,6 +378,7 @@ Please return a JSON object with this exact structure:
                 grade_max=grade_max,
                 topic=q_data.get("topic", req.topic),
                 question_type=q_data.get("question_type", "SLIDE_QA"),
+                format_payload=q_data.get("format_payload"),
                 image_refs=q_data.get("image_refs") or [],
                 question_images=q_data.get("question_images") or [],
                 answer_images=q_data.get("answer_images") or [],

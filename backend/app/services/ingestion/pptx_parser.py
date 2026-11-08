@@ -431,7 +431,7 @@ class PPTXParser:
         use_count: Dict[str, set] = {}
         for sd in slides_data:
             for sh in sd.get("shapes", []):
-                if sh.get("media_md5"):
+                if sh.get("media_md5") and not (sh.get("name") or "").startswith("QSHALA "):   # QShala's own exports repeat pictures on purpose
                     use_count.setdefault(sh["media_md5"], set()).add(sd["slide_number"])
         furniture = {k for k, v in use_count.items() if len(v) >= 3}
         for sd in slides_data:
@@ -439,7 +439,7 @@ class PPTXParser:
                 zip_name = sh.get("zip_name")
                 if not zip_name or sh.get("media_url"):
                     continue
-                if sh.get("media_md5") in furniture or (sh.get("name") or "").strip().lower().startswith("timer"):
+                if (sh.get("media_md5") in furniture and not (sh.get("name") or "").startswith("QSHALA ")) or (sh.get("name") or "").strip().lower().startswith("timer"):
                     continue
                 ext = Path(zip_name).suffix.lower()
                 if ext not in IMAGE_EXTS and ext not in VIDEO_EXTS and ext not in AUDIO_EXTS:

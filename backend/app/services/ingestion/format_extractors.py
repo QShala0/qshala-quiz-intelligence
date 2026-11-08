@@ -9,14 +9,17 @@ Every result carries a confidence (>= 0.9 accept, 0.7-0.9 optional vision check,
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 LF = chr(10)
 
 from backend.app.services.ingestion.pptx_structure import absolute_box, absolute_centre
 from backend.app.services.ingestion.slide_roles import (
-    DeckAnalysis, RoundInfo, Unit, SLOT_EXAMPLE, SECTION_MAIN, is_timer_shape, parse_rules)
+    DeckAnalysis, RoundInfo, Unit, SLOT_EXAMPLE, SECTION_MAIN, is_timer_shape, is_export_shape, parse_rules)
 
 ACCEPT_AT = 0.9
 VISION_AT = 0.7
@@ -101,7 +104,7 @@ def _clue_media(slide: Dict[str, Any], noise: set, kind: str) -> List[Dict[str, 
             continue
         if kind == "video" and s.get("media_kind") != "video":
             continue
-        if s.get("media_md5") in noise:
+        if s.get("media_md5") in noise and not is_export_shape(s):
             continue
         out.append(s)
     return _reading_order(out)
@@ -809,6 +812,42 @@ def extract_standard(ctx: Ctx) -> Dict[str, Any]:
 # ------------------------------------------------------------------------------------------------ driver
 
 
+def restore_from_export(ctx: Ctx) -> Optional[Dict[str, Any]]:
+    """A deck exported by QShala (export/format_slides.py) carries the question's payload in the speaker notes of its first
+    slide. Restore exactly that, with the picture URLs of THIS upload: the {"$img": n} tokens index the distinct pictures
+    the question's slides show, in order. None when the unit is not such an export, or its pictures do not line up (then
+    the structural readers below take over)."""
+    from backend.app.services.export.format_slides import parse_blob, detokenize_payload
+    start = next((i for i, s in enumerate(ctx.slides) if parse_blob(s.get("speaker_notes"))), None)
+    if start is None:
+        return None
+    slides = ctx.slides[start:]
+    blob = parse_blob(slides[0].get("speaker_notes"))
+    urls: List[str] = []
+    for s in slides + ([ctx.ans] if ctx.ans else []):
+        for sh in s.get("shapes") or []:
+            if sh.get("type") == "PICTURE" and sh.get("media_url") and not is_timer_shape(sh):
+                if sh["media_url"] not in urls:
+                    urls.append(sh["media_url"])
+    try:
+        payload = detokenize_payload(blob["payload"], urls)
+    except IndexError:
+        return None
+    ctx.slides = slides
+    ctx.first = slides[0]
+    meta = blob.get("meta") or {}
+    saved = {k: payload.get(k) for k in ("round_name", "round_number", "team")}
+    ctx.reasons.append("restored from a QShala export")
+    d = _result(ctx, blob["format"], payload, 1.0, blob.get("question_text") or "", blob.get("answer") or "",
+                blob.get("explanation") or "", options=blob.get("options"))
+    d["format_payload"].update(saved)                    # the deck being re-read has no rounds of its own
+    d["format_payload"]["extraction"]["source"] = "qshala_export"
+    for k in ("play_mode", "slot", "topic_label"):
+        if meta.get(k):
+            d[k] = meta[k]
+    return d
+
+
 def detect_format(ctx: Ctx) -> str:
     if ctx.unit.self_contained:
         return FMT_LIST_IT
@@ -835,6 +874,12 @@ _EXTRACTORS = {
 def extract_unit(unit: Unit, by_no: Dict[int, Dict[str, Any]], analysis: DeckAnalysis, extractor) -> Dict[str, Any]:
     """The question dict for one unit. Never raises: an extractor crash becomes a low-confidence STANDARD_QA."""
     ctx = Ctx(unit, by_no, analysis, extractor)
+    try:
+        restored = restore_from_export(ctx)
+        if restored is not None:
+            return restored
+    except Exception as e:
+        logger.warning('export restore skipped: %s', type(e).__name__)
     fmt = detect_format(ctx)
     try:
         return _EXTRACTORS[fmt](ctx)

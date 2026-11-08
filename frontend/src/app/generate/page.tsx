@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowUp, Check, Lock, RefreshCw, Sparkles, Trash2, Unlock } from 'lucide-react';
 import { getApiBase, resolveMediaUrl } from '../../lib/api';
+import FormatCounts, { VaultCounts } from '../../components/FormatCounts';
+import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
+import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
 
 type DraftQ = {
   id: string;
@@ -18,6 +21,9 @@ type DraftQ = {
   image_refs?: string[];
   question_format?: string | null;
   format_payload?: any;
+  slot?: string | null;
+  play_mode?: string | null;
+  topic_label?: string | null;
 };
 
 type FulfillmentSuggestion = {
@@ -52,6 +58,8 @@ type BriefData = {
   cross_topic_padding?: boolean;
   topics_l1?: string[];
   subtopics_l2?: string[];
+  include_reserve?: boolean;
+  include_example?: boolean;
 };
 
 type Draft = {
@@ -91,6 +99,7 @@ const FALLBACK_STARTERS = [
   'Warm-up quiz on brands and logos, no images',
 ];
 
+// (format counts: see components/FormatCounts.tsx)
 async function apiFetch<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${getApiBase()}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
@@ -125,6 +134,12 @@ export default function QuizzerHome() {
   const [editFormat, setEditFormat] = useState<string>('');
   const [isEditingChips, setIsEditingChips] = useState<boolean>(false);
 
+  // What the quiz may draw from: live questions by default; reserve spares / example slides only when ticked
+  const [includeReserve, setIncludeReserve] = useState(false);
+  const [includeExample, setIncludeExample] = useState(false);
+  const [pickedFormat, setPickedFormat] = useState('');
+  const [vault, setVault] = useState<VaultCounts | null>(null);
+
   // Refine box state
   const [refineText, setRefineText] = useState('');
 
@@ -141,6 +156,11 @@ export default function QuizzerHome() {
     setPh(PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
     apiFetch<{ starters: string[] }>('/prompt-quiz/starters').then((d) => setStarters(d.starters.slice(0, 4))).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    apiFetch<VaultCounts>(`/prompt-quiz/format-counts?include_reserve=${includeReserve}&include_example=${includeExample}`)
+      .then(setVault).catch(() => setVault(null));
+  }, [includeReserve, includeExample]);
 
   useEffect(() => {
     if (!loading) return;
@@ -162,12 +182,20 @@ export default function QuizzerHome() {
     setIsEditingChips(false);
   }
 
+  function quizOptions(): Record<string, unknown> {
+    return {
+      include_reserve: includeReserve,
+      include_example: includeExample,
+      ...(pickedFormat ? { format_filter: pickedFormat } : {}),
+    };
+  }
+
   async function run(text = prompt, extraPayload?: { previous_brief?: unknown; keep_ids?: string[] }) {
     const p = text.trim();
     if (p.length < 2 || loading) return;
     setError(''); setStage(0); setLoading(true);
     try {
-      const payload: Record<string, unknown> = { prompt: p, ...extraPayload };
+      const payload: Record<string, unknown> = { prompt: p, options: quizOptions(), ...extraPayload };
       const d = await apiFetch<Draft>('/prompt-quiz/draft', payload);
       setDraft(d);
       setQs(d.questions);
@@ -196,6 +224,7 @@ export default function QuizzerHome() {
       const d = await apiFetch<Draft>('/prompt-quiz/draft', {
         prompt: `replace question ${slotIndex} with ${t}`,
         previous_brief: draft.brief,
+        options: quizOptions(),
         keep_ids: Array.from(locked),
         current_questions: currentQuestions,
       });
@@ -350,6 +379,8 @@ export default function QuizzerHome() {
       },
       locality: editLocality.trim() || null,
       format_filter: editFormat || null,
+      include_reserve: includeReserve,
+      include_example: includeExample,
     };
     await run(lastPrompt, { previous_brief: updatedBrief });
   }
@@ -400,6 +431,16 @@ export default function QuizzerHome() {
             </button>
           </div>
         </div>
+
+        <FormatCounts
+          data={vault}
+          includeReserve={includeReserve}
+          includeExample={includeExample}
+          onToggleReserve={setIncludeReserve}
+          onToggleExample={setIncludeExample}
+          picked={pickedFormat}
+          onPick={setPickedFormat}
+        />
 
         {!draft && !loading && (
           <ul className="mt-6 space-y-1 text-center">
@@ -517,10 +558,9 @@ export default function QuizzerHome() {
                       className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[12px] text-slate-900"
                     >
                       <option value="">Any</option>
-                      <option value="CONNECT_4">Connect 4</option>
-                      <option value="STEPPED_CLUE">Stepped Clue</option>
-                      <option value="ARRANGE_ORDER">Arrange Order</option>
-                      <option value="STANDARD_QA">Standard QA</option>
+                      {FORMAT_FILTER_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
                     </select>
                   </label>
                   <button
@@ -687,8 +727,22 @@ export default function QuizzerHome() {
                     </span>
                   </label>
                   <div className="min-w-0 flex-1">
-                    {/* Specialized Connect 4 Rendering */}
-                    {q.question_format === 'CONNECT_4' && q.format_payload ? (
+                    {/* Format-aware questions (List It, Image Reveal, Connect, Stepped Clue, Arrange, MCQ) show their own view */}
+                    {hasStructuredView(q.format_payload) ? (
+                      <div className="space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
+                          <span className={`rounded-full border px-2 py-0.5 ${formatStyle(q.question_format).chip}`}>{formatStyle(q.question_format).label}</span>
+                          {q.slot && q.slot !== 'LIVE' && <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-800">{q.slot === 'RESERVE' ? 'Reserve' : 'Example'}</span>}
+                        </div>
+                        <StructuredFormatBody
+                          q={{ id: q.id, format_payload: q.format_payload, question_videos: [] }}
+                          getImageSrc={(u) => resolveMediaUrl(u)}
+                          handleImgError={() => {}}
+                          setPreviewImage={(u) => window.open(resolveMediaUrl(u), '_blank', 'noopener')}
+                          readOnly
+                        />
+                      </div>
+                    ) : q.question_format === 'CONNECT_4' && q.format_payload ? (
                       <div className="space-y-3">
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center gap-1 rounded-md bg-blue-100 text-blue-800 text-[11px] font-bold px-2 py-0.5 uppercase tracking-wide">

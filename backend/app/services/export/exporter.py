@@ -862,7 +862,23 @@ class QuizExporter:
         # -------------------------------------------------------------
         # 3. Mandatory 3-Slide Question Loop
         # -------------------------------------------------------------
+        from backend.app.services.export import format_slides
         for idx, q in enumerate(approved_questions, start=1):
+            # Format-aware questions (List It, Image Reveal, Connect, Stepped Clue, Arrange, MCQ) get a static expansion
+            # of their own; anything else, or a payload that cannot be expanded, takes the template path below.
+            fp_q = _get_val(q, "format_payload")
+            if format_slides.export_format_of(fp_q):
+                opts_q = _get_val(q, "options", None)
+                if format_slides.add_format_question(
+                    prs, blank_layout, payload=fp_q,
+                    question_text=(_get_val(q, "question_text") or _get_val(q, "question", "") or "").strip(),
+                    answer=(_get_val(q, "answer") or "").strip(),
+                    explanation=(_get_val(q, "explanation") or "").strip(),
+                    options=list(opts_q) if opts_q else None,
+                    meta={}, idx=idx,
+                    resolve=lambda u: _resolve_media_path(u, download_dir=media_tmp_dir),
+                ):
+                    continue
             is_starred = (idx % 5 == 0)
             star_tag = " *" if is_starred else ""
 

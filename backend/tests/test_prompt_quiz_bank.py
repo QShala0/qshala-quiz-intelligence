@@ -103,7 +103,7 @@ def test_bank_cache_reuses_one_load_within_the_ttl_and_hands_out_copies(monkeypa
     calls = []
     real = engine._load_bank_uncached
 
-    def counting(db):
+    def counting(db, slots=None):
         calls.append(1)
         return [{"id": "x", "question_text": "t"}]
 

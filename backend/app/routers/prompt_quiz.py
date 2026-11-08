@@ -100,6 +100,22 @@ def parse_add_intent(prompt: str) -> Optional[Dict[str, Any]]:
     return {'count': cnt, 'topic': topic}
 
 
+@router.get("/format-counts")
+def format_counts(include_reserve: bool = False, include_example: bool = False, db: Session = Depends(get_db)):
+    """How many questions of each format the quiz builder can draw from, and how many questions sit in each slot.
+    RESERVE (hidden spares) and EXAMPLE slides are excluded unless asked for."""
+    from sqlalchemy import func as _f
+    slots = ["LIVE"] + (["RESERVE"] if include_reserve else []) + (["EXAMPLE"] if include_example else [])
+    bank = engine._load_bank(db, tuple(slots))
+    by_slot = {s or "LIVE": int(n) for s, n in db.query(Question.slot, _f.count(Question.id)).group_by(Question.slot).all()}
+    return {
+        "counts": engine.format_counts(bank),
+        "total": len(bank),
+        "slots": {s: by_slot.get(s, 0) for s in engine.ALL_SLOTS},
+        "included_slots": slots,
+    }
+
+
 @router.get("/starters")
 def starters():
     return {"starters": STARTERS}
@@ -151,7 +167,7 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
                     new_q = sub_res["questions"][0]
 
             if new_q:
-                bank = engine._load_bank(db)
+                bank = engine._load_bank(db, engine.ALL_SLOTS)
                 bank_by_id = {b["id"]: engine._view(b) for b in bank}
                 updated_questions = []
                 for i, q in enumerate(req.current_questions):
@@ -235,7 +251,7 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
         )
         fresh_questions = sub_res.get("questions") or []
 
-        bank = engine._load_bank(db)
+        bank = engine._load_bank(db, engine.ALL_SLOTS)
         bank_by_id = {b["id"]: engine._view(b) for b in bank}
 
         updated_questions = [None] * total_len
@@ -281,7 +297,7 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
     if del_match and req.current_questions and len(req.current_questions) > 1:
         slot_num = int(del_match.group(1) or del_match.group(2))
         if 1 <= slot_num <= len(req.current_questions):
-            bank = engine._load_bank(db)
+            bank = engine._load_bank(db, engine.ALL_SLOTS)
             bank_by_id = {b["id"]: engine._view(b) for b in bank}
             updated_questions = [
                 bank_by_id.get(q["id"], q)
@@ -335,7 +351,7 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
         )
 
         fresh_questions = sub_res.get("questions") or []
-        bank = engine._load_bank(db)
+        bank = engine._load_bank(db, engine.ALL_SLOTS)
         bank_by_id = {b["id"]: engine._view(b) for b in bank}
         existing_qs = [bank_by_id.get(q["id"], q) for q in req.current_questions if "id" in q]
 
@@ -384,7 +400,7 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
 
     # 3. Merging logic:
     target_count = res["brief"]["count"]
-    bank = engine._load_bank(db)
+    bank = engine._load_bank(db, engine.ALL_SLOTS)
     bank_by_id = {b["id"]: engine._view(b) for b in bank}
     new_candidates = res["questions"]
 
@@ -441,7 +457,7 @@ def swap(req: SwapReq, db: Session = Depends(get_db)):
 def save(req: SaveReq, db: Session = Depends(get_db)):
     if not req.question_ids:
         raise HTTPException(status_code=400, detail="Must select at least 1 question")
-    bank = engine._load_bank(db)
+    bank = engine._load_bank(db, engine.ALL_SLOTS)
     bank_by_id = {b["id"]: b for b in bank}
     ordered = [bank_by_id[qid] for qid in req.question_ids if qid in bank_by_id]
     if not ordered:

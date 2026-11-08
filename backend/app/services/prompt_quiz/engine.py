@@ -64,6 +64,9 @@ class Brief:
     subtopics_l2: List[str] = field(default_factory=list)
     search_terms: List[str] = field(default_factory=list)
     narrative_arc: Optional[str] = None
+    # Reserve spares and example slides are left out of a quiz unless asked for
+    include_reserve: bool = False
+    include_example: bool = False
 
     def public(self) -> Dict[str, Any]:
         return asdict(self)
@@ -145,7 +148,10 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
     tone = list(gem.get("tone") or (previous_brief or {}).get("tone") or [])
     cross_topic_padding = bool(gem.get("cross_topic_padding") if gem.get("cross_topic_padding") is not None else (previous_brief or {}).get("cross_topic_padding", False))
 
+    prev_b = previous_brief or {}
     return Brief(
+        include_reserve=bool(prev_b.get('include_reserve', False)),
+        include_example=bool(prev_b.get('include_example', False)),
         prompt=prompt,
         query=query,
         count=n,
@@ -300,7 +306,10 @@ def _brief_from_regex(prompt: str, count: Optional[int],
 
     framing = (previous_brief or {}).get("framing")
 
+    prev_b = previous_brief or {}
     return Brief(
+        include_reserve=bool(prev_b.get('include_reserve', False)),
+        include_example=bool(prev_b.get('include_example', False)),
         prompt=prompt,
         query=query,
         count=final_n,
@@ -351,6 +360,10 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
     brief.filters = f
     brief.hard_bias = hb
 
+    pb = previous_brief or {}
+    brief.include_reserve = bool(pb.get('include_reserve', brief.include_reserve))
+    brief.include_example = bool(pb.get('include_example', brief.include_example))
+
     # Explicit UI options override whatever either interpreter decided.
     for k, v in (options or {}).items():
         if k == "format_filter":
@@ -359,6 +372,10 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
             brief.cross_topic_padding = bool(v)
         elif k == "hard_bias":
             brief.hard_bias = v or None
+        elif k == "include_reserve":
+            brief.include_reserve = bool(v)
+        elif k == "include_example":
+            brief.include_example = bool(v)
         elif v in (None, False, ""):
             brief.filters.pop(k, None)
             if k == "exclude_image":
@@ -399,13 +416,42 @@ def invalidate_bank_cache() -> None:
     _BANK_CACHE.update({"at": 0.0, "key": None, "bank": None})
 
 
-def _load_bank(db: Session) -> List[Dict[str, Any]]:
+LIVE_ONLY = ("LIVE",)
+ALL_SLOTS = ("LIVE", "RESERVE", "EXAMPLE")
+
+
+def slots_for(brief: "Brief") -> tuple:
+    """Slots a quiz may draw from: LIVE questions always; RESERVE / EXAMPLE only when the brief asks for them."""
+    slots = ["LIVE"]
+    if getattr(brief, "include_reserve", False):
+        slots.append("RESERVE")
+    if getattr(brief, "include_example", False):
+        slots.append("EXAMPLE")
+    return tuple(slots)
+
+
+_FORMAT_ALIASES = {"CONNECT_4": "CONNECT", "THREE_CLUE": "STEPPED_CLUE", "QA": "STANDARD_QA", "SLIDE_QA": "STANDARD_QA",
+                   "MULTIPLE_CHOICE": "MCQ"}
+
+
+def format_counts(bank: List[Dict[str, Any]]) -> Dict[str, int]:
+    """How many questions of each format a bank holds (old names folded into the new ones)."""
+    out: Dict[str, int] = {}
+    for q in bank:
+        f = (q.get("question_format") or "STANDARD_QA").upper()
+        f = _FORMAT_ALIASES.get(f, f)
+        out[f] = out.get(f, 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def _load_bank(db: Session, slots: Optional[tuple] = None) -> List[Dict[str, Any]]:
+    slots = tuple(slots) if slots else LIVE_ONLY          # default: live questions only
     ttl = _bank_ttl()
-    key = str(db.get_bind().url) if ttl > 0 else None
+    key = (str(db.get_bind().url), slots) if ttl > 0 else None
     now = time.monotonic()
     if ttl > 0 and _BANK_CACHE["bank"] is not None and _BANK_CACHE["key"] == key and now - _BANK_CACHE["at"] < ttl:
         return [dict(r) for r in _BANK_CACHE["bank"]]      # callers may add fields (e.g. score) to what they get
-    bank = _load_bank_uncached(db)
+    bank = _load_bank_uncached(db, slots)
     if ttl > 0:
         _BANK_CACHE.update({"at": now, "key": key, "bank": bank})
         return [dict(r) for r in bank]
@@ -425,10 +471,11 @@ def _latest_tags(db: Session) -> Dict[str, Any]:
     return {r.question_id: r for r in rows}
 
 
-def _load_bank_uncached(db: Session) -> List[Dict[str, Any]]:
+def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str, Any]]:
     # The 768-number embedding vector is never read here; leaving it out roughly halves what is fetched per row.
     qs = (db.query(Question).options(defer(Question.embedding), defer(Question.embedding_model))
-          .filter((Question.duplicate_status != "CONFIRMED_DUPLICATE") | (Question.duplicate_status.is_(None))).all())
+          .filter((Question.duplicate_status != "CONFIRMED_DUPLICATE") | (Question.duplicate_status.is_(None)))
+          .filter(Question.slot.in_(list(slots)) | Question.slot.is_(None)).all())
     tags: Dict[str, Any] = {}
     try:
         if QshalaTag is None:
@@ -490,6 +537,9 @@ def _load_bank_uncached(db: Session) -> List[Dict[str, Any]]:
             "tagged": bool(t),
             "question_format": getattr(q, 'question_format', None) or getattr(q, 'question_type', 'STANDARD_QA'),
             "format_payload": getattr(q, 'format_payload', None) or getattr(q, 'format_data', None),
+            "slot": getattr(q, 'slot', None) or "LIVE",
+            "play_mode": getattr(q, 'play_mode', None),
+            "topic_label": getattr(q, 'topic_label', None),
             "city_name": (getattr(t, 'city_name', None) if t else None) or (getattr(m, 'city_name', None) if m else None),
             "geo_region": (getattr(t, 'geo_region', None) if t else None) or (getattr(m, 'geo_region', None) if m else None),
             "primary_audience": getattr(m, 'primary_audience', None) if m else None,
@@ -504,7 +554,9 @@ MIN_RELEVANCE_SCORE = 0.4
 
 def librarian(bank: List[Dict[str, Any]], brief: Brief, pool: int = 80) -> List[Dict[str, Any]]:
     if brief.format_filter:
-        bank = [q for q in bank if q.get("question_format") == brief.format_filter]
+        from backend.app.services.prompt_quiz.audience import canon_format
+        want = canon_format(brief.format_filter)
+        bank = [q for q in bank if canon_format(q.get("question_format")) == want]
     idx = Index(bank)
 
     # Gemini search_terms broaden retrieval without changing the Brief the user sees
@@ -717,7 +769,7 @@ def _view(c: Dict[str, Any]) -> Dict[str, Any]:
     return {k: c.get(k) for k in ("id", "question_text", "answer", "topic_l1", "subtopic_l2", "difficulty_score",
                                   "difficulty", "image_dependent", "shelf_life", "tagged", "score", "document_id",
                                   "question_images", "answer_images", "image_refs",
-                                  "question_format", "format_payload")}
+                                  "question_format", "format_payload", "slot", "play_mode", "topic_label")}
 
 
 def build_draft(db: Session, prompt: str, count: Optional[int] = None,
@@ -771,7 +823,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         brief.query = ""
         brief.search_terms = []
 
-    bank = _load_bank(db)
+    bank = _load_bank(db, slots_for(brief))
 
     # 3. Librarian: search broadly across the entire bank
     idx = Index(bank)
@@ -917,7 +969,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 def swap_one(db: Session, prompt: str, question_id: str, keep_ids: List[str],
              options: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     brief = interpret(prompt, 1, options)
-    bank = _load_bank(db)
+    bank = _load_bank(db, slots_for(brief))
     target = next((b for b in bank if b["id"] == question_id), None)
     if target and target.get("subtopic_l2"):  # prefer a neighbour of the swapped question
         brief.query = f"{brief.query} {target['subtopic_l2']}"

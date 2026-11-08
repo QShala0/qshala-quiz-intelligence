@@ -72,13 +72,22 @@ def is_timer_shape(shape: Dict[str, Any]) -> bool:
     return (shape.get("name") or "").strip().lower().startswith("timer")
 
 
+# Pictures on slides exported by QShala (export/format_slides.py) are named "QSHALA ...". A progressive Image Reveal shows
+# the same picture on several consecutive slides; that is one question's picture, not timer / divider art.
+EXPORT_SHAPE_PREFIX = "QSHALA "
+
+
+def is_export_shape(shape: Dict[str, Any]) -> bool:
+    return (shape.get("name") or "").startswith(EXPORT_SHAPE_PREFIX)
+
+
 def noise_media(slides: List[Dict[str, Any]]) -> set:
     """Media identities used on 3+ slides: timer video, decorative GIF slides, round music, divider art."""
     seen: Dict[str, set] = {}
     for s in slides:
         for sh in s.get("shapes") or []:
             key = sh.get("media_md5")
-            if key:
+            if key and not is_export_shape(sh):
                 seen.setdefault(key, set()).add(s.get("slide_number"))
     return {k for k, v in seen.items() if len(v) >= NOISE_MIN_SLIDES}
 
