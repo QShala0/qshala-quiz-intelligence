@@ -1,0 +1,329 @@
+{
+ "dsu_mini": {
+  "cases": [
+   {
+    "q": 15,
+    "a": 17,
+    "format": "STANDARD_QA",
+    "slot": "LIVE",
+    "round": "Topicator",
+    "play_mode": "PASS",
+    "topic_label": "Sustainability 1",
+    "answer": "Plastic Waste"
+   },
+   {
+    "q": 84,
+    "format": "LIST_IT",
+    "slot": "LIVE",
+    "play_mode": "DIRECTED",
+    "team": 8,
+    "correct": [
+     "SBI",
+     "Reliance Industries Ltd.",
+     "Larsen & Toubro Ltd.",
+     "ITC",
+     "Bajaj Auto",
+     "Tata Steel"
+    ],
+    "wrong": [
+     "Nestle",
+     "Bharti Airtel",
+     "Sun Pharma"
+    ]
+   },
+   {
+    "q": 93,
+    "format": "LIST_IT",
+    "wrong": [
+     "General Motors",
+     "McDonald's",
+     "Nvidia"
+    ]
+   },
+   {
+    "q": 114,
+    "a": 116,
+    "format": "IMAGE_REVEAL",
+    "play_mode": "BUZZER",
+    "cover_order": [
+     "bottom-left",
+     "bottom-right",
+     "top-right",
+     "top-left"
+    ],
+    "ladder": [
+     [
+      20,
+      -15
+     ],
+     [
+      15,
+      -10
+     ],
+     [
+      10,
+      -5
+     ],
+     [
+      5,
+      0
+     ]
+    ],
+    "answer": "Ratan Tata"
+   },
+   {
+    "q": 140,
+    "a": 142,
+    "format": "CONNECT",
+    "n_items": 9,
+    "answer": "Online Streaming Services / OTT"
+   },
+   {
+    "q": 148,
+    "a": 150,
+    "format": "CONNECT",
+    "n_items": 5,
+    "text_hint": "Unit of measuring light intensity",
+    "answer": "Soap Brands"
+   },
+   {
+    "q": 156,
+    "a": 158,
+    "format": "CONNECT",
+    "has_video": true,
+    "answer": "MRF"
+   },
+   {
+    "q": 23,
+    "a": 25,
+    "format": "STANDARD_QA",
+    "slot": "RESERVE",
+    "topic_label": "Entrepreneurship 1",
+    "answer": "Lehman Brothers"
+   },
+   {
+    "q": 26,
+    "a": 28,
+    "format": "STANDARD_QA",
+    "slot": "LIVE",
+    "topic_label": "Entrepreneurship 1",
+    "answer": "Alia Bhatt",
+    "not_deduped_with": 23
+   },
+   {
+    "q": 72,
+    "a": 74,
+    "format": "STANDARD_QA",
+    "needs_review": true,
+    "topic_label": null,
+    "answer": "Pav Bhaji"
+   },
+   {
+    "q": 102,
+    "a": 104,
+    "format": "STANDARD_QA",
+    "play_mode": "AUDIENCE",
+    "answer": "IPL"
+   },
+   {
+    "q": 130,
+    "a": 132,
+    "format": "STANDARD_QA",
+    "play_mode": "AUDIENCE",
+    "answer": "Coldplay"
+   },
+   {
+    "q": 224,
+    "a": 226,
+    "format": "STANDARD_QA",
+    "section": "BUFFER",
+    "topic_label": null,
+    "answer": "Saturn"
+   },
+   {
+    "q": 82,
+    "slot": "EXAMPLE"
+   },
+   {
+    "q": 110,
+    "slot": "EXAMPLE"
+   },
+   {
+    "q": 136,
+    "slot": "EXAMPLE"
+   },
+   {
+    "q": 163,
+    "a": 165,
+    "format": "CONNECT",
+    "slot": "RESERVE",
+    "answer": "Tetra Pak"
+   }
+  ],
+  "no_question_slides": [
+   3,
+   4,
+   5,
+   9,
+   83,
+   105,
+   170,
+   207,
+   208,
+   209,
+   210,
+   211
+  ]
+ },
+ "listit_reserve": {
+  "cases": [
+   {
+    "q": 3,
+    "format": "LIST_IT",
+    "ticks": 6,
+    "crosses": 3
+   },
+   {
+    "q": 68,
+    "needs_review": true,
+    "options": 8
+   }
+  ]
+ },
+ "three_clues_reserve": {
+  "cases": [
+   {
+    "q": 3,
+    "a": 7,
+    "format": "STEPPED_CLUE",
+    "ladder": [
+     [
+      20,
+      -15
+     ],
+     [
+      15,
+      -10
+     ],
+     [
+      10,
+      -5
+     ]
+    ],
+    "scoring_ladder_ok": true,
+    "answer": "T. Nagar"
+   },
+   {
+    "q": 13,
+    "a": 17,
+    "format": "STEPPED_CLUE",
+    "scoring_ladder_ok": false,
+    "answer": "Cashew"
+   },
+   {
+    "q": 313,
+    "a": 317,
+    "format": "STEPPED_CLUE",
+    "slot": "RESERVE",
+    "points_missing": true,
+    "answer": "Punjab National Bank (PNB)"
+   }
+  ]
+ },
+ "arrange_reserve": {
+  "cases": [
+   {
+    "q": 3,
+    "a": 5,
+    "format": "ARRANGE_ORDER",
+    "direction": "desc",
+    "correct_order": [
+     3,
+     1,
+     4,
+     2
+    ],
+    "order_source": "computed"
+   },
+   {
+    "q": 6,
+    "a": 8,
+    "format": "ARRANGE_ORDER",
+    "direction": "asc",
+    "correct_order": [
+     3,
+     1,
+     4,
+     2
+    ],
+    "order_source": "computed"
+   },
+   {
+    "q": 132,
+    "a": 134,
+    "format": "ARRANGE_ORDER",
+    "correct_order": [],
+    "order_source": "none",
+    "needs_review": true,
+    "editable": true
+   },
+   {
+    "q": 141,
+    "needs_review": true
+   },
+   {
+    "q": 183,
+    "needs_review": true
+   }
+  ]
+ },
+ "mcq_reserve": {
+  "cases": [
+   {
+    "q": 17,
+    "a": 19,
+    "format": "MCQ",
+    "options": [
+     "1024",
+     "1930",
+     "100",
+     "786"
+    ],
+    "correct_letter": "B"
+   },
+   {
+    "q": 14,
+    "a": 16,
+    "format": "MCQ",
+    "star": true
+   },
+   {
+    "q": 47,
+    "a": 50,
+    "format": "MCQ",
+    "joined_slides": [
+     48
+    ],
+    "correct_letter": "A",
+    "answer": "Joint Accounts"
+   }
+  ]
+ },
+ "hotspot_reserve": {
+  "cases": [
+   {
+    "q": 3,
+    "a": 5,
+    "format": "STANDARD_QA",
+    "media_kind": "IMAGE",
+    "play_mode": "BUZZER",
+    "answer": "Ebenezer Scrooge"
+   }
+  ],
+  "no_question_slides": [
+   348,
+   352,
+   356
+  ]
+ }
+}
