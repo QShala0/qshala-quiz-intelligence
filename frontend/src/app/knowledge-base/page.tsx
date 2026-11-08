@@ -32,6 +32,7 @@ function KnowledgeBaseContent() {
     speaker_notes?: string | null;
     slide_type?: string;
     image_paths?: string[];
+    question?: HistoricalQuestion | null;
   } | null>(null);
   const [selectedQuestionForTags, setSelectedQuestionForTags] = useState<HistoricalQuestion | null>(null);
   const [selectedQuestionForMedia, setSelectedQuestionForMedia] = useState<HistoricalQuestion | null>(null);
@@ -49,6 +50,7 @@ function KnowledgeBaseContent() {
     tagFilter, setTagFilter,
     difficulty, setDifficulty,
     formatFilter, setFormatFilter,
+    slotFilter, setSlotFilter,
     selectedDeckId, setSelectedDeckId,
     gradeMin, setGradeMin,
     sortBy, setSortBy,
@@ -57,6 +59,7 @@ function KnowledgeBaseContent() {
     questions, loading, resolvingId,
     handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
+    handleQuestionUpdated, handleConfirmFormat,
   } = useVaultQuestions(initialTopic, setSelectedDuplicateForReview);
 
   const getImageSrc = useCallback((rawUrl: string | null | undefined) => {
@@ -90,6 +93,7 @@ function KnowledgeBaseContent() {
       speaker_notes: q.explanation,
       slide_type: 'QUESTION',
       image_paths: allSlideImgs,
+      question: q,
     });
   }, []);
 
@@ -169,6 +173,7 @@ function KnowledgeBaseContent() {
         tagFilter={tagFilter} setTagFilter={setTagFilter}
         difficulty={difficulty} setDifficulty={setDifficulty}
         formatFilter={formatFilter} setFormatFilter={setFormatFilter}
+        slotFilter={slotFilter} setSlotFilter={setSlotFilter}
         selectedDeckId={selectedDeckId} setSelectedDeckId={setSelectedDeckId}
         gradeMin={gradeMin} setGradeMin={setGradeMin}
         sortBy={sortBy} setSortBy={setSortBy}
@@ -217,6 +222,8 @@ function KnowledgeBaseContent() {
                       setSelectedDuplicateForReview={setSelectedDuplicateForReview}
                       handleViewSlide={handleViewSlide}
                       handleAcceptReview={handleAcceptReview}
+                      handleConfirmFormat={handleConfirmFormat}
+                      onQuestionUpdated={handleQuestionUpdated}
                       resolvingId={resolvingId}
                       tagFilter={tagFilter}
                       setTagFilter={setTagFilter}

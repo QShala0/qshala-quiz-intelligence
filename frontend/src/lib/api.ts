@@ -428,6 +428,8 @@ export const api = {
     duplicate_status?: string;
     question_format?: string;
     format?: string;
+    slot?: string;
+    play_mode?: string;
     sort_by?: string;
     sort_order?: 'asc' | 'desc';
     limit?: number;
@@ -446,6 +448,8 @@ export const api = {
     if (params.document_title) searchParams.append('document_title', params.document_title);
     if (params.duplicate_status) searchParams.append('duplicate_status', params.duplicate_status);
     if (params.question_format || params.format) searchParams.append('question_format', (params.question_format || params.format)!);
+    if (params.slot) searchParams.append('slot', params.slot);
+    if (params.play_mode) searchParams.append('play_mode', params.play_mode);
     if (params.sort_by) searchParams.append('sort_by', params.sort_by);
     if (params.sort_order) searchParams.append('sort_order', params.sort_order);
     if (params.limit) searchParams.append('limit', params.limit.toString());
@@ -472,6 +476,25 @@ export const api = {
     const res = await fetch(`${getApiBase()}/questions/needs-review/count`, { cache: 'no-store' });
     const data = await handleResponse<{ count: number }>(res);
     return data.count;
+  },
+
+  // Arrange the Order: enter (or, with [], clear) the correct order of the four item labels by hand.
+  setArrangeOrder: async (questionId: string, correctOrder: number[]): Promise<HistoricalQuestion> => {
+    const res = await fetch(`${getApiBase()}/questions/${questionId}/arrange-order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ correct_order: correctOrder }),
+    });
+    return handleResponse<HistoricalQuestion>(res);
+  },
+
+  // A person has checked a flagged format reading: it leaves the review queue.
+  acceptFormatReview: async (questionId: string): Promise<HistoricalQuestion> => {
+    const res = await fetch(`${getApiBase()}/questions/${questionId}/accept-format-review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<HistoricalQuestion>(res);
   },
 
   acceptReview: async (questionId: string): Promise<HistoricalQuestion> => {

@@ -43,6 +43,13 @@ def parse_stepped_clues(q_text: str) -> Tuple[Optional[str], Optional[str], Opti
     return None, None, None
 
 
+def is_format_aware(q: Question) -> bool:
+    """True for a question read by format-aware ingestion (its payload carries an `extraction` block). Those payloads
+    are already canonical; this legacy healer, which runs on every boot, must never rewrite them into the older shapes."""
+    fp = q.format_payload
+    return isinstance(fp, dict) and isinstance(fp.get("extraction"), dict)
+
+
 def heal_specialized_questions(db: Session) -> Dict[str, int]:
     """Scans and heals all CONNECT_4 and STEPPED_CLUE questions in the database."""
     stats = {"stepped_healed": 0, "connect4_healed": 0, "reclassified_arrange": 0, "reclassified_visual": 0}
@@ -92,6 +99,8 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
     ]
 
     for q in stepped_qs:
+        if is_format_aware(q):
+            continue
         c1, c2, c3 = parse_stepped_clues(q.question_text)
         if not (c1 and c2 and c3):
             continue
@@ -160,6 +169,8 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
     }
 
     for q in connect_qs:
+        if is_format_aware(q):
+            continue
         imgs = list(q.question_images or q.image_refs or [])
         default_prompt, sub_hint = connect_prompts.get(
             q.id,

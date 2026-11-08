@@ -312,3 +312,33 @@ def test_migration_0009_adds_the_review_flag_defaulting_to_false(tmp_path):
     assert "format_needs_review" not in _cols(engine)
     with engine.connect() as c:
         assert c.exec_driver_sql("SELECT count(*) FROM questions").scalar() == 1
+
+
+def test_startup_healer_leaves_format_aware_questions_alone():
+    """main.py runs heal_specialized_questions on every boot. It rewrites old-style Connect / Stepped rows into the
+    legacy payload shapes; it must not touch a row read by format-aware ingestion."""
+    from backend.app.services.ingestion.heal_specialized import heal_specialized_questions
+    from backend.app.services.ingestion.question_extractor import QuestionExtractor
+    slides = {n: json.loads((FIX / f"{n}.json").read_text(encoding="utf-8")) for n in ("dsu_mini", "three_clues_reserve")}
+    qs = {}
+    for name, sl in slides.items():
+        qs.update({(name, q["slide_number"]): q for q in QuestionExtractor().extract_from_slides(sl, "t", 2026)})
+    connect, stepped = qs[("dsu_mini", 140)], qs[("three_clues_reserve", 3)]
+    assert connect["question_format"] == "CONNECT" and stepped["question_format"] == "STEPPED_CLUE"
+    d1, q1 = _store(connect)
+    d2, q2 = _store(stepped)
+    try:
+        before = {i: (client.get(f"{API}/questions/{i}").json()) for i in (q1, q2)}
+        db = SessionLocal()
+        try:
+            heal_specialized_questions(db)
+        finally:
+            db.close()
+        for i in (q1, q2):
+            after = client.get(f"{API}/questions/{i}").json()
+            for key in ("question_text", "question_format", "question_type", "format_payload"):
+                assert after[key] == before[i][key], (i, key)
+        assert client.get(f"{API}/questions/{q1}").json()["question_format"] == "CONNECT"
+    finally:
+        _drop(d1, q1)
+        _drop(d2, q2)

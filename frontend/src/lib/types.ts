@@ -83,6 +83,11 @@ export interface HistoricalQuestion {
   question_format?: string | null;
   format_data?: any;
   format_payload?: any;
+  // format-aware ingestion: how the question is played, whether it is part of the live quiz, the deck's own topic label
+  play_mode?: string | null;
+  slot?: 'LIVE' | 'RESERVE' | 'EXAMPLE' | string;
+  topic_label?: string | null;
+  format_needs_review?: boolean;
   star_marked?: boolean;
   topic_paths?: TopicPath[];
   repeated?: RepeatEntry[];
@@ -330,6 +335,9 @@ export interface GeneratedQuestion {
   grade_max?: number;
   topic?: string;
   question_type: string;
+  // present once the quiz API returns the format reading (see formatPayloads.ts for the shapes)
+  question_format?: string | null;
+  format_payload?: unknown;
   image_refs?: string[];
   question_images?: string[];
   answer_images?: string[];

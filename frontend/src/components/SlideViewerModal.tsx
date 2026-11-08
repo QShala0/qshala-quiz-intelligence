@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { X, Bookmark, Image as ImageIcon } from 'lucide-react';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
+import { HistoricalQuestion } from '../lib/types';
+import { hasStructuredView, formatStyle } from '../lib/formatPayloads';
+import StructuredFormatBody from './formats/StructuredFormatBody';
 
 interface Props {
   isOpen: boolean;
@@ -15,11 +18,14 @@ interface Props {
     speaker_notes?: string | null;
     slide_type?: string;
     image_paths?: string[];
+    /** The question the slide belongs to: when its format was read from the slide, show that view too. */
+    question?: HistoricalQuestion | null;
   } | null;
 }
 
 export default function SlideViewerModal({ isOpen, onClose, slide }: Props) {
   const [fallbackUrls, setFallbackUrls] = useState<Record<string, string>>({});
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   if (!isOpen || !slide) return null;
 
@@ -73,6 +79,28 @@ export default function SlideViewerModal({ isOpen, onClose, slide }: Props) {
 
         {/* Content Body */}
         <div className="max-h-[70vh] overflow-y-auto p-6 space-y-4 text-[13px]">
+          {/* How the format was read from this slide (List It ticks, reveal covers, Arrange order...) */}
+          {slide.question && hasStructuredView(slide.question.format_payload) && (
+            <div data-testid="slide-structured">
+              <span className="text-[12px] font-semibold uppercase tracking-wider text-slate-500">
+                {formatStyle(slide.question.question_format).label} · as read from the slide
+              </span>
+              <div className="mt-1.5 rounded-lg border border-slate-200 bg-white p-3">
+                <StructuredFormatBody
+                  q={slide.question}
+                  getImageSrc={getImageSrc}
+                  handleImgError={handleImgError}
+                  setPreviewImage={setPreviewUrl}
+                />
+              </div>
+              {previewUrl && (
+                <button type="button" className="mt-2 block w-full" onClick={() => setPreviewUrl(null)} title="Close picture">
+                  <img src={getImageSrc(previewUrl)} alt="Selected picture" className="max-h-72 w-full rounded-lg border border-slate-200 object-contain bg-slate-50" />
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Slide Text Content */}
           <div>
             <span className="text-[12px] font-semibold uppercase tracking-wider text-slate-500">

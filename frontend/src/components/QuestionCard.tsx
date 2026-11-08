@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { GeneratedQuestion, RetrievalSource } from '../lib/types';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
+import { hasStructuredView } from '../lib/formatPayloads';
+import StructuredFormatBody from './formats/StructuredFormatBody';
 
 interface Props {
   question: GeneratedQuestion;
@@ -192,6 +194,19 @@ export default function QuestionCard({
             <h3 className="text-[15px] sm:text-[16px] font-semibold text-slate-900 leading-relaxed">
               {question.question_text}
             </h3>
+          )}
+
+          {/* The question's own format (List It, Image Reveal, Connect, Stepped Clue, Arrange, MCQ) */}
+          {!isEditing && hasStructuredView(question.format_payload) && (
+            <div className="mt-3">
+              <StructuredFormatBody
+                q={{ id: question.id, format_payload: question.format_payload, question_videos: question.question_video }}
+                getImageSrc={getImageSrc}
+                handleImgError={handleImgError}
+                setPreviewImage={setActiveImageModal}
+                readOnly
+              />
+            </div>
           )}
 
           {/* Clue Images Thumbnails */}

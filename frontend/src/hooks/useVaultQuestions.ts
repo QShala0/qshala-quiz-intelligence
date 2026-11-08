@@ -28,6 +28,7 @@ export function useVaultQuestions(
   const [tagFilter, setTagFilter] = useState('');
   const [difficulty, setDifficulty] = useState('');
   const [formatFilter, setFormatFilter] = useState('');
+  const [slotFilter, setSlotFilter] = useState('');
   const [selectedDeckId, setSelectedDeckId] = useState<string>('');
   const [gradeMin, setGradeMin] = useState<number | ''>('');
   const [sortBy, setSortBy] = useState('created_at');
@@ -101,6 +102,7 @@ export function useVaultQuestions(
         tag: tagFilter.trim() || undefined,
         difficulty: difficulty || undefined,
         question_format: formatFilter || undefined,
+        slot: slotFilter || undefined,
         document_id: selectedDeckId || undefined,
         grade_min: gradeMin !== '' ? Number(gradeMin) : undefined,
         duplicate_status: activeTab === 'duplicates' ? 'POSSIBLE_DUPLICATE' : undefined,
@@ -128,7 +130,7 @@ export function useVaultQuestions(
     // state on an unmounted component.
     return () => inFlightRequest.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, topic, subtopic, tagFilter, difficulty, formatFilter, selectedDeckId, gradeMin, sortBy, sortOrder]);
+  }, [activeTab, topic, subtopic, tagFilter, difficulty, formatFilter, slotFilter, selectedDeckId, gradeMin, sortBy, sortOrder]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,6 +147,29 @@ export function useVaultQuestions(
     setQuestions((prev) =>
       prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))
     );
+  };
+
+  // A question was changed in place (e.g. its Arrange order was entered by hand): show the saved version, and in the
+  // Needs Review tab refetch so it leaves the queue if nothing else is outstanding.
+  const handleQuestionUpdated = (updated: HistoricalQuestion) => {
+    setQuestions((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
+    if (activeTab === 'review') {
+      fetchQuestions();
+    }
+  };
+
+  // "Confirm reading": a person checked the flagged format reading.
+  const handleConfirmFormat = async (questionId: string) => {
+    setResolvingId(questionId);
+    try {
+      await api.acceptFormatReview(questionId);
+      await fetchQuestions();
+      try { setReviewCount(await api.getReviewCount()); } catch { /* best-effort */ }
+    } catch (err) {
+      console.error('Failed to confirm the format reading:', err);
+    } finally {
+      setResolvingId(null);
+    }
   };
 
   const handleAcceptReview = async (questionId: string) => {
@@ -184,6 +209,7 @@ export function useVaultQuestions(
     tagFilter, setTagFilter,
     difficulty, setDifficulty,
     formatFilter, setFormatFilter,
+    slotFilter, setSlotFilter,
     selectedDeckId, setSelectedDeckId,
     gradeMin, setGradeMin,
     sortBy, setSortBy,
@@ -192,6 +218,7 @@ export function useVaultQuestions(
     questions, loading, resolvingId,
     fetchQuestions, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
+    handleQuestionUpdated, handleConfirmFormat,
   };
 }
 

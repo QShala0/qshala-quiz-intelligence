@@ -6,6 +6,8 @@ import {
 import { HistoricalQuestion } from '../../lib/types';
 import { isPlaceholderIcon } from '../../lib/placeholderIcons';
 import QuestionFormatDisplay from './QuestionFormatDisplay';
+import FormatReviewBar from '../formats/FormatReviewBar';
+import { formatStyle, playModeLabel } from '../../lib/formatPayloads';
 
 // A single question's <tr> in the Knowledge Base table (QShala priority plan P3-1). Named
 // QuestionRow rather than the plan's suggested "QuestionCard" since it renders a table row, not a
@@ -22,6 +24,8 @@ export interface QuestionRowProps {
   setSelectedDuplicateForReview: (q: HistoricalQuestion) => void;
   handleViewSlide: (q: HistoricalQuestion) => void;
   handleAcceptReview: (id: string) => void;
+  handleConfirmFormat: (id: string) => void;
+  onQuestionUpdated: (q: HistoricalQuestion) => void;
   resolvingId: string | null;
   tagFilter: string;
   setTagFilter: (v: string) => void;
@@ -38,6 +42,8 @@ function QuestionRow({
   setSelectedDuplicateForReview,
   handleViewSlide,
   handleAcceptReview,
+  handleConfirmFormat,
+  onQuestionUpdated,
   resolvingId,
   tagFilter,
   setTagFilter,
@@ -79,38 +85,10 @@ function QuestionRow({
           )}
           {q.question_format && (
             <span
-              className={`mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[10.5px] font-bold ${
-                q.question_format === 'CONNECT_4' || q.question_format === 'CONNECT'
-                  ? 'bg-blue-100 border-blue-200 text-blue-700'
-                  : q.question_format === 'STEPPED_CLUE' || q.question_format === 'THREE_CLUE'
-                  ? 'bg-amber-100 border-amber-200 text-amber-700'
-                  : q.question_format === 'ARRANGE_ORDER'
-                  ? 'bg-purple-100 border-purple-200 text-purple-700'
-                  : q.question_format === 'BUZZER'
-                  ? 'bg-rose-50 border-rose-200 text-rose-700'
-                  : q.question_format === 'VIDEO_CLUE'
-                  ? 'bg-purple-50 border-purple-200 text-purple-700'
-                  : q.question_format === 'AUDIO_CLUE'
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                  : 'bg-slate-100 border-slate-200 text-slate-700'
-              }`}
+              className={`mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[10.5px] font-bold ${formatStyle(q.question_format).chip}`}
               title={`Format: ${q.question_format}`}
             >
-              {q.question_format === 'CONNECT_4' || q.question_format === 'CONNECT'
-                ? 'Connect 4'
-                : q.question_format === 'STEPPED_CLUE' || q.question_format === 'THREE_CLUE'
-                ? 'Stepped Clue'
-                : q.question_format === 'ARRANGE_ORDER'
-                ? 'Arrange'
-                : q.question_format === 'BUZZER'
-                ? 'Buzzer'
-                : q.question_format === 'VIDEO_CLUE'
-                ? 'Video Clue'
-                : q.question_format === 'AUDIO_CLUE'
-                ? 'Audio Clue'
-                : q.question_format === 'VISUAL_CLUE'
-                ? 'Visual Clue'
-                : 'Direct QA'}
+              {formatStyle(q.question_format).label}
             </span>
           )}
           <div className="flex-1 min-w-0">
@@ -119,6 +97,7 @@ function QuestionRow({
               getImageSrc={getImageSrc}
               setPreviewImage={setPreviewImage}
               handleImgError={handleImgError}
+              onQuestionUpdated={onQuestionUpdated}
             />
           </div>
           {q.star_marked && (
@@ -127,6 +106,27 @@ function QuestionRow({
             </span>
           )}
         </div>
+
+        {/* Where it sits in the quiz: slot, how it is played, the deck's own topic label */}
+        {(q.slot && q.slot !== 'LIVE') || q.play_mode || q.topic_label ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] font-semibold" data-testid="row-meta">
+            {q.slot && q.slot !== 'LIVE' && (
+              <span className={`rounded-full border px-2 py-0.5 ${q.slot === 'RESERVE' ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-slate-100 border-slate-300 text-slate-700'}`}>
+                {q.slot === 'RESERVE' ? 'Reserve' : 'Example'}
+              </span>
+            )}
+            {playModeLabel(q.play_mode, (q.format_payload as { team?: number | null } | null)?.team) && (
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-slate-600">
+                {playModeLabel(q.play_mode, (q.format_payload as { team?: number | null } | null)?.team)}
+              </span>
+            )}
+            {q.topic_label && <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-indigo-700">{q.topic_label}</span>}
+          </div>
+        ) : null}
+
+        {(activeTab === 'review' || q.format_needs_review) && (
+          <FormatReviewBar q={q} busy={resolvingId === q.id} onConfirm={handleConfirmFormat} />
+        )}
 
         {/* Video Clue Prominent Button */}
         {hasVideoClue && (

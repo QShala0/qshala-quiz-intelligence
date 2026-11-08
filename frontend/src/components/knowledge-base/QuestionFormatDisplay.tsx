@@ -1,5 +1,7 @@
 import { HistoricalQuestion } from '../../lib/types';
 import { isPlaceholderIcon } from '../../lib/placeholderIcons';
+import { hasStructuredView } from '../../lib/formatPayloads';
+import StructuredFormatBody from '../formats/StructuredFormatBody';
 
 // Renders a question's body differently depending on its question_format (QShala priority plan
 // P3-1: extracted unchanged from knowledge-base/page.tsx, where it was a standalone function
@@ -9,14 +11,29 @@ export default function QuestionFormatDisplay({
   getImageSrc,
   setPreviewImage,
   handleImgError,
+  onQuestionUpdated,
 }: {
   q: HistoricalQuestion;
   getImageSrc: (url: string) => string;
   setPreviewImage: (url: string) => void;
   handleImgError: (url: string) => void;
+  onQuestionUpdated?: (q: HistoricalQuestion) => void;
 }) {
   const fmt = q.question_format;
   const payload = q.format_data || q.format_payload;
+
+  // Format-aware ingestion stored a structured payload: show the format's own view.
+  if (hasStructuredView(q.format_payload)) {
+    return (
+      <StructuredFormatBody
+        q={q}
+        getImageSrc={getImageSrc}
+        handleImgError={handleImgError}
+        setPreviewImage={setPreviewImage}
+        onQuestionUpdated={onQuestionUpdated}
+      />
+    );
+  }
 
   if (fmt === 'CONNECT_4' || fmt === 'CONNECT') {
     const rawImgs = (q.question_images && q.question_images.length > 0 ? q.question_images : q.image_refs || [])

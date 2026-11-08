@@ -1,5 +1,6 @@
 import { Search, Filter, Tag, ArrowUpDown } from 'lucide-react';
 import { TopicItem, DocumentItem } from '../../lib/types';
+import { FORMAT_FILTER_OPTIONS } from '../../lib/formatPayloads';
 
 // The search box + filter bar on the Knowledge Base page (QShala priority plan P3-1). Purely
 // controlled: owns no state of its own, just renders the current filter values and reports
@@ -19,6 +20,8 @@ export interface VaultFiltersProps {
   setDifficulty: (v: string) => void;
   formatFilter: string;
   setFormatFilter: (v: string) => void;
+  slotFilter: string;
+  setSlotFilter: (v: string) => void;
   selectedDeckId: string;
   setSelectedDeckId: (v: string) => void;
   gradeMin: number | '';
@@ -39,6 +42,7 @@ export default function VaultFilters({
   tagFilter, setTagFilter,
   difficulty, setDifficulty,
   formatFilter, setFormatFilter,
+  slotFilter, setSlotFilter,
   selectedDeckId, setSelectedDeckId,
   gradeMin, setGradeMin,
   sortBy, setSortBy,
@@ -141,14 +145,26 @@ export default function VaultFilters({
           className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:border-indigo-500 focus:outline-none cursor-pointer"
         >
           <option value="">All Formats</option>
-          <option value="CONNECT_4">Connect 4</option>
-          <option value="STEPPED_CLUE">Stepped Clue (Portfolio Builder)</option>
-          <option value="ARRANGE_ORDER">Arrange the Order (Ticker Tangle)</option>
+          {FORMAT_FILTER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
           <option value="BUZZER">Buzzer (Closing Bell)</option>
           <option value="VISUAL_CLUE">Visual Clue</option>
           <option value="VIDEO_CLUE">Video Clue</option>
           <option value="AUDIO_CLUE">Audio Clue</option>
-          <option value="QA">Direct Question & Answer</option>
+        </select>
+
+        {/* Slot: live questions, reserve spares, or the example slides */}
+        <select
+          value={slotFilter}
+          onChange={(e) => setSlotFilter(e.target.value)}
+          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:border-indigo-500 focus:outline-none cursor-pointer"
+          aria-label="Slot"
+        >
+          <option value="">Live + Reserve + Example</option>
+          <option value="LIVE">Live only</option>
+          <option value="RESERVE">Reserve only</option>
+          <option value="EXAMPLE">Example only</option>
         </select>
 
         {/* Tag Filter */}
@@ -197,7 +213,7 @@ export default function VaultFilters({
           </button>
         </div>
 
-        {(query || topic || subtopic || tagFilter || difficulty || formatFilter || gradeMin || selectedDeckId) && (
+        {(query || topic || subtopic || tagFilter || difficulty || formatFilter || slotFilter || gradeMin || selectedDeckId) && (
           <button
             type="button"
             onClick={() => {
@@ -207,6 +223,7 @@ export default function VaultFilters({
               setTagFilter('');
               setDifficulty('');
               setFormatFilter('');
+              setSlotFilter('');
               setGradeMin('');
               setSelectedDeckId('');
             }}
