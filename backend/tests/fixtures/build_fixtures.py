@@ -45,6 +45,13 @@ def text_shape(sid, name, text, x, y, w, h, groups=None, path=None):
             "groups": groups or [], "path": path or [], "media_md5": None, "media_kind": None, "overlay_class": None}
 
 
+def group_shape(sid, name, gx):
+    """The GROUP entry itself (its box is in the parent space: off/ext)."""
+    return {"id": sid, "name": name, "type": "GROUP", "text": "", "x": gx["off"][0], "y": gx["off"][1],
+            "w": gx["ext"][0], "h": gx["ext"][1], "groups": [], "path": [], "media_md5": None,
+            "media_kind": None, "overlay_class": None}
+
+
 def pic_shape(sid, name, label, x, y, w, h, groups=None, path=None, kind="image", overlay=None):
     return {"id": sid, "name": name, "type": "PICTURE" if kind != "video" else "MEDIA", "text": "",
             "x": x, "y": y, "w": w, "h": h, "groups": groups or [], "path": path or [],
@@ -134,6 +141,7 @@ def reveal_slide(n, full_image, positions_in_order, hidden=False):
         cx, cy = cells[pos]
         gname = f"Group {10 + k}"
         gx = xf((cx * 400 * EMU, cy * 200 * EMU), (400 * EMU, 200 * EMU), (0, 0), (800 * EMU, 400 * EMU))
+        shapes.append(group_shape(10 + k, gname, gx))
         shapes.append(pic_shape(20 + k, f"Cover {k}", f"cover-{k}", 0, 0, 800 * EMU, 400 * EMU, [gx], [gname]))
         shapes.append(text_shape(40 + k, f"Badge {k}", f"{k} | {ladder[k - 1]}", 300 * EMU, 150 * EMU, 200 * EMU, 100 * EMU,
                                  [gx], [gname]))
@@ -253,7 +261,8 @@ def build_three_clues():
 
 def arrange_group(sid, label, name, pic, gx, gy, value=None):
     g = xf((gx * EMU, gy * EMU), (300 * EMU, 200 * EMU), (0, 0), (300 * EMU, 200 * EMU))
-    sh = [text_shape(sid + 1, "Label", str(label), 10 * EMU, 10 * EMU, 40 * EMU, 40 * EMU, [g], [f"Group {sid}"]),
+    sh = [group_shape(sid, f"Group {sid}", g),
+          text_shape(sid + 1, "Label", str(label), 10 * EMU, 10 * EMU, 40 * EMU, 40 * EMU, [g], [f"Group {sid}"]),
           text_shape(sid + 2, "Name", name, 60 * EMU, 10 * EMU, 200 * EMU, 40 * EMU, [g], [f"Group {sid}"]),
           pic_shape(sid + 3, "Picture", pic, 10 * EMU, 60 * EMU, 280 * EMU, 130 * EMU, [g], [f"Group {sid}"])]
     if value is not None:

@@ -1784,6 +1784,21 @@
     "overlay_class": null
    },
    {
+    "id": 11,
+    "name": "Group 11",
+    "type": "GROUP",
+    "text": "",
+    "x": 0,
+    "y": 2540000,
+    "w": 5080000,
+    "h": 2540000,
+    "groups": [],
+    "path": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null
+   },
+   {
     "id": 21,
     "name": "Cover 1",
     "type": "PICTURE",
@@ -1851,6 +1866,21 @@
     "path": [
      "Group 11"
     ],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null
+   },
+   {
+    "id": 12,
+    "name": "Group 12",
+    "type": "GROUP",
+    "text": "",
+    "x": 5080000,
+    "y": 2540000,
+    "w": 5080000,
+    "h": 2540000,
+    "groups": [],
+    "path": [],
     "media_md5": null,
     "media_kind": null,
     "overlay_class": null
@@ -1928,6 +1958,21 @@
     "overlay_class": null
    },
    {
+    "id": 13,
+    "name": "Group 13",
+    "type": "GROUP",
+    "text": "",
+    "x": 5080000,
+    "y": 0,
+    "w": 5080000,
+    "h": 2540000,
+    "groups": [],
+    "path": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null
+   },
+   {
     "id": 23,
     "name": "Cover 3",
     "type": "PICTURE",
@@ -1995,6 +2040,21 @@
     "path": [
      "Group 13"
     ],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null
+   },
+   {
+    "id": 14,
+    "name": "Group 14",
+    "type": "GROUP",
+    "text": "",
+    "x": 0,
+    "y": 0,
+    "w": 5080000,
+    "h": 2540000,
+    "groups": [],
+    "path": [],
     "media_md5": null,
     "media_kind": null,
     "overlay_class": null
