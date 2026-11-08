@@ -215,13 +215,21 @@ def classify_and_extract(
     question_images: Optional[List[str]] = None,
     answer_images: Optional[List[str]] = None,
     round_name: Optional[str] = None,
+    stored_format: Optional[str] = None,
+    stored_payload: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
     """
     Classify format AND build initial format_data from available fields.
 
+    The format is decided ONCE, at ingestion, from the slide structure (ingestion/format_extractors). A question that
+    carries that result (`stored_payload["extraction"]`) keeps it: this returns the stored format and no format_data.
+    The text/regex guessing below is only for older rows ingested before that existed.
+
     For Connect 4 with images: auto-populates elements from question_images.
     For others: returns structured format_data where available.
     """
+    if isinstance(stored_payload, dict) and stored_payload.get("extraction") and stored_format:
+        return stored_format, None
     fmt = classify_format(question_text, answer_text, question_images, answer_images, round_name)
     format_data = None
 

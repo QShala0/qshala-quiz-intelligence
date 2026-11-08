@@ -424,6 +424,35 @@ class PPTXParser:
         self._overlay_cache[zip_name] = result
         return result
 
+    def _resolve_shape_media(self, slides_data: List[Dict[str, Any]]) -> None:
+        """Give every picture/video shape a servable URL (`media_url`), including GIFs and videos the per-slide
+        pass skips. Deck furniture (the same file on 3+ slides: timer video, round music, divider art) and timer
+        shapes are left without one -- they are not clue media. Content that was already stored is reused."""
+        use_count: Dict[str, set] = {}
+        for sd in slides_data:
+            for sh in sd.get("shapes", []):
+                if sh.get("media_md5"):
+                    use_count.setdefault(sh["media_md5"], set()).add(sd["slide_number"])
+        furniture = {k for k, v in use_count.items() if len(v) >= 3}
+        for sd in slides_data:
+            for sh in sd.get("shapes", []):
+                zip_name = sh.get("zip_name")
+                if not zip_name or sh.get("media_url"):
+                    continue
+                if sh.get("media_md5") in furniture or (sh.get("name") or "").strip().lower().startswith("timer"):
+                    continue
+                ext = Path(zip_name).suffix.lower()
+                if ext not in IMAGE_EXTS and ext not in VIDEO_EXTS and ext not in AUDIO_EXTS:
+                    continue
+                info = self._entry_info(zip_name)
+                if info is None or info.file_size < 2048:        # spacer / bullet artefacts
+                    continue
+                try:
+                    _name, url, _path = self._store_media(zip_name, Path(zip_name).name)
+                    sh["media_url"] = url
+                except Exception as e:
+                    logger.warning(f"Could not store {zip_name} for slide {sd['slide_number']}: {e}")
+
     # ------------------------------------------------------------------ zip relationship scan
 
     @staticmethod
@@ -837,6 +866,8 @@ class PPTXParser:
                     "has_star_shape": has_star_shape,
                 }
             })
+
+        self._resolve_shape_media(slides_data)
 
         logger.info(
             f"PPTX {self.document_id}: {total_slides} slides, stored {self._stats['stored']} media files "

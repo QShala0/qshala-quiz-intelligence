@@ -9,7 +9,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "LIST IT\nROUND 2",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -27,6 +46,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "List It!",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 10,
     "name": "Option 1",
     "type": "TEXT_BOX",
@@ -37,9 +74,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 11,
@@ -52,9 +92,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 12,
@@ -67,9 +110,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 13,
@@ -82,9 +128,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 14,
@@ -97,9 +146,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 15,
@@ -112,9 +164,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 16,
@@ -127,9 +182,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 17,
@@ -142,9 +200,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 18,
@@ -157,9 +218,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 30,
@@ -172,9 +236,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 31,
@@ -187,9 +254,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 32,
@@ -202,9 +272,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 33,
@@ -217,9 +290,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 34,
@@ -232,9 +308,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 35,
@@ -247,9 +326,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 36,
@@ -262,9 +344,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 37,
@@ -277,9 +362,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 38,
@@ -292,9 +380,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 903,
@@ -307,9 +398,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -411,6 +505,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "List It!",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 10,
     "name": "Option 1",
     "type": "TEXT_BOX",
@@ -421,9 +533,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 11,
@@ -436,9 +551,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 12,
@@ -451,9 +569,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 13,
@@ -466,9 +587,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 14,
@@ -481,9 +605,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 15,
@@ -496,9 +623,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 16,
@@ -511,9 +641,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 17,
@@ -526,9 +659,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 30,
@@ -541,9 +677,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 31,
@@ -556,9 +695,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 32,
@@ -571,9 +713,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 33,
@@ -586,9 +731,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 34,
@@ -601,9 +749,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 35,
@@ -616,9 +767,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 36,
@@ -631,9 +785,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 37,
@@ -646,9 +803,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 968,
@@ -661,9 +821,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],

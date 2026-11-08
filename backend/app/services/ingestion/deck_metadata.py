@@ -36,6 +36,8 @@ QUESTION_FORMATS = [
     "LIST_IT",
     "CONNECT",
     "THREE_CLUE",
+    "STANDARD_QA",
+    "MCQ",
 ]
 
 STAGE_WORDS: Dict[str, str] = {
@@ -315,6 +317,16 @@ def infer_formats(slides: List[Dict[str, Any]]) -> Dict[int, str]:
         blob = f"{title} {text}".strip()
         words = len(blob.split())
 
+        # AUDIENCE / BUFFER / TIE-BREAKER sections are not part of the round that came before them: the
+        # format resets to plain QA there (their questions carry their own structure).
+        if any(re.search(r"^\W*(?:audience\s+questions?|buffer(?:\s+questions?)?|tie[\s\-]*breakers?)\W*$", x, re.I)
+               for x in (title, text, blob)):
+            current = "QA"
+            sn = s.get("slide_number")
+            if sn is not None:
+                result[int(sn)] = current
+            continue
+
         # Ignore agenda / structure overview slides
         if re.search(r"\b(?:structure\s+of\s+(?:the\s+)?quiz|quiz\s+structure|overview|agenda)\b", blob, re.I):
             sn = s.get("slide_number")
@@ -438,6 +450,10 @@ def round_by_slide(slides: List[Dict[str, Any]]) -> Dict[int, Optional[int]]:
     return out
 
 
+class _IngestDecided(Exception):
+    """The format-aware extractor already decided this question's format."""
+
+
 def annotate_questions(
     questions: List[Dict[str, Any]],
     slides: List[Dict[str, Any]],
@@ -457,7 +473,8 @@ def annotate_questions(
                          if s.get("slide_number") is not None and (s.get("metadata_json") or {}).get("has_star_shape")}
     for idx, q in enumerate(questions, start=1):
         sn = q.get("slide_number")
-        rnd = rounds.get(int(sn)) if sn else None
+        ing = q.get("_ingest")          # set by the format-aware extractor: the one source of truth for the format
+        rnd = ing.get("round_number") if ing is not None else (rounds.get(int(sn)) if sn else None)
         per_round[rnd] = per_round.get(rnd, 0) + 1
         star, cleaned = detect_star(q.get("question_text") or "", slide_text_by_no.get(int(sn), "") if sn else "")
         if not star and sn and int(sn) in star_shape_slides:
@@ -466,7 +483,12 @@ def annotate_questions(
             q["question_text"] = cleaned
         lang_default = deck.language if deck and deck.language else None
         round_fmt = fmt_by_slide.get(int(sn), "QA") if sn else "QA"
+        if ing is not None:
+            final_fmt = ing["question_format"]
+            q["question_type"] = final_fmt
         try:
+            if ing is not None:
+                raise _IngestDecided()
             from backend.app.services.ingestion.question_formats import detect_and_structure_format
             detected_fmt, payload = detect_and_structure_format(
                 question_text=q.get("question_text") or "",
@@ -481,6 +503,8 @@ def annotate_questions(
             q["question_type"] = detected_fmt
             q["format_payload"] = payload
             final_fmt = detected_fmt
+        except _IngestDecided:
+            pass
         except Exception:
             final_fmt = round_fmt
 

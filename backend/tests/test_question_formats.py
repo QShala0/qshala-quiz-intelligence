@@ -42,7 +42,7 @@ def test_detect_arrange_order_ticker_tangle():
     assert payload is not None
     assert payload["type"] == FMT_ARRANGE_ORDER
     assert len(payload["items"]) == 4
-    assert payload["items"][0]["key"] == "A"
+    assert payload["items"][0]["label"] == 1 and payload["items"][0]["key"] == "1"     # numeric labels 1-4, not A-D
     assert payload["items"][0]["text"] == "Infosys"
 
 

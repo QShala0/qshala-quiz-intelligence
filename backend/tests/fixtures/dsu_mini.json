@@ -9,7 +9,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Slide",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Welcome to the finals",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -25,7 +44,44 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Quiz guidelines",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "Please keep phones on silent",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -41,7 +97,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Structure of the quiz",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -57,7 +132,44 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Topic board",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "SUSTAINABILITY\nENTREPRENEURSHIP\nTECHNOLOGY",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -73,7 +185,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "TOPICATOR\nROUND 1",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -89,7 +220,44 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "6 Topics & 2 questions in each topic",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "+20 for direct, +10 for a pass",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -105,7 +273,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Question 1",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -123,6 +310,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Sustainability - 1\nWhich material takes 450 years to decompose in the sea?",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 915,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -133,9 +338,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -153,7 +361,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -169,7 +396,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Plastic Waste",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -185,7 +431,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Question 12",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -203,6 +468,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ENTREPRENEURSHIP - 1\nWhich bank's 2008 collapse triggered the crisis?",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 923,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -213,9 +496,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -233,7 +519,26 @@
   "all_media_items": [],
   "hidden": true,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -249,7 +554,26 @@
   "all_media_items": [],
   "hidden": true,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Lehman Brothers",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -267,6 +591,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ENTREPRENEURSHIP - 1\nWhich actor founded Ed-a-Mamma?",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 926,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -277,9 +619,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -297,7 +642,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -313,7 +677,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Alia Bhatt",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -329,7 +712,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Question 7",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -347,6 +749,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "7.\nWhich street food is a mashed vegetable curry served with buttered bread?",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 972,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -357,9 +777,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -377,7 +800,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -393,7 +835,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Pav Bhaji",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -409,7 +870,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "LIST IT\nROUND 2",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -425,7 +905,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "EXAMPLE",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -443,6 +942,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "List It!",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 10,
     "name": "Option 1",
     "type": "TEXT_BOX",
@@ -453,9 +970,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 11,
@@ -468,9 +988,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 12,
@@ -483,9 +1006,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 13,
@@ -498,9 +1024,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 14,
@@ -513,9 +1042,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 15,
@@ -528,9 +1060,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 16,
@@ -543,9 +1078,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 17,
@@ -558,9 +1096,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 18,
@@ -573,9 +1114,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 30,
@@ -588,9 +1132,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 31,
@@ -603,9 +1150,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 32,
@@ -618,9 +1168,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 33,
@@ -633,9 +1186,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 34,
@@ -648,9 +1204,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 35,
@@ -663,9 +1222,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 36,
@@ -678,9 +1240,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 37,
@@ -693,9 +1258,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 38,
@@ -708,9 +1276,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 982,
@@ -723,9 +1294,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -825,7 +1399,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Team 8",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -843,6 +1436,42 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "List It!",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "Team 8",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 10,
     "name": "Option 1",
     "type": "TEXT_BOX",
@@ -853,9 +1482,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 11,
@@ -868,9 +1500,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 12,
@@ -883,9 +1518,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 13,
@@ -898,9 +1536,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 14,
@@ -913,9 +1554,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 15,
@@ -928,9 +1572,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 16,
@@ -943,9 +1590,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 17,
@@ -958,9 +1608,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 18,
@@ -973,9 +1626,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 30,
@@ -988,9 +1644,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 31,
@@ -1003,9 +1662,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 32,
@@ -1018,9 +1680,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 33,
@@ -1033,9 +1698,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 34,
@@ -1048,9 +1716,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 35,
@@ -1063,9 +1734,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 36,
@@ -1078,9 +1752,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 37,
@@ -1093,9 +1770,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 38,
@@ -1108,9 +1788,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 984,
@@ -1123,9 +1806,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -1225,7 +1911,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Team 9",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1243,6 +1948,42 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "List It!",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "Team 9",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 10,
     "name": "Option 1",
     "type": "TEXT_BOX",
@@ -1253,9 +1994,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 11,
@@ -1268,9 +2012,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 12,
@@ -1283,9 +2030,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 13,
@@ -1298,9 +2048,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 14,
@@ -1313,9 +2066,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 15,
@@ -1328,9 +2084,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 16,
@@ -1343,9 +2102,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 17,
@@ -1358,9 +2120,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 18,
@@ -1373,9 +2138,12 @@
     "h": 762000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 30,
@@ -1388,9 +2156,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 31,
@@ -1403,9 +2174,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 32,
@@ -1418,9 +2192,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 33,
@@ -1433,9 +2210,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 34,
@@ -1448,9 +2228,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 35,
@@ -1463,9 +2246,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ba399672444d1fa0843f6a952fe43034",
     "media_kind": "image",
-    "overlay_class": "tick"
+    "overlay_class": "tick",
+    "zip_name": "ppt/media/overlay-a",
+    "media_url": "/media/overlay-a.png"
    },
    {
     "id": 36,
@@ -1478,9 +2264,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 37,
@@ -1493,9 +2282,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 38,
@@ -1508,9 +2300,12 @@
     "h": 635000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "5ffa762942bfd51f5e394274c5f72333",
     "media_kind": "image",
-    "overlay_class": "cross"
+    "overlay_class": "cross",
+    "zip_name": "ppt/media/overlay-b",
+    "media_url": "/media/overlay-b.png"
    },
    {
     "id": 993,
@@ -1523,9 +2318,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -1625,7 +2423,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "AUDIENCE QUESTIONS",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1643,6 +2460,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Which team won IPL 2008?",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 1002,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -1653,9 +2488,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -1673,7 +2511,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1689,7 +2546,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "IPL",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1705,7 +2581,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "AUDIENCE QUESTION",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1721,7 +2616,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "IMAGE REVEAL\nROUND 3",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1737,7 +2651,62 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Round 3: Image Reveal",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "4 questions. On Buzzer.",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 702,
+    "name": "Text 2",
+    "type": "TEXT_BOX",
+    "text": "+20 / -15",
+    "x": 508000,
+    "y": 1397000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1753,7 +2722,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "EXAMPLE",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1771,6 +2759,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Who is this?",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 1010,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -1781,9 +2787,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -1801,7 +2810,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1817,7 +2845,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Steve Jobs",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1833,7 +2880,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Question 1",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -1842,7 +2908,7 @@
  {
   "slide_number": 114,
   "title": "Image Reveal",
-  "extracted_text": "Image Reveal\n\n1 | +20/-15\n\n2 | +15/-10\n\n3 | +10/-5\n\n4 | +5/0",
+  "extracted_text": "Image Reveal\n\n1\n+20/-15\n\n2\n+15/-10\n\n3\n+10/-5\n\n4\n+5/0",
   "speaker_notes": "",
   "image_paths": [],
   "video_paths": [],
@@ -1850,6 +2916,24 @@
   "hidden": false,
   "layout_name": "Title and Content",
   "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Image Reveal",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
    {
     "id": 2,
     "name": "Full Image",
@@ -1861,9 +2945,12 @@
     "h": 5080000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "06d45cab121de07fd1a20167d9a42c7f",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/ratan-tata-full",
+    "media_url": "/media/ratan-tata-full.png"
    },
    {
     "id": 11,
@@ -1912,15 +2999,20 @@
     "path": [
      "Group 11"
     ],
+    "path_ids": [
+     11
+    ],
     "media_md5": "65932e3bf7f6bcd3737c99c96042ff6b",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/cover-1",
+    "media_url": "/media/cover-1.png"
    },
    {
     "id": 41,
     "name": "Badge 1",
     "type": "TEXT_BOX",
-    "text": "1 | +20/-15",
+    "text": "1\n+20/-15",
     "x": 3810000,
     "y": 1905000,
     "w": 2540000,
@@ -1948,9 +3040,14 @@
     "path": [
      "Group 11"
     ],
+    "path_ids": [
+     11
+    ],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 12,
@@ -1999,15 +3096,20 @@
     "path": [
      "Group 12"
     ],
+    "path_ids": [
+     12
+    ],
     "media_md5": "f79095445ec43ff5496ccb91c9e88783",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/cover-2",
+    "media_url": "/media/cover-2.png"
    },
    {
     "id": 42,
     "name": "Badge 2",
     "type": "TEXT_BOX",
-    "text": "2 | +15/-10",
+    "text": "2\n+15/-10",
     "x": 3810000,
     "y": 1905000,
     "w": 2540000,
@@ -2035,9 +3137,14 @@
     "path": [
      "Group 12"
     ],
+    "path_ids": [
+     12
+    ],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 13,
@@ -2086,15 +3193,20 @@
     "path": [
      "Group 13"
     ],
+    "path_ids": [
+     13
+    ],
     "media_md5": "4bd83bbe4c5add610625660c465c90e2",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/cover-3",
+    "media_url": "/media/cover-3.png"
    },
    {
     "id": 43,
     "name": "Badge 3",
     "type": "TEXT_BOX",
-    "text": "3 | +10/-5",
+    "text": "3\n+10/-5",
     "x": 3810000,
     "y": 1905000,
     "w": 2540000,
@@ -2122,9 +3234,14 @@
     "path": [
      "Group 13"
     ],
+    "path_ids": [
+     13
+    ],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 14,
@@ -2173,15 +3290,20 @@
     "path": [
      "Group 14"
     ],
+    "path_ids": [
+     14
+    ],
     "media_md5": "c0bc5cedfa188722a498375d0f37960b",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/cover-4",
+    "media_url": "/media/cover-4.png"
    },
    {
     "id": 44,
     "name": "Badge 4",
     "type": "TEXT_BOX",
-    "text": "4 | +5/0",
+    "text": "4\n+5/0",
     "x": 3810000,
     "y": 1905000,
     "w": 2540000,
@@ -2209,9 +3331,14 @@
     "path": [
      "Group 14"
     ],
+    "path_ids": [
+     14
+    ],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 1014,
@@ -2224,9 +3351,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [
@@ -2277,7 +3407,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2302,7 +3451,26 @@
   ],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Ratan Tata",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2318,7 +3486,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "AUDIENCE QUESTIONS",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2336,6 +3523,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Which band played the 2025 Mumbai tour?",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 1030,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -2346,9 +3551,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -2366,7 +3574,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2382,7 +3609,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Coldplay",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2398,7 +3644,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "CONNECT\nROUND 4",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2414,7 +3679,62 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Connect",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "6 questions. All on the buzzer",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 702,
+    "name": "Text 2",
+    "type": "TEXT_BOX",
+    "text": "+20 for a correct answer",
+    "x": 508000,
+    "y": 1397000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2430,7 +3750,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "EXAMPLE",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2478,6 +3817,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Connect",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 10,
     "name": "Picture 0",
     "type": "PICTURE",
@@ -2488,9 +3845,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "b439a586dfe3b673bc0c5e333f3c6bb8",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-136-0",
+    "media_url": "/media/connect-136-0.png"
    },
    {
     "id": 11,
@@ -2503,9 +3863,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "6e2f662e98ebb8fe26746d9896b7d072",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-136-1",
+    "media_url": "/media/connect-136-1.png"
    },
    {
     "id": 12,
@@ -2518,9 +3881,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "ad2fa0abf075af4c09f2bafde8649db1",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-136-2",
+    "media_url": "/media/connect-136-2.png"
    },
    {
     "id": 13,
@@ -2533,9 +3899,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "6db53d68659b9346c3990a70dd3ff1c1",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-136-3",
+    "media_url": "/media/connect-136-3.png"
    },
    {
     "id": 1036,
@@ -2548,9 +3917,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -2568,7 +3940,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2584,7 +3975,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Fruits",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2600,7 +4010,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Question 1",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2683,6 +4112,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Connect",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 10,
     "name": "Picture 0",
     "type": "PICTURE",
@@ -2693,9 +4140,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "4e8ec824b173270d62298fff973fb68c",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-140-0",
+    "media_url": "/media/connect-140-0.png"
    },
    {
     "id": 11,
@@ -2708,9 +4158,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "3c5489f89e8d10c3b9726c9fbac606e6",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-140-1",
+    "media_url": "/media/connect-140-1.png"
    },
    {
     "id": 12,
@@ -2723,9 +4176,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "3fb3c28b509600b61733a143cd50616d",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-140-2",
+    "media_url": "/media/connect-140-2.png"
    },
    {
     "id": 13,
@@ -2738,9 +4194,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "7516e63b861d5a9ea3db60a11bf10cea",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-140-3",
+    "media_url": "/media/connect-140-3.png"
    },
    {
     "id": 14,
@@ -2753,9 +4212,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "b1338bcf3bf2abf606a703d2b29b5c96",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-140-4",
+    "media_url": "/media/connect-140-4.png"
    },
    {
     "id": 15,
@@ -2768,9 +4230,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "a762eb234670b8d198689ac102dcb4ae",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-140-5",
+    "media_url": "/media/connect-140-5.png"
    },
    {
     "id": 16,
@@ -2783,9 +4248,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "1c942ca2c18015cec80c547ea3cde483",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-140-6",
+    "media_url": "/media/connect-140-6.png"
    },
    {
     "id": 17,
@@ -2798,9 +4266,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "4d02305b75b271dfe8b4d055e83fdcdb",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-140-7",
+    "media_url": "/media/connect-140-7.png"
    },
    {
     "id": 18,
@@ -2813,9 +4284,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "61072cf5bd8b4ba764274cbe8c611e01",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-140-8",
+    "media_url": "/media/connect-140-8.png"
    },
    {
     "id": 1040,
@@ -2828,9 +4302,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -2848,7 +4325,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2864,7 +4360,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Online Streaming Services / OTT",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2880,7 +4395,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Question 5",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -2935,6 +4469,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Connect",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 10,
     "name": "Picture 0",
     "type": "PICTURE",
@@ -2945,9 +4497,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "79354b15948b1a0679a51dd72cfd0f5d",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-148-0",
+    "media_url": "/media/connect-148-0.png"
    },
    {
     "id": 11,
@@ -2960,9 +4515,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "d50608da09be9e1ade1b128d9b3df22e",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-148-1",
+    "media_url": "/media/connect-148-1.png"
    },
    {
     "id": 12,
@@ -2975,9 +4533,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "12d71e3083b6c9dbc51a83c7c7942319",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-148-2",
+    "media_url": "/media/connect-148-2.png"
    },
    {
     "id": 13,
@@ -2990,9 +4551,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "efd02aa88cdc7e4cf3daa737ad39f811",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-148-3",
+    "media_url": "/media/connect-148-3.png"
    },
    {
     "id": 14,
@@ -3005,9 +4569,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "a3f157e369bdd1e003959d0db4f1d75e",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-148-4",
+    "media_url": "/media/connect-148-4.png"
    },
    {
     "id": 70,
@@ -3020,9 +4587,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 1048,
@@ -3035,9 +4605,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -3055,7 +4628,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3071,7 +4663,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Soap Brands",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3087,7 +4698,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Question 6",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3114,6 +4744,42 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Connect",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 85,
+    "name": "Clue video",
+    "type": "MEDIA",
+    "text": "",
+    "x": 8890000,
+    "y": 1270000,
+    "w": 2540000,
+    "h": 2540000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": "59f3f4955b8a01747bb6bde86130444f",
+    "media_kind": "video",
+    "overlay_class": null,
+    "zip_name": "ppt/media/clue-video",
+    "media_url": "/media/clue-video.mp4"
+   },
+   {
     "id": 1056,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -3124,9 +4790,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -3144,7 +4813,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3160,7 +4848,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "MRF",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3208,6 +4915,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Connect",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 10,
     "name": "Picture 0",
     "type": "PICTURE",
@@ -3218,9 +4943,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "0d7221ecc9140bbc9051860cdc33f380",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-163-0",
+    "media_url": "/media/connect-163-0.png"
    },
    {
     "id": 11,
@@ -3233,9 +4961,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "878cc5f69c4a98ff41428b203b414f27",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-163-1",
+    "media_url": "/media/connect-163-1.png"
    },
    {
     "id": 12,
@@ -3248,9 +4979,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "50f29bed9dce13b12059bc1aa931a4c8",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-163-2",
+    "media_url": "/media/connect-163-2.png"
    },
    {
     "id": 13,
@@ -3263,9 +4997,12 @@
     "h": 1143000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e48a3f5e69c94b94042f142c0a189e05",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/connect-163-3",
+    "media_url": "/media/connect-163-3.png"
    },
    {
     "id": 1063,
@@ -3278,9 +5015,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -3298,7 +5038,26 @@
   "all_media_items": [],
   "hidden": true,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3314,7 +5073,26 @@
   "all_media_items": [],
   "hidden": true,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Tetra Pak",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3330,7 +5108,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "RAPID FIRE\nROUND 5",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3346,7 +5143,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Slide",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Thank you",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3374,9 +5190,12 @@
     "h": 10,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "24adf633e02e1ab8770ddfa2b793f642",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/decor-gif",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -3406,9 +5225,12 @@
     "h": 10,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "24adf633e02e1ab8770ddfa2b793f642",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/decor-gif",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -3426,7 +5248,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Scoreboard",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3442,7 +5283,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Sponsors",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3458,7 +5318,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "BUFFER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3476,6 +5355,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Which planet has the most moons?",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 1124,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -3486,9 +5383,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -3506,7 +5406,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -3522,7 +5441,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Saturn",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,

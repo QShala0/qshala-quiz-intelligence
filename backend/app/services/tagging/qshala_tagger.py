@@ -554,6 +554,8 @@ class QshalaTagger:
                 question_images=getattr(q_target, "question_images", None),
                 answer_images=getattr(q_target, "answer_images", None),
                 round_name=getattr(q_target, "round_name", None) or (f"Round {q_target.round_number}" if getattr(q_target, "round_number", None) else None),
+                stored_format=getattr(q_target, "question_format", None),
+                stored_payload=getattr(q_target, "format_payload", None),
             )
             q_target.question_format = q_format
             if f_data is not None:

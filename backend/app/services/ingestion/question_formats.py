@@ -24,6 +24,9 @@ FMT_VIDEO_CLUE = "VIDEO_CLUE"
 FMT_POTPOURRI = "POTPOURRI"
 FMT_IMAGE_REVEAL = "IMAGE_REVEAL"
 FMT_LIST_IT = "LIST_IT"
+FMT_STANDARD_QA = "STANDARD_QA"
+FMT_CONNECT = "CONNECT"        # CONNECT_4 is the legacy alias of CONNECT
+FMT_MCQ = "MCQ"
 
 FORMAT_LABELS: Dict[str, str] = {
     FMT_QA: "Question and Answer (Direct)",
@@ -39,6 +42,8 @@ FORMAT_LABELS: Dict[str, str] = {
     FMT_POTPOURRI: "Potpourri",
     FMT_IMAGE_REVEAL: "Image Reveal",
     FMT_LIST_IT: "List It",
+    FMT_STANDARD_QA: "Question and Answer",
+    FMT_MCQ: "Multiple Choice",
 }
 
 
@@ -72,8 +77,15 @@ def detect_and_structure_format(
     video_refs: Optional[List[str]] = None,
     raw_context: str = "",
     deck_round_format: str = "",
+    structured: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """Inspects question fields and returns (format_name, format_payload)."""
+    """Inspects question fields and returns (format_name, format_payload).
+
+    `structured` is the format-aware extractor's result for this question (its `_ingest` block plus payload). When
+    it is given, THAT is the format: the guessing below only runs for decks the structure-based path could not read.
+    """
+    if structured and structured.get("question_format"):
+        return structured["question_format"], structured.get("format_payload")
     q_text = question_text or ""
     combined = f"{q_text} {raw_context} {deck_round_format}".strip()
     imgs = image_refs or []
@@ -117,24 +129,19 @@ def detect_and_structure_format(
         # Check if options contain 4 items (A, B, C, D)
         if opts and len(opts) >= 4:
             for i, opt in enumerate(opts[:4]):
-                key = chr(65 + i)  # A, B, C, D
-                items.append({"key": key, "text": opt, "image": imgs[i] if i < len(imgs) else None})
+                items.append({"label": i + 1, "key": str(i + 1), "text": opt, "image": imgs[i] if i < len(imgs) else None})
         elif imgs and len(imgs) >= 4:
             for i in range(4):
-                items.append({"key": chr(65 + i), "text": f"Item {chr(65 + i)}", "image": imgs[i]})
+                items.append({"label": i + 1, "key": str(i + 1), "text": f"Item {i + 1}", "image": imgs[i]})
         else:
             # Extract lines from question text if separated
             lines = [l.strip(" 1234.ABCD)-") for l in q_text.split("\n") if l.strip()]
             if len(lines) >= 4:
                 for i in range(4):
-                    items.append({"key": chr(65 + i), "text": lines[i], "image": imgs[i] if i < len(imgs) else None})
+                    items.append({"label": i + 1, "key": str(i + 1), "text": lines[i], "image": imgs[i] if i < len(imgs) else None})
             else:
-                items = [
-                    {"key": "A", "text": "Element A", "image": imgs[0] if len(imgs) > 0 else None},
-                    {"key": "B", "text": "Element B", "image": imgs[1] if len(imgs) > 1 else None},
-                    {"key": "C", "text": "Element C", "image": imgs[2] if len(imgs) > 2 else None},
-                    {"key": "D", "text": "Element D", "image": imgs[3] if len(imgs) > 3 else None},
-                ]
+                items = [{"label": n, "key": str(n), "text": f"Item {n}", "image": imgs[n - 1] if len(imgs) >= n else None}
+                         for n in (1, 2, 3, 4)]
 
         payload = {
             "type": FMT_ARRANGE_ORDER,

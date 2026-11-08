@@ -9,7 +9,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ROUND 5 - HOTSPOT",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -25,7 +44,44 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "+20 / -15",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "8 questions",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -52,6 +108,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Which Dickens character is shown?",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 903,
     "name": "Timer 1min",
     "type": "MEDIA",
@@ -62,9 +136,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -82,7 +159,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -98,7 +194,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Ebenezer Scrooge",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -125,6 +240,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "8",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 1,
     "name": "Picture 1",
     "type": "PICTURE",
@@ -135,9 +268,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "acea0ad0b9c7093c840cb3153cbb2e14",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/hotspot-348",
+    "media_url": "/media/hotspot-348.png"
    }
   ],
   "animations": [],
@@ -166,6 +302,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "2",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 1,
     "name": "Picture 1",
     "type": "PICTURE",
@@ -176,9 +330,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e9ad49df193aefa3fe509d845618db67",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/hotspot-352",
+    "media_url": "/media/hotspot-352.png"
    }
   ],
   "animations": [],
@@ -207,6 +364,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "6",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 1,
     "name": "Picture 1",
     "type": "PICTURE",
@@ -217,9 +392,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "63fae3c16e7283f3a72dce2608725cb8",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/hotspot-356",
+    "media_url": "/media/hotspot-356.png"
    }
   ],
   "animations": [],

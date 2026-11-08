@@ -64,8 +64,8 @@ def test_dsu_has_the_documented_cases():
     assert len(li["interactive_animations"]) == 9 and li["animations"] == []
     assert d[23]["hidden"] and not d[26]["hidden"]
     ir = d[114]
-    badges = [s["text"] for s in ir["shapes"] if re.match(r"^\d \| \+\d+/-?\d+$", s["text"] or "")]
-    assert badges == ["1 | +20/-15", "2 | +15/-10", "3 | +10/-5", "4 | +5/0"]
+    badges = [s["text"] for s in ir["shapes"] if re.match(r"^\d\s*[|\n]\s*\+\d+/-?\d+$", s["text"] or "")]
+    assert [b.replace("\n", " | ") for b in badges] == ["1 | +20/-15", "2 | +15/-10", "3 | +10/-5", "4 | +5/0"]
     assert [a["cls"] for a in ir["animations"]] == ["exit"] * 4 and {a["preset"] for a in ir["animations"]} == {10}
     assert len([s for s in d[140]["shapes"] if s["type"] == "PICTURE"]) == 9
     assert d[156]["video_paths"] and not d[156]["image_paths"]

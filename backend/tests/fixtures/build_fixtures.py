@@ -24,6 +24,7 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent
 EMU = 12700  # 1 pt
+LF = chr(10)
 
 
 def md5(label: str) -> str:
@@ -33,16 +34,18 @@ def md5(label: str) -> str:
 TIMER_MD5 = md5("timer-video")      # reused on 3+ slides -> noise
 MUSIC_MD5 = md5("round-music")
 GIF_MD5 = md5("decor-gif")
-TICK_MD5, CROSS_MD5 = md5("overlay-a"), md5("overlay-b")   # names/md5 deliberately uninformative
+TICK_MD5, CROSS_MD5 = md5("overlay-a"), md5("overlay-b")
+NOISE_LABELS = {"timer-video", "round-music", "decor-gif"}   # names/md5 deliberately uninformative
 
 
 def xf(off, ext, ch_off=None, ch_ext=None):
     return {"off": list(off), "ext": list(ext), "chOff": list(ch_off or off), "chExt": list(ch_ext or ext)}
 
 
-def text_shape(sid, name, text, x, y, w, h, groups=None, path=None):
+def text_shape(sid, name, text, x, y, w, h, groups=None, path=None, path_ids=None):
     return {"id": sid, "name": name, "type": "TEXT_BOX", "text": text, "x": x, "y": y, "w": w, "h": h,
-            "groups": groups or [], "path": path or [], "media_md5": None, "media_kind": None, "overlay_class": None}
+            "groups": groups or [], "path": path or [], "path_ids": path_ids or [], "media_md5": None,
+            "media_kind": None, "overlay_class": None, "zip_name": None, "media_url": None}
 
 
 def group_shape(sid, name, gx):
@@ -52,15 +55,19 @@ def group_shape(sid, name, gx):
             "media_kind": None, "overlay_class": None}
 
 
-def pic_shape(sid, name, label, x, y, w, h, groups=None, path=None, kind="image", overlay=None):
+def pic_shape(sid, name, label, x, y, w, h, groups=None, path=None, kind="image", overlay=None, path_ids=None):
     return {"id": sid, "name": name, "type": "PICTURE" if kind != "video" else "MEDIA", "text": "",
-            "x": x, "y": y, "w": w, "h": h, "groups": groups or [], "path": path or [],
-            "media_md5": md5(label), "media_kind": kind, "overlay_class": overlay}
+            "x": x, "y": y, "w": w, "h": h, "groups": groups or [], "path": path or [], "path_ids": path_ids or [],
+            "media_md5": md5(label), "media_kind": kind, "overlay_class": overlay, "zip_name": f"ppt/media/{label}",
+            "media_url": None if label in NOISE_LABELS else f"/media/{label}." + ("mp4" if kind == "video" else "png")}
 
 
 def slide(n, texts=(), title=None, hidden=False, layout="Title and Content", shapes=(), anims=(), notes="",
           images=(), videos=(), noise_timer=False, inter=()):
     shapes = list(shapes)
+    # the live parser reports every text box as a shape: give each text chunk its own title-like shape
+    shapes = [text_shape(700 + i, 'Text ' + str(i), t, 40 * EMU, (10 + 50 * i) * EMU, 600 * EMU, 40 * EMU)
+              for i, t in enumerate(texts) if t and not any(t == s['text'] for s in shapes)] + shapes
     if noise_timer:
         shapes.append(pic_shape(900 + n, "Timer 1min", "timer-video", 0, 0, 100, 100, kind="video"))
     # text shapes feed extracted_text exactly like the live parser (document order, de-duplicated)
@@ -143,9 +150,9 @@ def reveal_slide(n, full_image, positions_in_order, hidden=False):
         gname = f"Group {10 + k}"
         gx = xf((cx * 400 * EMU, cy * 200 * EMU), (400 * EMU, 200 * EMU), (0, 0), (800 * EMU, 400 * EMU))
         shapes.append(group_shape(10 + k, gname, gx))
-        shapes.append(pic_shape(20 + k, f"Cover {k}", f"cover-{k}", 0, 0, 800 * EMU, 400 * EMU, [gx], [gname]))
-        shapes.append(text_shape(40 + k, f"Badge {k}", f"{k} | {ladder[k - 1]}", 300 * EMU, 150 * EMU, 200 * EMU, 100 * EMU,
-                                 [gx], [gname]))
+        shapes.append(pic_shape(20 + k, f"Cover {k}", f"cover-{k}", 0, 0, 800 * EMU, 400 * EMU, [gx], [gname], path_ids=[10 + k]))
+        shapes.append(text_shape(40 + k, f"Badge {k}", f"{k}" + LF + f"{ladder[k - 1]}", 300 * EMU, 150 * EMU, 200 * EMU, 100 * EMU,
+                                 [gx], [gname], [10 + k]))
         anims.append({"order": k, "cls": "exit", "preset": 10, "node_type": "clickEffect",
                       "target_id": 10 + k, "target_name": gname})
     # decoy: an exit effect that lives in an interactive sequence must NOT be in `animations`
@@ -157,9 +164,11 @@ def connect_slide(n, n_pics, hint=None, video=None, title="Connect", hidden=Fals
     for i in range(n_pics):
         g = [xf((i * 100 * EMU, 0), (100 * EMU, 100 * EMU))] if grouped and i % 2 else []
         shapes.append(pic_shape(10 + i, f"Picture {i}", f"connect-{n}-{i}", i * 100 * EMU, 100 * EMU, 90 * EMU, 90 * EMU,
-                                g, [f"Group {i}"] if g else []))
+                                g, [f"Group {i}"] if g else [], path_ids=[200 + i] if g else []))
     if gif:
         shapes.append(pic_shape(80, "Decor GIF", "decor-gif", 0, 0, 50 * EMU, 50 * EMU))
+    if video:
+        shapes.append(pic_shape(85, "Clue video", video, 700 * EMU, 100 * EMU, 200 * EMU, 200 * EMU, kind="video"))
     if hint:
         shapes.append(text_shape(70, "TextBox 7", hint, 40 * EMU, 400 * EMU, 600 * EMU, 40 * EMU))
     texts = [title]
@@ -265,11 +274,11 @@ def build_three_clues():
 def arrange_group(sid, label, name, pic, gx, gy, value=None):
     g = xf((gx * EMU, gy * EMU), (300 * EMU, 200 * EMU), (0, 0), (300 * EMU, 200 * EMU))
     sh = [group_shape(sid, f"Group {sid}", g),
-          text_shape(sid + 1, "Label", str(label), 10 * EMU, 10 * EMU, 40 * EMU, 40 * EMU, [g], [f"Group {sid}"]),
-          text_shape(sid + 2, "Name", name, 60 * EMU, 10 * EMU, 200 * EMU, 40 * EMU, [g], [f"Group {sid}"]),
-          pic_shape(sid + 3, "Picture", pic, 10 * EMU, 60 * EMU, 280 * EMU, 130 * EMU, [g], [f"Group {sid}"])]
+          text_shape(sid + 1, "Label", str(label), 10 * EMU, 10 * EMU, 40 * EMU, 40 * EMU, [g], [f"Group {sid}"], [sid]),
+          text_shape(sid + 2, "Name", name, 60 * EMU, 10 * EMU, 200 * EMU, 40 * EMU, [g], [f"Group {sid}"], [sid]),
+          pic_shape(sid + 3, "Picture", pic, 10 * EMU, 60 * EMU, 280 * EMU, 130 * EMU, [g], [f"Group {sid}"], path_ids=[sid])]
     if value is not None:
-        sh.append(text_shape(sid + 4, "Value", value, 60 * EMU, 160 * EMU, 200 * EMU, 30 * EMU, [g], [f"Group {sid}"]))
+        sh.append(text_shape(sid + 4, "Value", value, 60 * EMU, 160 * EMU, 200 * EMU, 30 * EMU, [g], [f"Group {sid}"], [sid]))
     return sh
 
 

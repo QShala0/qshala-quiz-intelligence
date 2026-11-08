@@ -430,6 +430,16 @@ class IngestionPipeline:
             # (question number, format, star, answer type, language).
             deck_row = upsert_deck_metadata(db, doc)
             annotate_questions(raw_questions, classified_slides, deck_row_to_info(deck_row))
+            # Mid-confidence format readings (0.7-0.9) get one optional Gemini look (FORMAT_VISION_CHECK=1); the rest
+            # are accepted (>= 0.9) or left flagged for review (< 0.7) without any AI call.
+            try:
+                from backend.app.services.ingestion.format_vision import vision_check_enabled, verify_band
+                if vision_check_enabled():
+                    _fv = await verify_band(raw_questions, self.llm_provider)
+                    if _fv.get('checked') or _fv.get('skipped'):
+                        progress.event(INGESTION_STATUS_REGISTRY[document_id], f"Format check: {_fv}")
+            except Exception as _fv_err:
+                logger.warning('format vision check skipped: %s', safe_error(_fv_err))
             # Show a clean quiz name in Recent Uploads instead of the raw ".pptx" filename: the deck
             # parser already pulled a quiz_name out of the filename. Only override an auto-derived
             # title (the filename), never a title the user typed in.

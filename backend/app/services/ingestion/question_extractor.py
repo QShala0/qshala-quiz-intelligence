@@ -1,5 +1,14 @@
+import os
 import re
+import logging
 from typing import List, Dict, Any, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+# Format-aware ingestion (units found from ANSWER slides + structure-based formats). FORMAT_AWARE_INGESTION=0 restores
+# the older round-number driven extraction below, e.g. for a quick rollback.
+def format_aware_enabled() -> bool:
+    return os.getenv("FORMAT_AWARE_INGESTION", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 class QuestionExtractor:
     """
@@ -34,7 +43,31 @@ class QuestionExtractor:
         "GENERAL KNOWLEDGE"
     ]
 
+    MIN_STRUCTURED_UNITS = 1
+
+    def _extract_structured(self, slides: List[Dict[str, Any]], doc_year: Optional[int]) -> Optional[List[Dict[str, Any]]]:
+        """Format-aware path: units come from the ANSWER slides, formats from slide structure. None when the deck has
+        no ANSWER-marker units (older / differently built decks), which then use the legacy patterns below."""
+        if not format_aware_enabled():
+            return None
+        try:
+            from backend.app.services.ingestion.slide_roles import analyze_deck
+            from backend.app.services.ingestion.format_extractors import extract_deck
+            analysis = analyze_deck(slides)
+            if len(analysis.units) < self.MIN_STRUCTURED_UNITS:
+                return None
+            questions = extract_deck(slides, analysis, self)
+        except Exception as e:                       # never fail the deck because of the new path
+            logger.warning("format-aware extraction failed, using the legacy extractor: %s", type(e).__name__)
+            return None
+        for q in questions:
+            q["source_year"] = doc_year or 2026
+        return questions
+
     def extract_from_slides(self, slides: List[Dict[str, Any]], doc_title: str, doc_year: Optional[int]) -> List[Dict[str, Any]]:
+        structured = self._extract_structured(slides, doc_year)
+        if structured is not None:
+            return structured
         extracted_questions = []
         i = 0
         n = len(slides)

@@ -142,7 +142,9 @@ def read_interactive_animations(slide, id_to_name: Dict[int, str]) -> List[Dict[
     return out
 
 
-def _walk(slide, shapes, groups: List[Dict], path: List[str], out: List[Dict[str, Any]], md5_fn: Optional[MD5Fn]) -> None:
+def _walk(slide, shapes, groups: List[Dict], path: List[str], out: List[Dict[str, Any]], md5_fn: Optional[MD5Fn],
+          path_ids: Optional[List[int]] = None) -> None:
+    path_ids = path_ids or []
     for s in shapes:
         try:
             st = s.shape_type
@@ -152,8 +154,9 @@ def _walk(slide, shapes, groups: List[Dict], path: List[str], out: List[Dict[str
         rec: Dict[str, Any] = {
             "id": int(s.shape_id), "name": s.name or "", "type": "OTHER", "text": "",
             "x": 0, "y": 0, "w": 0, "h": 0,
-            "groups": list(groups), "path": list(path),
+            "groups": list(groups), "path": list(path), "path_ids": list(path_ids),
             "media_md5": None, "media_kind": None, "overlay_class": None,
+            "zip_name": None, "media_url": None,
         }
         try:
             rec["x"], rec["y"], rec["w"], rec["h"] = int(s.left or 0), int(s.top or 0), int(s.width or 0), int(s.height or 0)
@@ -165,7 +168,7 @@ def _walk(slide, shapes, groups: List[Dict], path: List[str], out: List[Dict[str
             rec["x"], rec["y"], rec["w"], rec["h"] = xf["off"][0], xf["off"][1], xf["ext"][0], xf["ext"][1]
             out.append(rec)
             try:
-                _walk(slide, s.shapes, groups + [xf], path + [s.name or ""], out, md5_fn)
+                _walk(slide, s.shapes, groups + [xf], path + [s.name or ""], out, md5_fn, path_ids + [int(s.shape_id)])
             except Exception as e:
                 logger.debug("group %s not walkable: %s", s.name, e)
             continue
@@ -173,7 +176,7 @@ def _walk(slide, shapes, groups: List[Dict], path: List[str], out: List[Dict[str
             zip_name, kind = _media_ref(slide, s)
             rec["type"] = "MEDIA" if kind in ("video", "audio") else "PICTURE"
             rec["media_kind"] = kind
-            rec["_zip_name"] = zip_name
+            rec["zip_name"] = zip_name
             if zip_name and md5_fn is not None:
                 rec["media_md5"] = md5_fn(zip_name)
         elif getattr(s, "has_text_frame", False) and s.has_text_frame:
@@ -207,16 +210,14 @@ def extract_slide_structure(slide, md5_fn: Optional[MD5Fn] = None, overlay_fn: O
         inter = read_interactive_animations(slide, id_to_name)
         if overlay_fn is not None:
             entering = {a["target_id"] for a in anims + inter if a["cls"] == "entr"}
-            cands = [s for s in shapes if s["id"] in entering and s["type"] == "PICTURE" and s.get("_zip_name")]
+            cands = [s for s in shapes if s["id"] in entering and s["type"] == "PICTURE" and s.get("zip_name")]
             if len(cands) >= MIN_OVERLAYS:
                 for s in cands:
                     try:
-                        s["overlay_class"] = overlay_fn(s["_zip_name"])
+                        s["overlay_class"] = overlay_fn(s["zip_name"])
                     except Exception as e:
-                        logger.debug("overlay colour unreadable for %s: %s", s["_zip_name"], e)
+                        logger.debug("overlay colour unreadable for %s: %s", s["zip_name"], e)
                         s["overlay_class"] = "unknown"
-        for s in shapes:
-            s.pop("_zip_name", None)
         result["shapes"] = shapes
         result["animations"] = anims
         result["interactive_animations"] = inter

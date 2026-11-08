@@ -9,7 +9,44 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "MCQ\nROUND 4",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "4 questions",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -25,7 +62,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Question 14",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -43,6 +99,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "14.*",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 5,
     "name": "Title",
     "type": "TEXT_BOX",
@@ -53,9 +127,12 @@
     "h": 1016000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 6,
@@ -68,9 +145,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 7,
@@ -83,9 +163,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 8,
@@ -98,9 +181,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 9,
@@ -113,9 +199,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 914,
@@ -128,9 +217,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -151,7 +243,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -167,7 +278,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "A. 1919",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -195,9 +325,12 @@
     "h": 1016000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 6,
@@ -210,9 +343,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 7,
@@ -225,9 +361,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 8,
@@ -240,9 +379,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 9,
@@ -255,9 +397,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 917,
@@ -270,9 +415,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -293,7 +441,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -309,7 +476,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "B. 1930",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -325,7 +511,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Section Header",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "Question 40",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -343,6 +548,24 @@
   "layout_name": "Title and Content",
   "shapes": [
    {
+    "id": 701,
+    "name": "Text 1",
+    "type": "TEXT_BOX",
+    "text": "[Larger Image on next slide]",
+    "x": 508000,
+    "y": 762000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   },
+   {
     "id": 5,
     "name": "Title",
     "type": "TEXT_BOX",
@@ -353,9 +576,12 @@
     "h": 1016000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 6,
@@ -368,9 +594,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 7,
@@ -383,9 +612,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 8,
@@ -398,9 +630,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 9,
@@ -413,9 +648,12 @@
     "h": 508000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": null,
     "media_kind": null,
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
    },
    {
     "id": 947,
@@ -428,9 +666,12 @@
     "h": 100,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "e8f44802419a616bad5ea2144f609d88",
     "media_kind": "video",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/timer-video",
+    "media_url": null
    }
   ],
   "animations": [],
@@ -472,9 +713,12 @@
     "h": 5080000,
     "groups": [],
     "path": [],
+    "path_ids": [],
     "media_md5": "b7d30792f3c05c34f6fd42dd23f1ab02",
     "media_kind": "image",
-    "overlay_class": null
+    "overlay_class": null,
+    "zip_name": "ppt/media/mcq-48",
+    "media_url": "/media/mcq-48.png"
    }
   ],
   "animations": [],
@@ -492,7 +736,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title Only",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "ANSWER",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
@@ -508,7 +771,26 @@
   "all_media_items": [],
   "hidden": false,
   "layout_name": "Title and Content",
-  "shapes": [],
+  "shapes": [
+   {
+    "id": 700,
+    "name": "Text 0",
+    "type": "TEXT_BOX",
+    "text": "A. Joint Accounts",
+    "x": 508000,
+    "y": 127000,
+    "w": 7620000,
+    "h": 508000,
+    "groups": [],
+    "path": [],
+    "path_ids": [],
+    "media_md5": null,
+    "media_kind": null,
+    "overlay_class": null,
+    "zip_name": null,
+    "media_url": null
+   }
+  ],
   "animations": [],
   "interactive_animations": [],
   "has_timer": false,
