@@ -160,7 +160,7 @@ def test_pipeline_stores_format_play_mode_slot_and_topic_label():
         assert (live.slot, live.play_mode, live.topic_label, live.question_format) == ("LIVE", "PASS", "Sustainability 1", "STANDARD_QA")
         assert (spare.slot, spare.topic_label) == ("RESERVE", "Sustainability 1")        # same label, kept apart
         assert (aud.slot, aud.play_mode) == ("LIVE", "AUDIENCE")
-        assert live.format_payload["extraction"]["route"] == "accept" and live.format_payload["round_name"] == "TOPICATOR"
+        assert live.format_needs_review is False and live.format_payload["extraction"]["route"] == "accept" and live.format_payload["round_name"] == "TOPICATOR"
         assert live.content_hash != spare.content_hash                                   # topic_label is not a dedupe key
         r = client.get(f"{API}/questions/{live.id}").json()
         assert (r["slot"], r["play_mode"], r["topic_label"]) == ("LIVE", "PASS", "Sustainability 1")
@@ -191,7 +191,8 @@ def _store(extracted, well_tagged=True, **over):
                     file_size_bytes=1, processing_status="COMPLETED"))
     db.add(Question(id=q_id, document_id=doc_id, question_text=extracted["question_text"], answer=extracted["answer"],
                     topic="General", question_format=extracted["question_format"], format_payload=extracted["format_payload"],
-                    play_mode=extracted["play_mode"], slot=extracted["slot"], **over))
+                    play_mode=extracted["play_mode"], slot=extracted["slot"],
+                    format_needs_review=bool(extracted["_ingest"]["needs_review"]) if "_ingest" in extracted else False, **over))
     if well_tagged:      # a person already confirmed its tags, so only the FORMAT flag can keep it in the queue
         from backend.app.models.qshala_tag import QshalaTag
         db.add(QshalaTag(question_id=q_id, taxonomy_version="v6", source="HUMAN", status="confirmed", topic_l1="General",
@@ -219,12 +220,12 @@ def test_flagged_format_reading_joins_the_needs_review_queue_and_leaves_when_con
     d, q = _store(ex)
     try:
         ids = {r["id"] for r in client.get(f"{API}/questions/needs-review", params={"limit": 200}).json()}
-        assert q in ids
+        assert q in ids and client.get(f"{API}/questions/{q}").json()["format_needs_review"] is True
         n0 = client.get(f"{API}/questions/needs-review/count").json()["count"]
         r = client.post(f"{API}/questions/{q}/accept-format-review")
         assert r.status_code == 200
         ext = r.json()["format_payload"]["extraction"]
-        assert ext["needs_review"] is False and ext["reviewed"] is True
+        assert ext["needs_review"] is False and ext["reviewed"] is True and r.json()["format_needs_review"] is False
         ids = {x["id"] for x in client.get(f"{API}/questions/needs-review", params={"limit": 200}).json()}
         assert q not in ids and client.get(f"{API}/questions/needs-review/count").json()["count"] == n0 - 1
     finally:
@@ -245,11 +246,13 @@ def test_arrange_order_can_be_entered_by_hand():
         p = body["format_payload"]
         assert p["correct_order"] == [4, 3, 2, 1] and p["order_source"] == "human"
         assert p["extraction"]["needs_review"] is False and p["extraction"]["reviewed"] is True
+        assert body["format_needs_review"] is False
         assert body["answer"] == "D → C → B → A"
         ids = {x["id"] for x in client.get(f"{API}/questions/needs-review", params={"limit": 200}).json()}
         assert q not in ids
         r = client.put(url, json={"correct_order": []})                                        # clearing sends it back to review
         assert r.json()["format_payload"]["order_source"] == "none" and r.json()["format_payload"]["extraction"]["needs_review"]
+        assert r.json()["format_needs_review"] is True
     finally:
         _drop(d, q)
 
@@ -285,3 +288,27 @@ def test_rows_without_the_new_columns_set_read_as_live():
         assert r["slot"] == "LIVE" and r["play_mode"] is None and r["topic_label"] is None
     finally:
         _drop(doc_id, q_id)
+
+
+MIGRATION_9 = MIGRATION.parent / "0009_format_needs_review_flag.py"
+
+
+@pytest.mark.skipif(not HAVE_ALEMBIC, reason="alembic is not installed in this environment")
+def test_migration_0009_adds_the_review_flag_defaulting_to_false(tmp_path):
+    engine = sa.create_engine(f"sqlite:///{(tmp_path / 'm9.db').as_posix()}")
+    with engine.begin() as c:
+        c.exec_driver_sql("CREATE TABLE questions (id VARCHAR(36) PRIMARY KEY, question_text TEXT NOT NULL)")
+        c.exec_driver_sql("INSERT INTO questions (id, question_text) VALUES ('a', 'x')")
+    spec = importlib.util.spec_from_file_location("m0009", MIGRATION_9)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    assert m.down_revision == "0008_format_aware_questions"
+    _run(engine, m.upgrade)
+    assert not _cols(engine)["format_needs_review"]["nullable"]
+    with engine.connect() as c:
+        assert c.exec_driver_sql("SELECT format_needs_review FROM questions").scalar() in (0, False)
+    _run(engine, m.upgrade)                                   # idempotent
+    _run(engine, m.downgrade)
+    assert "format_needs_review" not in _cols(engine)
+    with engine.connect() as c:
+        assert c.exec_driver_sql("SELECT count(*) FROM questions").scalar() == 1

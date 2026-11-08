@@ -30,6 +30,7 @@ class QuestionBase(BaseModel):
     play_mode: Optional[str] = None      # BUZZER | DIRECTED | PASS | AUDIENCE | TIEBREAK | ALL_ON_SCREEN | BUFFER
     slot: str = "LIVE"                   # LIVE | RESERVE | EXAMPLE
     topic_label: Optional[str] = None
+    format_needs_review: bool = False
     source_year: Optional[int] = None
     # Multi-modal media & canonical representations
     image_refs: List[str] = []

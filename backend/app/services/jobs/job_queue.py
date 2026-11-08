@@ -497,6 +497,7 @@ class JobQueueService:
                 play_mode=q_data.get("play_mode"),
                 slot=q_data.get("slot") or "LIVE",
                 topic_label=q_data.get("topic_label"),
+                format_needs_review=bool((q_data.get("_ingest") or {}).get("needs_review")),
                 source_year=q_data.get("source_year", 2024),
                 round_number=q_data.get("round_number"),
                 # Multi-modal & duplicate fields

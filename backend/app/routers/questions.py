@@ -125,6 +125,7 @@ def to_question_response(q: Question, doc: Optional[Document], slide: Optional[S
         play_mode=getattr(q, "play_mode", None),
         slot=getattr(q, "slot", None) or "LIVE",
         topic_label=getattr(q, "topic_label", None),
+        format_needs_review=bool(getattr(q, "format_needs_review", False)),
         image_refs=clean_imgs,
         question_images=clean_q_imgs,
         answer_images=clean_ans_imgs,
@@ -568,21 +569,19 @@ def _confirm_format_reading(q: Question) -> bool:
     import copy
     fp = q.format_payload
     ex = fp.get("extraction") if isinstance(fp, dict) else None
-    if not isinstance(ex, dict) or not ex.get("needs_review"):
+    if not isinstance(ex, dict) or not (ex.get("needs_review") or q.format_needs_review):
         return False
     new = copy.deepcopy(fp)
     new["extraction"].update({"needs_review": False, "reviewed": True, "route": "accept"})
     q.format_payload = new
+    q.format_needs_review = False
     return True
 
 
 def _format_flagged_clause():
     """Questions whose format reading was flagged at ingestion (confidence < 0.7, an unreadable Arrange order, a List It
-    that does not add up...) and that nobody has confirmed yet. Portable text match on the stored payload so it
-    behaves the same on SQLite and Postgres."""
-    from sqlalchemy import cast, String as _S
-    txt = cast(Question.format_payload, _S)
-    return and_(Question.format_payload.isnot(None), txt.like('%"needs_review": true%'), ~txt.like('%"reviewed": true%'))
+    that does not add up...) and that nobody has confirmed yet."""
+    return Question.format_needs_review.is_(True)
 
 
 @router.get("/needs-review", response_model=List[QuestionResponse])
@@ -863,6 +862,7 @@ def set_arrange_order(question_id: str, body: ArrangeOrderUpdate, db: Session = 
     if not order:
         new["correct_order"], new["order_source"] = [], "none"
         ex.update({"needs_review": True, "reviewed": False, "route": "review"})
+        q.format_needs_review = True
         q.answer = "Correct order not recorded"
         ordered = [names[l] for l in labels]
     else:
@@ -870,6 +870,7 @@ def set_arrange_order(question_id: str, body: ArrangeOrderUpdate, db: Session = 
             raise HTTPException(status_code=400, detail=f"correct_order must list each label exactly once: {labels}")
         new["correct_order"], new["order_source"] = order, "human"
         ex.update({"needs_review": False, "reviewed": True, "route": "accept"})
+        q.format_needs_review = False
         reasons = [r for r in (ex.get("reasons") or []) if "order" not in r.lower()]
         ex["reasons"] = reasons + ["order entered by hand"]
         ordered = [names[l] for l in order]

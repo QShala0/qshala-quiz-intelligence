@@ -258,6 +258,7 @@ def ensure_schema_columns():
                     ("play_mode", "VARCHAR(16)"),
                     ("slot", "VARCHAR(10) NOT NULL DEFAULT 'LIVE'"),
                     ("topic_label", "VARCHAR(100)"),
+                    ("format_needs_review", "BOOLEAN NOT NULL DEFAULT FALSE"),
                 ]
                 for col_name, col_type in new_q_cols:
                     try:

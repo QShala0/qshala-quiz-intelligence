@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, Float, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, String, Integer, Float, Text, DateTime, ForeignKey, JSON, Boolean, false
 from sqlalchemy.orm import relationship
 from backend.app.database import Base, get_vector_column_type
 from backend.app.config import settings
@@ -64,6 +64,8 @@ class Question(Base):
                        comment="BUZZER | DIRECTED | PASS | AUDIENCE | TIEBREAK | ALL_ON_SCREEN | BUFFER")
     slot = Column(String(10), nullable=False, default="LIVE", server_default="LIVE", comment="LIVE | RESERVE | EXAMPLE")
     topic_label = Column(String(100), nullable=True)
+    # True while the format reading (confidence < 0.7, an Arrange order that could not be computed...) waits for a person.
+    format_needs_review = Column(Boolean, nullable=False, default=False, server_default=false())
     source_year = Column(Integer, nullable=True)
     round_number = Column(Integer, nullable=True)
 
