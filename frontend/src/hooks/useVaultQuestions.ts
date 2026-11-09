@@ -48,21 +48,39 @@ export function useVaultQuestions(
   // answer. Track the in-flight request so a new one can cancel it first.
   const inFlightRequest = useRef<AbortController | null>(null);
 
-  // Fetch topics list, documents list, and duplicate count on mount
+  // Fetch topics list, documents list, duplicate count, and review count in parallel on mount (P0-4)
   useEffect(() => {
     const loadMetadata = async () => {
-      try {
-        const list = await api.getTopics();
-        setTopicsList(list);
-        const docs = await api.listDocuments();
-        setDocumentsList(docs);
-        const dupRes = await api.getDuplicateCount();
-        setDuplicateCount(dupRes.count);
-        try {
-          setReviewCount(await api.getReviewCount());
-        } catch { /* review count is best-effort */ }
-      } catch (err) {
-        console.error('Failed to load initial metadata:', err);
+      const [topicsResult, docsResult, dupsResult, reviewResult] = await Promise.allSettled([
+        api.getTopics(),
+        api.listDocuments(),
+        api.getDuplicateCount(),
+        api.getReviewCount(),
+      ]);
+
+      if (topicsResult.status === 'fulfilled') {
+        setTopicsList(topicsResult.value);
+      } else {
+        console.error('Failed to load topics:', topicsResult.reason);
+      }
+
+      if (docsResult.status === 'fulfilled') {
+        setDocumentsList(docsResult.value);
+      } else {
+        console.error('Failed to load documents:', docsResult.reason);
+      }
+
+      if (dupsResult.status === 'fulfilled') {
+        setDuplicateCount(dupsResult.value.count);
+      } else {
+        console.error('Failed to load duplicate count:', dupsResult.reason);
+      }
+
+      if (reviewResult.status === 'fulfilled') {
+        setReviewCount(reviewResult.value);
+      } else {
+        // review count is best-effort
+        console.warn('Failed to load review count:', reviewResult.reason);
       }
     };
     loadMetadata();
