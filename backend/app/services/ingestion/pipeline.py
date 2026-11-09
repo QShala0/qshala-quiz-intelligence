@@ -314,6 +314,11 @@ class IngestionPipeline:
                                 "current_step": f"Skipped: identical to '{twin.title}', already ingested",
                                 "duplicates_filtered": 0,
                             })
+                            try:
+                                from backend.app.routers.stats import invalidate_stats_cache
+                                invalidate_stats_cache()
+                            except Exception:
+                                pass
                             return
             except Exception as hash_err:
                 logger.warning("deck fingerprint check failed (continuing normally): %s", safe_error(hash_err))
@@ -954,6 +959,11 @@ class IngestionPipeline:
                 "duplicates_filtered": len(duplicates),
                 "_ts": time.time(),
             })
+            try:
+                from backend.app.routers.stats import invalidate_stats_cache
+                invalidate_stats_cache()
+            except Exception:
+                pass
 
         except IngestionCancelled:
             logger.info(f"[CANCEL] ingestion of {document_id} cancelled by user, cleaning up")

@@ -168,3 +168,32 @@ def test_p0_3_duplicate_candidates_query_count_and_payload(client):
         assert len(statements) <= 8, f"Expected <= 8 queries, got {len(statements)}: {statements}"
     finally:
         event.remove(engine, "before_cursor_execute", _capture_stmt)
+
+
+def test_p1_1_stats_endpoint_query_count_and_cache(client):
+    """P1-1: /stats issues <= 3 queries on cache miss and 0 queries on cache hit."""
+    statements = []
+    def _capture_stmt(conn, cur, st, p, ctx, many):
+        statements.append(st)
+
+    # Invalidate cache before test
+    from backend.app.routers.stats import invalidate_stats_cache
+    invalidate_stats_cache()
+
+    event.listen(engine, "before_cursor_execute", _capture_stmt)
+    try:
+        # First call: cache miss, must be <= 3 queries (was 8)
+        res1 = client.get("/api/v1/stats")
+        assert res1.status_code == 200
+        miss_count = len(statements)
+        assert miss_count <= 3, f"Expected <= 3 queries on cache miss, got {miss_count}: {statements}"
+
+        # Second call: cache hit within TTL, must be 0 queries
+        statements.clear()
+        res2 = client.get("/api/v1/stats")
+        assert res2.status_code == 200
+        assert res2.json() == res1.json()
+        assert len(statements) == 0, f"Expected 0 queries on cache hit, got {len(statements)}"
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture_stmt)
+        invalidate_stats_cache()
