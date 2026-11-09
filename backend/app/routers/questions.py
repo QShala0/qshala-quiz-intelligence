@@ -522,6 +522,15 @@ def list_duplicate_candidates(
     return _enrich(db, [to_question_response(q, doc, slide) for q, doc, slide in items])
 
 
+@router.get("/duplicates/count", response_model=Dict[str, int])
+def duplicate_candidates_count(db: Session = Depends(get_db)):
+    """Count questions flagged with duplicate_status == 'POSSIBLE_DUPLICATE' in one query."""
+    n = db.query(func.count(Question.id)).filter(
+        Question.duplicate_status == "POSSIBLE_DUPLICATE"
+    ).scalar()
+    return {"count": int(n or 0)}
+
+
 def _needs_review_ids(db: Session):
     """Determine which questions belong in the review queue vs well-tagged.
     

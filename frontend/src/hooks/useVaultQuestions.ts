@@ -56,8 +56,8 @@ export function useVaultQuestions(
         setTopicsList(list);
         const docs = await api.listDocuments();
         setDocumentsList(docs);
-        const dups = await api.getDuplicateCandidates();
-        setDuplicateCount(dups.length);
+        const dupRes = await api.getDuplicateCount();
+        setDuplicateCount(dupRes.count);
         try {
           setReviewCount(await api.getReviewCount());
         } catch { /* review count is best-effort */ }

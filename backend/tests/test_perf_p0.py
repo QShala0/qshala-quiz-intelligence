@@ -63,3 +63,43 @@ def test_p0_1_list_documents_does_not_contain_slides_and_has_low_query_count(cli
         assert len(statements) <= 2, f"Expected <= 2 statements, got {len(statements)}: {statements}"
     finally:
         event.remove(engine, "before_cursor_execute", _capture_stmt)
+
+
+def test_p0_2_duplicate_count_endpoint(client):
+    """P0-2: /questions/duplicates/count returns accurate count in 1 query and is not shadowed."""
+    db = SessionLocal()
+    try:
+        doc = db.query(Document).first()
+        doc_id = doc.id if doc else "dummy-doc-id"
+        # Seed 2 possible duplicates
+        for i in range(2):
+            q = Question(
+                id=str(uuid.uuid4()),
+                document_id=doc_id,
+                question_text=f"Duplicate test question {i}",
+                answer="Test answer",
+                topic="General Knowledge",
+                duplicate_status="POSSIBLE_DUPLICATE",
+                duplicate_similarity=0.95
+            )
+            db.add(q)
+        db.commit()
+    finally:
+        db.close()
+
+    statements = []
+    def _capture_stmt(conn, cur, st, p, ctx, many):
+        statements.append(st)
+
+    event.listen(engine, "before_cursor_execute", _capture_stmt)
+    try:
+        res = client.get("/api/v1/questions/duplicates/count")
+        assert res.status_code == 200
+        data = res.json()
+        assert "count" in data
+        assert isinstance(data["count"], int)
+        assert data["count"] >= 2
+        # Assert exactly 1 query
+        assert len(statements) == 1, f"Expected 1 query, got {len(statements)}: {statements}"
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture_stmt)

@@ -467,6 +467,11 @@ export const api = {
     return handleResponse<HistoricalQuestion[]>(res);
   },
 
+  getDuplicateCount: async (): Promise<{ count: number }> => {
+    const res = await fetch(`${getApiBase()}/questions/duplicates/count`, { cache: 'no-store' });
+    return handleResponse<{ count: number }>(res);
+  },
+
   getReviewCandidates: async (signal?: AbortSignal): Promise<HistoricalQuestion[]> => {
     const res = await fetch(`${getApiBase()}/questions/needs-review`, { cache: 'no-store', signal });
     return handleResponse<HistoricalQuestion[]>(res);
