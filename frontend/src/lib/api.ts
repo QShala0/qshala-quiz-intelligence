@@ -128,6 +128,14 @@ export function getFallbackMediaUrl(currentUrl: string): string | null {
   return null;
 }
 
+// Vercel rejects any request body over ~4.5 MB with a 413 before it ever reaches the backend, so
+// slices cannot travel through the /api/v1 rewrite. Set NEXT_PUBLIC_UPLOAD_API_URL to the Cloud Run
+// API base (e.g. https://<service>.run.app/api/v1) to send uploads straight to the backend; the
+// backend's CORS regex already allows the Vercel origins. Unset = previous behaviour.
+export function getUploadApiBase(): string {
+  return process.env.NEXT_PUBLIC_UPLOAD_API_URL || getApiBase();
+}
+
 // Size of each slice sent by uploadDocumentChunked. Exported so the UI can show the same number.
 // 24 MB: Cloud Run enforces a hard 32 MiB request-body cap on HTTP/1 (no limit only if the service
 // speaks HTTP/2 end-to-end, which the backend doesn't). A 50 MB slice was fine on Render -- which
@@ -337,7 +345,7 @@ export const api = {
       let lastError: any = null;
       for (let attempt = 0; attempt < BACKOFF_DELAYS.length; attempt++) {
         try {
-          res = await xhrPost(`${getApiBase()}/documents/upload-chunk`, formData, {
+          res = await xhrPost(`${getUploadApiBase()}/documents/upload-chunk`, formData, {
             signal,
             onUploadProgress: (loaded) => report(start + Math.min(loaded, end - start), chunkIndex),
           });
@@ -384,7 +392,7 @@ export const api = {
 
   /** Cancel a chunked upload that is still sending slices: the server deletes what it already received. */
   cancelChunkedUpload: async (uploadId: string): Promise<{ status: string }> => {
-    const res = await fetch(`${getApiBase()}/documents/upload-chunk/${encodeURIComponent(uploadId)}`, {
+    const res = await fetch(`${getUploadApiBase()}/documents/upload-chunk/${encodeURIComponent(uploadId)}`, {
       method: 'DELETE',
       keepalive: true,
     });
