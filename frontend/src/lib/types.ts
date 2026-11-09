@@ -23,6 +23,9 @@ export interface DocumentItem {
   processing_status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
   processing_error?: string | null;
   uploaded_at: string;
+}
+
+export interface DocumentDetail extends DocumentItem {
   slides?: Slide[];
 }
 

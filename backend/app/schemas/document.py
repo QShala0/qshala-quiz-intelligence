@@ -27,7 +27,7 @@ class DocumentBase(BaseModel):
 class DocumentCreate(DocumentBase):
     pass
 
-class DocumentResponse(DocumentBase):
+class DocumentListItem(DocumentBase):
     id: str
     uploaded_at: datetime
     storage_path: str
@@ -36,6 +36,9 @@ class DocumentResponse(DocumentBase):
     question_count: int
     processing_status: str
     processing_error: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+class DocumentResponse(DocumentListItem):
     slides: Optional[List[SlideResponse]] = None
     model_config = ConfigDict(from_attributes=True)
 

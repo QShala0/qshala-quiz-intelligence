@@ -7,10 +7,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, noload
 from backend.app.database import get_db
 from backend.app.models.document import Document, Slide
-from backend.app.schemas.document import DocumentResponse, IngestionStatusResponse, SlideResponse
+from backend.app.schemas.document import DocumentResponse, DocumentListItem, IngestionStatusResponse, SlideResponse
 from backend.app.services.ingestion.pipeline import IngestionPipeline, INGESTION_STATUS_REGISTRY
 from backend.app.config import settings
 from backend.app.services.ingestion.cancellation import (
@@ -698,13 +698,14 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
     }
     return {"status": "CANCELLED", "document_id": document_id}
 
-@router.get("", response_model=List[DocumentResponse])
+@router.get("", response_model=List[DocumentListItem])
 def list_documents(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     return (db.query(Document)
+            .options(noload(Document.slides))
             .order_by(Document.created_at.desc())
             .offset(offset).limit(limit)
             .all())
