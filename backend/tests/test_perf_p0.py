@@ -103,3 +103,68 @@ def test_p0_2_duplicate_count_endpoint(client):
         assert len(statements) == 1, f"Expected 1 query, got {len(statements)}: {statements}"
     finally:
         event.remove(engine, "before_cursor_execute", _capture_stmt)
+
+
+def test_p0_3_duplicate_candidates_query_count_and_payload(client):
+    """P0-3: list_duplicate_candidates issues <= 8 queries even with many duplicate pairs."""
+    db = SessionLocal()
+    try:
+        doc = db.query(Document).first()
+        doc_id = doc.id if doc else "dummy-doc-id"
+
+        # Create 5 parent questions
+        parents = []
+        for i in range(5):
+            p = Question(
+                id=str(uuid.uuid4()),
+                document_id=doc_id,
+                question_text=f"Parent question {i}",
+                answer=f"Parent answer {i}",
+                topic="General Knowledge",
+                duplicate_status="UNIQUE"
+            )
+            db.add(p)
+            parents.append(p)
+        db.commit()
+
+        # Create 10 duplicate questions pointing to the parents with high similarity
+        for i in range(10):
+            parent = parents[i % len(parents)]
+            dup = Question(
+                id=str(uuid.uuid4()),
+                document_id=doc_id,
+                question_text=f"Duplicate question {i}",
+                answer=f"Duplicate answer {i}",
+                topic="General Knowledge",
+                duplicate_status="POSSIBLE_DUPLICATE",
+                duplicate_similarity=0.98 + (i * 0.001),
+                duplicate_of_id=parent.id
+            )
+            db.add(dup)
+        db.commit()
+    finally:
+        db.close()
+
+    statements = []
+    def _capture_stmt(conn, cur, st, p, ctx, many):
+        statements.append(st)
+
+    event.listen(engine, "before_cursor_execute", _capture_stmt)
+    try:
+        res = client.get("/api/v1/questions/duplicates?limit=10")
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data) >= 10
+
+        # Assert duplicate_of_text is populated correctly for all rows with duplicate_of_id
+        checked_with_dup = 0
+        for item in data:
+            if item.get("duplicate_of_id"):
+                assert item.get("duplicate_of_text") is not None, f"Expected text for {item['id']}"
+                checked_with_dup += 1
+        assert checked_with_dup >= 10
+
+        # Assert query count <= 8 (typically 5 queries: 1 main, 1 selectinload, 3 enrich)
+        assert len(statements) <= 8, f"Expected <= 8 queries, got {len(statements)}: {statements}"
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture_stmt)

@@ -5,7 +5,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 import numpy as np
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_, and_, not_
 from backend.app.database import is_postgres, PG_VECTOR_AVAILABLE
 from backend.app.models.question import Question
@@ -132,6 +132,7 @@ class HybridRetriever:
         Prioritizes tag matches and exact topic alignments without vector fuzzy drift.
         """
         query_builder = self.db.query(Question, Document, Slide).\
+            options(selectinload(Question.duplicate_of)).\
             join(Document, Question.document_id == Document.id).\
             outerjoin(Slide, Question.slide_id == Slide.id)
 
@@ -219,6 +220,7 @@ class HybridRetriever:
 
     def _join_query(self):
         return self.db.query(Question, Document, Slide).\
+            options(selectinload(Question.duplicate_of)).\
             join(Document, Question.document_id == Document.id).\
             outerjoin(Slide, Question.slide_id == Slide.id)
 

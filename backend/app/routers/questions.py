@@ -1,7 +1,7 @@
 import asyncio
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_, and_, func, desc, asc, String
 from backend.app.database import get_db
 from backend.app.models.question import Question
@@ -418,6 +418,7 @@ async def search_questions(
             # If any document matches the query string by title, prioritize and include its questions
             if doc_ids:
                 deck_questions = db.query(Question, Document, Slide).\
+                    options(selectinload(Question.duplicate_of)).\
                     outerjoin(Document, Question.document_id == Document.id).\
                     outerjoin(Slide, Question.slide_id == Slide.id).\
                     filter(Question.document_id.in_(doc_ids)).limit(limit_int).all()
@@ -437,6 +438,7 @@ async def search_questions(
     def _filtered_search():
         # Direct query with rich metadata filters
         q_builder = db.query(Question, Document, Slide).\
+            options(selectinload(Question.duplicate_of)).\
             outerjoin(Document, Question.document_id == Document.id).\
             outerjoin(Slide, Question.slide_id == Slide.id)
 
@@ -513,6 +515,7 @@ def list_duplicate_candidates(
     Lists all questions flagged with duplicate_status == 'POSSIBLE_DUPLICATE' for human review.
     """
     items = db.query(Question, Document, Slide).\
+        options(selectinload(Question.duplicate_of)).\
         outerjoin(Document, Question.document_id == Document.id).\
         outerjoin(Slide, Question.slide_id == Slide.id).\
         filter(Question.duplicate_status == "POSSIBLE_DUPLICATE").\
@@ -603,6 +606,7 @@ def list_review_candidates(
     Well-tagged questions with valid canonical taxonomy subtopics bypass this queue."""
     needs_review, well_tagged = _needs_review_ids(db)
     items = db.query(Question, Document, Slide).\
+        options(selectinload(Question.duplicate_of)).\
         outerjoin(Document, Question.document_id == Document.id).\
         outerjoin(Slide, Question.slide_id == Slide.id).\
         filter(or_(and_(Question.id.in_(needs_review), ~Question.id.in_(well_tagged)), _format_flagged_clause())).\
