@@ -197,3 +197,104 @@ def test_p1_1_stats_endpoint_query_count_and_cache(client):
     finally:
         event.remove(engine, "before_cursor_execute", _capture_stmt)
         invalidate_stats_cache()
+
+
+def test_p1_3_multi_deck_statement_count_regression(client):
+    """P1-3: Statement count regression tests on a seeded multi-deck database.
+    Asserts counts (never wall-clock time):
+      - list_documents <= 2
+      - list_duplicate_candidates <= 8
+      - stats <= 3
+    """
+    db = SessionLocal()
+    try:
+        # Seed 5 decks with 10 slides each
+        doc_ids = []
+        for d_idx in range(5):
+            d_id = f"p1-3-deck-{d_idx}-{uuid.uuid4()}"
+            doc_ids.append(d_id)
+            doc = Document(
+                id=d_id,
+                filename=f"regression_deck_{d_idx}.pptx",
+                title=f"Regression Deck {d_idx}",
+                year=2024,
+                file_type="pptx",
+                storage_path=f"/fake/regression_{d_idx}.pptx",
+                file_size_bytes=12000,
+                processing_status="COMPLETED",
+                slide_count=10,
+                question_count=4
+            )
+            db.add(doc)
+            for s_idx in range(1, 11):
+                slide = Slide(
+                    id=str(uuid.uuid4()),
+                    document_id=d_id,
+                    slide_number=s_idx,
+                    slide_type="QUESTION",
+                    extracted_text=f"Deck {d_idx} Slide {s_idx} content"
+                )
+                db.add(slide)
+
+        # Seed 5 parent questions
+        parent_ids = []
+        for p_idx in range(5):
+            pid = str(uuid.uuid4())
+            parent_ids.append(pid)
+            pq = Question(
+                id=pid,
+                document_id=doc_ids[p_idx],
+                question_text=f"Canonical parent question {p_idx}",
+                answer=f"Canonical answer {p_idx}",
+                topic="Technology",
+                duplicate_status="UNIQUE"
+            )
+            db.add(pq)
+
+        # Seed 15 duplicate questions pointing to parents
+        for dup_idx in range(15):
+            parent_id = parent_ids[dup_idx % len(parent_ids)]
+            doc_id = doc_ids[dup_idx % len(doc_ids)]
+            dq = Question(
+                id=str(uuid.uuid4()),
+                document_id=doc_id,
+                question_text=f"Variant duplicate question {dup_idx}",
+                answer=f"Variant answer {dup_idx}",
+                topic="Technology",
+                duplicate_status="POSSIBLE_DUPLICATE",
+                duplicate_similarity=0.93 + (dup_idx * 0.003),
+                duplicate_of_id=parent_id
+            )
+            db.add(dq)
+
+        db.commit()
+    finally:
+        db.close()
+
+    statements = []
+    def _capture_stmt(conn, cur, st, p, ctx, many):
+        statements.append(st)
+
+    event.listen(engine, "before_cursor_execute", _capture_stmt)
+    try:
+        # 1. list_documents statement count <= 2
+        statements.clear()
+        res_docs = client.get("/api/v1/documents?limit=50")
+        assert res_docs.status_code == 200
+        assert len(statements) <= 2, f"list_documents exceeded statement cap: {len(statements)} statements: {statements}"
+
+        # 2. list_duplicate_candidates statement count <= 8
+        statements.clear()
+        res_dups = client.get("/api/v1/questions/duplicates?limit=50")
+        assert res_dups.status_code == 200
+        assert len(statements) <= 8, f"list_duplicate_candidates exceeded statement cap: {len(statements)} statements: {statements}"
+
+        # 3. get_stats statement count <= 3
+        from backend.app.routers.stats import invalidate_stats_cache
+        invalidate_stats_cache()
+        statements.clear()
+        res_stats = client.get("/api/v1/stats")
+        assert res_stats.status_code == 200
+        assert len(statements) <= 3, f"get_stats exceeded statement cap: {len(statements)} statements: {statements}"
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture_stmt)
