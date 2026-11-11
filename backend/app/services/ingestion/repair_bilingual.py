@@ -17,7 +17,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,11 @@ def _is_indic_without_latin(text: Optional[str]) -> bool:
     return bool(s) and bool(_INDIC_RE.search(s)) and not bool(_LATIN_RE.search(s))
 
 
-def repair_kannada_only_answers(db: Session, dry_run: bool = False) -> Dict[str, int]:
+def repair_kannada_only_answers(
+    db: Session,
+    dry_run: bool = False,
+    document_id: Optional[str] = None,
+) -> Dict[str, int]:
     """Repair isolated questions whose `answer` is pure Kannada/Indic script or contains base64 data URIs
     when an English answer is recoverable from `answer_slide`, `slide.speaker_notes`, or `explanation`.
     """
@@ -99,7 +103,10 @@ def repair_kannada_only_answers(db: Session, dry_run: bool = False) -> Dict[str,
     from backend.app.services.ingestion.question_extractor import QuestionExtractor
 
     extractor = QuestionExtractor()
-    rows: List[Question] = db.query(Question).all()
+    q_query = db.query(Question).options(defer(Question.embedding))
+    if document_id:
+        q_query = q_query.filter(Question.document_id == document_id)
+    rows: List[Question] = q_query.all()
     slide_ids: Set[str] = set()
     candidates: List[Question] = []
     for q in rows:
@@ -335,7 +342,12 @@ def _merge_item_media_and_format(
     }
 
 
-def repair_broken_deck_extractions(db: Session, dry_run: bool = False) -> Dict[str, Any]:
+def repair_broken_deck_extractions(
+    db: Session,
+    dry_run: bool = False,
+    document_id: Optional[str] = None,
+    max_docs: Optional[int] = None,
+) -> Dict[str, Any]:
     """Re-classify and re-extract any document whose persisted questions contain broken
     artifacts ('?????!', 'Answer!', 'data:image/...', bumpers like 'Ready for Q1.',
     answer slides leaked as questions, merged STEPPED_CLUE in Image Reveal rounds,
@@ -377,19 +389,19 @@ def repair_broken_deck_extractions(db: Session, dry_run: bool = False) -> Dict[s
     from backend.app.services.tagging.qshala_rules import classify_taxonomy
     from backend.app.services.tagging.topic_paths import has_human_paths, replace_paths
 
-    rows = (
-        db.query(
-            Question.document_id,
-            Question.slide_id,
-            Question.question_text,
-            Question.answer,
-            Question.question_format,
-            Question.subtopic,
-            Question.question_images,
-            Question.image_refs,
-        )
-        .all()
+    rows_q = db.query(
+        Question.document_id,
+        Question.slide_id,
+        Question.question_text,
+        Question.answer,
+        Question.question_format,
+        Question.subtopic,
+        Question.question_images,
+        Question.image_refs,
     )
+    if document_id:
+        rows_q = rows_q.filter(Question.document_id == document_id)
+    rows = rows_q.all()
     broken_doc_ids: Set[str] = set()
     doc_stats: Dict[str, Dict[str, int]] = defaultdict(lambda: {"list_it": 0, "connect": 0, "stepped": 0, "total": 0})
     doc_q_sids: Dict[str, Set[str]] = defaultdict(set)
@@ -504,9 +516,14 @@ def repair_broken_deck_extractions(db: Session, dry_run: bool = False) -> Dict[s
         extractor = QuestionExtractor()
         diff_eng = DifficultyEngine()
 
+        target_doc_ids = sorted(broken_doc_ids)
+        if max_docs is not None and max_docs > 0:
+            target_doc_ids = target_doc_ids[:max_docs]
+            summary["remaining_broken_docs"] = max(0, len(broken_doc_ids) - len(target_doc_ids))
+
         docs = (
             db.query(Document)
-            .filter(Document.id.in_(sorted(broken_doc_ids)))
+            .filter(Document.id.in_(target_doc_ids))
             .all()
         )
         for doc in docs:
@@ -569,6 +586,7 @@ def repair_broken_deck_extractions(db: Session, dry_run: bool = False) -> Dict[s
 
             existing_qs: List[Question] = (
                 db.query(Question)
+                .options(defer(Question.embedding))
                 .filter(Question.document_id == doc.id)
                 .order_by(Question.created_at.asc())
                 .all()
@@ -748,10 +766,13 @@ def repair_broken_deck_extractions(db: Session, dry_run: bool = False) -> Dict[s
             db.flush()
             doc.question_count = db.query(Question).filter(Question.document_id == doc.id).count()
             summary["repaired_docs"] += 1
+            db.commit()
 
-        db.commit()
-
-    summary["kannada_fallback"] = repair_kannada_only_answers(db, dry_run=dry_run)
+    summary["kannada_fallback"] = repair_kannada_only_answers(
+        db,
+        dry_run=dry_run,
+        document_id=document_id,
+    )
     if not dry_run and (
         summary["repaired_docs"]
         or summary["kannada_fallback"].get("repaired")

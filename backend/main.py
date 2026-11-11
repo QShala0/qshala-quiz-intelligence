@@ -39,6 +39,7 @@ app.add_middleware(
 _init_error = None
 _init_traceback = None
 _runtime_ready = False
+_schema_error = None
 _runtime_ready_lock = threading.Lock()
 _DIAGNOSTIC_PATHS = frozenset({
     "/api/ping",
@@ -52,8 +53,8 @@ _DIAGNOSTIC_PATHS = frozenset({
 
 
 def _ensure_runtime_ready() -> bool:
-    """Lazily initialize DB schema and startup repairs once per worker process."""
-    global _runtime_ready
+    """Lazily initialize DB schema (without heavy multi-deck repairs) once per worker process."""
+    global _runtime_ready, _schema_error
     if _runtime_ready or _init_error is not None:
         return _runtime_ready
     with _runtime_ready_lock:
@@ -61,9 +62,13 @@ def _ensure_runtime_ready() -> bool:
             return _runtime_ready
         try:
             from backend.app.database import ensure_schema_columns
-            if ensure_schema_columns():
+            if ensure_schema_columns(run_repairs=False):
                 _runtime_ready = True
+                _schema_error = None
+            else:
+                _schema_error = "ensure_schema_columns returned False"
         except Exception as em:
+            _schema_error = str(em)
             print("Schema ensure notice:", em)
         return _runtime_ready
 
@@ -91,20 +96,24 @@ def ping():
 @app.get("/diagnostics")
 def diagnostics():
     db_test = None
-    db_meta = {"schema_ready": _runtime_ready}
+    schema_status = None
+    db_meta = {"schema_ready": _runtime_ready, "schema_error": _schema_error}
     try:
-        from backend.app.database import DB_BACKEND, DB_PERSISTENT, raw_db_url
+        from backend.app.database import DB_BACKEND, DB_PERSISTENT, raw_db_url, inspect_schema_status
         host = "local file"
         if DB_PERSISTENT:
             try:
                 host = raw_db_url.split("@", 1)[1].split("/", 1)[0]
             except Exception:
                 host = "postgres"
+        schema_status = inspect_schema_status()
         db_meta = {
             "db_backend": DB_BACKEND,
             "db_persistent": DB_PERSISTENT,
             "db_host": host,
             "schema_ready": _runtime_ready,
+            "schema_error": _schema_error,
+            "schema_status": schema_status,
         }
     except Exception:
         pass

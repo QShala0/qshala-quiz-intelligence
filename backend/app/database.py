@@ -379,11 +379,40 @@ def _run_ddl_isolated(eng, sql_stmt: str, eng_is_postgres: bool, pg_statement_ti
         conn.exec_driver_sql(sql_stmt)
 
 
-def ensure_schema_columns(force: bool = False, target_engine=None) -> bool:
+def inspect_schema_status(target_engine=None) -> dict:
+    """Return read-only counts/lists of missing ORM tables and extra columns."""
+    eng = target_engine or engine
+    if eng is None:
+        return {"missing_tables": [], "missing_columns": {}}
+    import backend.app.models  # noqa: F401
+    eng_is_postgres = eng.dialect.name == "postgresql"
+    existing_tables, cols_by_table, _ = _inspect_existing_schema(eng, eng_is_postgres)
+    expected_tables = set(Base.metadata.tables.keys()) | {"upload_sessions"}
+    missing_tables = sorted(expected_tables - existing_tables)
+    expected_cols = _expected_extra_columns(eng_is_postgres)
+    missing_columns = {}
+    for table_name, col_defs in expected_cols.items():
+        if table_name not in existing_tables:
+            continue
+        existing_cols = cols_by_table.get(table_name, set())
+        missing = [col_name for col_name, _ in col_defs if col_name not in existing_cols]
+        if missing:
+            missing_columns[table_name] = missing
+    return {"missing_tables": missing_tables, "missing_columns": missing_columns}
+
+
+def ensure_schema_columns(
+    force: bool = False,
+    target_engine=None,
+    run_repairs: Optional[bool] = None,
+) -> bool:
     """Safely ensures tables, vector index, extra columns, and startup repairs exist."""
     eng = target_engine or engine
     if eng is None:
         return True
+
+    if run_repairs is None:
+        run_repairs = not _is_serverless
 
     eng_is_postgres = eng.dialect.name == "postgresql"
     cache_key = (id(eng), str(eng.url))
@@ -402,7 +431,7 @@ def ensure_schema_columns(force: bool = False, target_engine=None) -> bool:
                 Base.metadata.create_all(bind=eng)
                 existing_tables, cols_by_table, upload_session_types = _inspect_existing_schema(eng, eng_is_postgres)
 
-            if eng_is_postgres and PG_VECTOR_AVAILABLE:
+            if not _is_serverless and eng_is_postgres and PG_VECTOR_AVAILABLE:
                 _ensure_vector_index(eng)
 
             # Ensure upload_sessions table exists only when absent (avoid unconditional DDL locks)
@@ -474,13 +503,14 @@ def ensure_schema_columns(force: bool = False, target_engine=None) -> bool:
                     except Exception:
                         pass  # column added concurrently or table altered concurrently
 
-            # One-time backfill of content_hash and topics for legacy questions (fast LIMIT 1 probe)
-            session_factory = (
-                SessionLocal
-                if eng is engine
-                else sessionmaker(autocommit=False, autoflush=False, bind=eng)
-            )
-            if "questions" in existing_tables:
+            # Run one-time backfill and deck auto-repair only when enabled
+            # (skipped on serverless HTTP request paths so cold starts stay fast).
+            if run_repairs and "questions" in existing_tables:
+                session_factory = (
+                    SessionLocal
+                    if eng is engine
+                    else sessionmaker(autocommit=False, autoflush=False, bind=eng)
+                )
                 try:
                     from backend.app.services.deduplication.deduplicator import Deduplicator
                     from backend.app.services.tagging.auto_tagger import AutoTagger

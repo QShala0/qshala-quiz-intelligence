@@ -93,13 +93,26 @@ import backend.app.database as db_mod
 import_cached = len(db_mod._ensured_schema_keys)
 calls = 0
 orig_ensure = db_mod.ensure_schema_columns
+ensure_kwargs = []
 
 def wrapped_ensure(*args, **kwargs):
     global calls
     calls += 1
+    ensure_kwargs.append(kwargs)
     return orig_ensure(*args, **kwargs)
 
 db_mod.ensure_schema_columns = wrapped_ensure
+
+import backend.app.services.ingestion.repair_bilingual as rep_mod
+repair_calls = 0
+orig_repair = rep_mod.repair_broken_deck_extractions
+
+def wrapped_repair(*args, **kwargs):
+    global repair_calls
+    repair_calls += 1
+    return orig_repair(*args, **kwargs)
+
+rep_mod.repair_broken_deck_extractions = wrapped_repair
 
 import backend.main as entry
 from fastapi.testclient import TestClient
@@ -120,9 +133,12 @@ calls_after_health = calls
 r_stats_1 = client.get("/api/v1/stats")
 calls_after_stats_1 = calls
 ready_after_stats_1 = entry._runtime_ready
+repair_calls_after_stats_1 = repair_calls
 
 r_stats_2 = client.get("/api/v1/stats")
 calls_after_stats_2 = calls
+
+r_repair_404 = client.post("/api/v1/documents/nonexistent-doc/repair")
 
 print(json.dumps({{
     "import_cached": import_cached,
@@ -134,14 +150,18 @@ print(json.dumps({{
     "diag_status": r_diag.status_code,
     "diag_keys": sorted(r_diag.json().keys()),
     "diag_schema_ready": r_diag.json().get("schema_ready"),
+    "diag_schema_status": r_diag.json().get("schema_status"),
     "calls_after_diag": calls_after_diag,
     "health_status": r_health.status_code,
     "calls_after_health": calls_after_health,
     "stats_1_status": r_stats_1.status_code,
     "calls_after_stats_1": calls_after_stats_1,
     "ready_after_stats_1": ready_after_stats_1,
+    "repair_calls_after_stats_1": repair_calls_after_stats_1,
+    "ensure_kwargs": ensure_kwargs,
     "stats_2_status": r_stats_2.status_code,
     "calls_after_stats_2": calls_after_stats_2,
+    "repair_404_status": r_repair_404.status_code,
 }}))
 """
     env = os.environ.copy()
@@ -169,16 +189,20 @@ print(json.dumps({{
     assert data["ping_json"]["schema_ready"] is False
     assert data["calls_after_ping"] == 0
     assert data["diag_status"] == 200
-    assert {"db_backend", "db_persistent", "db_host", "schema_ready"}.issubset(set(data["diag_keys"]))
+    assert {"db_backend", "db_persistent", "db_host", "schema_ready", "schema_status"}.issubset(set(data["diag_keys"]))
     assert data["diag_schema_ready"] is False
+    assert data["diag_schema_status"]["missing_tables"] != []
     assert data["calls_after_diag"] == 0
     assert data["health_status"] in (200, 503)
     assert data["calls_after_health"] == 0
     assert data["stats_1_status"] == 200
     assert data["calls_after_stats_1"] == 1
     assert data["ready_after_stats_1"] is True
+    assert data["repair_calls_after_stats_1"] == 0
+    assert data["ensure_kwargs"] == [{"run_repairs": False}]
     assert data["stats_2_status"] == 200
     assert data["calls_after_stats_2"] == 1
+    assert data["repair_404_status"] == 404
 
 
 def test_vercel_config_skips_bundle_copies_when_postgres_and_r2_configured():

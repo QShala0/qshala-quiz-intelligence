@@ -939,3 +939,14 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     db.delete(doc)
     db.commit()
     return {"message": "Document deleted successfully"}
+
+
+@router.post("/{document_id}/repair")
+def repair_document_extractions(document_id: str, dry_run: bool = False, db: Session = Depends(get_db)):
+    """Idempotently repair broken bilingual / bumper / List-It / Connect extractions for one document."""
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    from backend.app.services.ingestion.repair_bilingual import repair_broken_deck_extractions
+    summary = repair_broken_deck_extractions(db, dry_run=dry_run, document_id=document_id)
+    return {"document_id": document_id, "dry_run": dry_run, "summary": summary}
