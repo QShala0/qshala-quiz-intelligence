@@ -60,11 +60,13 @@ if settings.SENTRY_DSN:
     except Exception as e:
         logger.warning(f"Sentry init failed (continuing without it): {e}")
 
-# Initialize DB tables
-try:
-    Base.metadata.create_all(bind=engine)
-except Exception as e:
-    logger.warning(f"DB table creation notice: {e}")
+# Initialize DB tables at import time outside Vercel serverless cold starts
+# (Vercel initializes schema lazily via _ensure_runtime_ready on first non-diagnostic request).
+if not (os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV")):
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        logger.warning(f"DB table creation notice: {e}")
 
 from contextlib import asynccontextmanager
 from backend.app.database import SessionLocal

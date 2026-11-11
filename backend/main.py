@@ -20,9 +20,11 @@ _parent_dir = _current_dir.parent
 if str(_parent_dir) not in sys.path:
     sys.path.insert(0, str(_parent_dir))
 
-from fastapi import FastAPI
+import threading
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 app = FastAPI(title="QShala Service Root")
 
@@ -36,6 +38,43 @@ app.add_middleware(
 
 _init_error = None
 _init_traceback = None
+_runtime_ready = False
+_runtime_ready_lock = threading.Lock()
+_DIAGNOSTIC_PATHS = frozenset({
+    "/api/ping",
+    "/ping",
+    "/api/diagnostics",
+    "/diagnostics",
+    "/health",
+    "/api/health",
+    "/api/v1/health",
+})
+
+
+def _ensure_runtime_ready() -> bool:
+    """Lazily initialize DB schema and startup repairs once per worker process."""
+    global _runtime_ready
+    if _runtime_ready or _init_error is not None:
+        return _runtime_ready
+    with _runtime_ready_lock:
+        if _runtime_ready or _init_error is not None:
+            return _runtime_ready
+        try:
+            from backend.app.database import ensure_schema_columns
+            if ensure_schema_columns():
+                _runtime_ready = True
+        except Exception as em:
+            print("Schema ensure notice:", em)
+        return _runtime_ready
+
+
+@app.middleware("http")
+async def _lazy_runtime_init_middleware(request: Request, call_next):
+    normalized_path = request.url.path.rstrip("/") or "/"
+    if request.method != "OPTIONS" and normalized_path not in _DIAGNOSTIC_PATHS and not _runtime_ready:
+        await run_in_threadpool(_ensure_runtime_ready)
+    return await call_next(request)
+
 
 @app.get("/api/ping")
 @app.get("/ping")
@@ -43,20 +82,42 @@ def ping():
     return {
         "status": "healthy",
         "service": "qshala-backend",
-        "has_init_error": _init_error is not None
+        "has_init_error": _init_error is not None,
+        "schema_ready": _runtime_ready,
     }
+
 
 @app.get("/api/diagnostics")
 @app.get("/diagnostics")
 def diagnostics():
     db_test = None
+    db_meta = {"schema_ready": _runtime_ready}
+    try:
+        from backend.app.database import DB_BACKEND, DB_PERSISTENT, raw_db_url
+        host = "local file"
+        if DB_PERSISTENT:
+            try:
+                host = raw_db_url.split("@", 1)[1].split("/", 1)[0]
+            except Exception:
+                host = "postgres"
+        db_meta = {
+            "db_backend": DB_BACKEND,
+            "db_persistent": DB_PERSISTENT,
+            "db_host": host,
+            "schema_ready": _runtime_ready,
+        }
+    except Exception:
+        pass
+
     try:
         from backend.app.database import SessionLocal
         from backend.app.models.question import Question
         db = SessionLocal()
-        q_count = db.query(Question).count()
-        db_test = {"status": "ok", "question_count": q_count}
-        db.close()
+        try:
+            q_count = db.query(Question).count()
+            db_test = {"status": "ok", "question_count": q_count}
+        finally:
+            db.close()
     except Exception as e:
         import traceback
         db_test = {"status": "error", "error": str(e), "traceback": traceback.format_exc().splitlines()}
@@ -65,11 +126,13 @@ def diagnostics():
         "init_error": _init_error,
         "traceback": _init_traceback.splitlines() if _init_traceback else None,
         "db_test": db_test,
+        **db_meta,
         "sys_path": sys.path,
         "cwd": os.getcwd(),
         "files": os.listdir("."),
         "python_version": sys.version
     }
+
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request, exc):
@@ -79,14 +142,10 @@ async def unhandled_exception_handler(request, exc):
         content={"detail": str(exc), "traceback": traceback.format_exc().splitlines()}
     )
 
+
 try:
     from backend.app.main import app as qshala_app, MultiDirStaticFiles
     from backend.app.config import settings
-    from backend.app.database import ensure_schema_columns
-    try:
-        ensure_schema_columns()
-    except Exception as em:
-        print("Schema ensure notice:", em)
 
     for r in qshala_app.routes:
         app.routes.append(r)

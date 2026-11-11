@@ -39,6 +39,7 @@ export function useVaultQuestions(
   const [availableSubtopics, setAvailableSubtopics] = useState<string[]>([]);
   const [questions, setQuestions] = useState<HistoricalQuestion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   // Performance backlog item 4 (QSHALA_PERFORMANCE_IDEAS.md): every filter change fired a full
@@ -49,41 +50,42 @@ export function useVaultQuestions(
   const inFlightRequest = useRef<AbortController | null>(null);
 
   // Fetch topics list, documents list, duplicate count, and review count in parallel on mount (P0-4)
+  const loadMetadata = async () => {
+    const [topicsResult, docsResult, dupsResult, reviewResult] = await Promise.allSettled([
+      api.getTopics(),
+      api.listDocuments(),
+      api.getDuplicateCount(),
+      api.getReviewCount(),
+    ]);
+
+    if (topicsResult.status === 'fulfilled') {
+      setTopicsList(topicsResult.value);
+    } else {
+      console.error('Failed to load topics:', topicsResult.reason);
+    }
+
+    if (docsResult.status === 'fulfilled') {
+      setDocumentsList(docsResult.value);
+    } else {
+      console.error('Failed to load documents:', docsResult.reason);
+    }
+
+    if (dupsResult.status === 'fulfilled') {
+      setDuplicateCount(dupsResult.value.count);
+    } else {
+      console.error('Failed to load duplicate count:', dupsResult.reason);
+    }
+
+    if (reviewResult.status === 'fulfilled') {
+      setReviewCount(reviewResult.value);
+    } else {
+      // review count is best-effort
+      console.warn('Failed to load review count:', reviewResult.reason);
+    }
+  };
+
   useEffect(() => {
-    const loadMetadata = async () => {
-      const [topicsResult, docsResult, dupsResult, reviewResult] = await Promise.allSettled([
-        api.getTopics(),
-        api.listDocuments(),
-        api.getDuplicateCount(),
-        api.getReviewCount(),
-      ]);
-
-      if (topicsResult.status === 'fulfilled') {
-        setTopicsList(topicsResult.value);
-      } else {
-        console.error('Failed to load topics:', topicsResult.reason);
-      }
-
-      if (docsResult.status === 'fulfilled') {
-        setDocumentsList(docsResult.value);
-      } else {
-        console.error('Failed to load documents:', docsResult.reason);
-      }
-
-      if (dupsResult.status === 'fulfilled') {
-        setDuplicateCount(dupsResult.value.count);
-      } else {
-        console.error('Failed to load duplicate count:', dupsResult.reason);
-      }
-
-      if (reviewResult.status === 'fulfilled') {
-        setReviewCount(reviewResult.value);
-      } else {
-        // review count is best-effort
-        console.warn('Failed to load review count:', reviewResult.reason);
-      }
-    };
-    loadMetadata();
+    void Promise.resolve().then(loadMetadata);
   }, []);
 
   // When topic changes, load topic summary for subtopics
@@ -106,6 +108,7 @@ export function useVaultQuestions(
     inFlightRequest.current = controller;
 
     setLoading(true);
+    setLoadError(null);
     try {
       if (activeTab === 'review') {
         const data = await api.getReviewCandidates(controller.signal);
@@ -135,11 +138,23 @@ export function useVaultQuestions(
       // or flip off the loading state on behalf of the request that replaced it.
       if (isAbortError(err)) return;
       console.error(err);
+      if (inFlightRequest.current === controller) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : 'Unable to reach the question bank API.';
+        setLoadError(message);
+      }
     } finally {
       if (inFlightRequest.current === controller) {
         setLoading(false);
       }
     }
+  };
+
+  const retryLoad = () => {
+    loadMetadata();
+    fetchQuestions();
   };
 
   useEffect(() => {
@@ -233,8 +248,8 @@ export function useVaultQuestions(
     sortBy, setSortBy,
     sortOrder, setSortOrder,
     topicsList, documentsList, availableSubtopics,
-    questions, loading, resolvingId,
-    fetchQuestions, handleSearch,
+    questions, loading, loadError, resolvingId,
+    fetchQuestions, retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
     handleQuestionUpdated, handleConfirmFormat,
   };
