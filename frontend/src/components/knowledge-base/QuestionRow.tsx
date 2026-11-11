@@ -231,15 +231,15 @@ function QuestionRow({
             </button>
           )}
 
-          {hasVideoClue && (
+          {(hasVideoClue || Boolean(q.video_transcript) || q.question_format === 'VIDEO_CLUE' || q.question_type === 'VIDEO_CLUE') && (
             <button
               type="button"
               onClick={() => setSelectedQuestionForMedia(q)}
-              className="inline-flex items-center gap-1 rounded bg-violet-50 hover:bg-violet-100 border border-violet-200 px-1.5 py-0.5 text-[10.5px] font-semibold text-violet-700 cursor-pointer"
-              title="Click to watch embedded video clue"
+              className="inline-flex items-center gap-1 rounded bg-violet-50 hover:bg-violet-100 border border-violet-200 px-1.5 py-0.5 text-[10.5px] font-semibold text-violet-700 max-w-[200px] truncate cursor-pointer"
+              title={q.video_transcript || "Click to watch embedded video clue"}
             >
-              <Video className="h-2.5 w-2.5" />
-              Video Clue
+              <Video className="h-2.5 w-2.5 flex-shrink-0" />
+              <span className="truncate">{q.video_transcript ? `Video: ${q.video_transcript}` : 'Video Clue'}</span>
             </button>
           )}
 
@@ -286,23 +286,6 @@ function QuestionRow({
           >
             <Volume2 className="h-2.5 w-2.5 flex-shrink-0" />
             <span className="truncate">{q.audio_transcript}</span>
-          </button>
-        )}
-        {Boolean(
-          q.video_transcript ||
-          q.question_format === 'VIDEO_CLUE' ||
-          q.question_type === 'VIDEO_CLUE' ||
-          ((q.question_text || '').toLowerCase().match(/\b(video|clip|watch)\b/)) ||
-          ((q as any).video_refs && (q as any).video_refs.some((r: string) => !r.toLowerCase().includes('timer') && !r.toLowerCase().includes('1min') && !r.toLowerCase().includes('countdown')))
-        ) && (
-          <button
-            type="button"
-            onClick={() => setSelectedQuestionForMedia(q)}
-            className="inline-flex items-center gap-1 rounded bg-violet-100 hover:bg-violet-200 border border-violet-300 px-1.5 py-0.5 text-[10.5px] font-bold text-violet-900 max-w-[200px] truncate cursor-pointer shadow-2xs"
-            title={q.video_transcript || "Tournament Video Clue"}
-          >
-            <Video className="h-3 w-3 text-violet-700 flex-shrink-0" />
-            <span className="truncate">{q.video_transcript ? `Video: ${q.video_transcript}` : 'Video Clue'}</span>
           </button>
         )}
         {(q.repeated_count ?? 0) > 0 && (

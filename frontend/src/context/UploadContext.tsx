@@ -9,7 +9,7 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
-import { api, isAbortError, UPLOAD_CHUNK_SIZE, UploadProgressInfo } from '../lib/api';
+import { api, isAbortError, UPLOAD_CHUNK_SIZE, VERCEL_SAFE_CHUNK_SIZE, UploadProgressInfo } from '../lib/api';
 import {
   DocumentItem,
   BatchLocalItem,
@@ -446,7 +446,9 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       const isLocalhost =
         typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-      const directUploadLimit = isLocalhost ? 100 * 1024 * 1024 : UPLOAD_CHUNK_SIZE;
+      const hasDirectUpload = Boolean(process.env.NEXT_PUBLIC_UPLOAD_API_URL);
+      const effectiveChunkSize = isLocalhost || hasDirectUpload ? UPLOAD_CHUNK_SIZE : VERCEL_SAFE_CHUNK_SIZE;
+      const directUploadLimit = isLocalhost ? 100 * 1024 * 1024 : VERCEL_SAFE_CHUNK_SIZE;
 
       try {
         let doc: DocumentItem;
@@ -469,7 +471,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
             },
             undefined,
             undefined,
-            undefined,
+            effectiveChunkSize,
             {
               signal: controller.signal,
               batchId: activeBatchId,

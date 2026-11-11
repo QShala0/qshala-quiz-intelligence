@@ -49,6 +49,14 @@ def passes_hard(c: Candidate, filters: Dict[str, Any], format_filter: Optional[s
         # Real image lists only. `image_dependent` is a loose "short question" heuristic, so it is NOT used here.
         if c.get("question_images") or c.get("answer_images") or c.get("image_refs"):
             return False
+    if skip != "require_images" and f.get("require_images"):
+        if not (c.get("question_images") or c.get("answer_images") or c.get("image_refs") or c.get("image_dependent")):
+            return False
+    if skip != "deck_filter" and f.get("deck_filter"):
+        doc_title = _lc(c.get("document_title"))
+        tokens = [str(t).strip().lower() for t in (f.get("deck_filter") or []) if str(t).strip()]
+        if tokens and not any(tok in doc_title for tok in tokens):
+            return False
     if skip != "school_safe" and f.get("school_safe"):
         if not c.get("tagged"):
             return False                      # unknown sensitivity: stay conservative for school audiences

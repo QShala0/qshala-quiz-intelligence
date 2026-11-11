@@ -145,6 +145,10 @@ export function getUploadApiBase(): string {
 // a more conservative 16 MB would. The real cost of a smaller slice is only that a failed slice
 // has to resend less.
 export const UPLOAD_CHUNK_SIZE = 24 * 1024 * 1024;
+// Vercel Serverless Functions enforce a hard 4.5 MB request body limit.
+// When uploads travel through Vercel rewrites (non-localhost without direct Cloud Run proxy bypass),
+// slice uploads into <= 3.5 MB requests so every chunk clears the platform gateway safely.
+export const VERCEL_SAFE_CHUNK_SIZE = Math.floor(3.5 * 1024 * 1024);
 
 /** Live numbers the Upload Center shows while a file is going up. */
 export interface UploadProgressInfo {
@@ -264,7 +268,7 @@ export const api = {
     if (options?.batchId) formData.append('batch_id', options.batchId);
     if (options?.clientItemId) formData.append('client_item_id', options.clientItemId);
 
-    const res = await xhrPost(`${getApiBase()}/documents/upload`, formData, {
+    const res = await xhrPost(`${getUploadApiBase()}/documents/upload`, formData, {
       signal: options?.signal,
       onUploadProgress: (loaded) =>
         options?.onProgress?.({

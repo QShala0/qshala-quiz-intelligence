@@ -27,8 +27,9 @@ class SlideClassifier:
         r"\b(it is|the answer is|this was)\b",
     ]
 
+    _ANS_TRANS_TOKEN = r"(?:answer|answers|ans|solution|solutions|the\s+answer|let['’]?s\s+see\s+the\s+answer|ಉತ್ತರ)"
     ANSWER_TRANSITION_REGEX = re.compile(
-        r"^\s*(answer|answers|ans|solution|solutions|the\s+answer|let['’]?s\s+see\s+the\s+answer)\s*[\.\:\-]?\s*$",
+        rf"^\s*{_ANS_TRANS_TOKEN}(?:\s*[\.\:\-\!]?\s+{_ANS_TRANS_TOKEN})*\s*[\.\:\-\!]?\s*$",
         re.IGNORECASE
     )
 
@@ -138,10 +139,27 @@ class SlideClassifier:
             "CONTENT": 0.3
         }
 
-        # Dramatic pause answer divider (e.g. Slide with just "ANSWER" or "ANSWERS")
-        combined_short = (title if not text else f"{title} {text}").strip()
-        if self.ANSWER_TRANSITION_REGEX.match(combined_short) or self.ANSWER_TRANSITION_REGEX.match(text) or self.ANSWER_TRANSITION_REGEX.match(title):
+        # Dramatic pause answer divider (e.g. "ANSWER", "Answer!", "ಉತ್ತರ!\nAnswer!")
+        norm_text = re.sub(r"\s+", " ", text).strip()
+        norm_title = re.sub(r"\s+", " ", title).strip()
+        combined_short = (norm_title if not norm_text else (norm_text if not norm_title or norm_title == "NO_TITLE" else f"{norm_title} {norm_text}")).strip()
+        if (
+            self.ANSWER_TRANSITION_REGEX.match(combined_short)
+            or self.ANSWER_TRANSITION_REGEX.match(norm_text)
+            or (norm_title and norm_title != "NO_TITLE" and self.ANSWER_TRANSITION_REGEX.match(norm_title))
+        ):
             scores["ANSWER_TRANSITION"] = 0.98
+            return scores
+
+        # Finals / quiz bumper & menu slides that should never be misread as QUESTIONS
+        bumper_blob = norm_text or norm_title
+        bumper_low = bumper_blob.lower()
+        if (
+            re.match(r"^(?:ready\s*(?:for\s+q\d*[\.\!]?|[\?\!]?)|(?:question\s+)?for\s+audience|audience\s+questions?|example\s*!?|buffer\s*(?:questions?)?)\s*$", bumper_low)
+            or (bumper_low.startswith("topics:") and word_count <= 30 and "?" not in norm_text)
+            or (re.search(r"\bnext\s+round\b", bumper_low) and word_count <= 20 and "?" not in norm_text)
+        ):
+            scores["ANNOUNCEMENT"] = 0.92
             return scores
 
         # Slide 1 is almost always TITLE
@@ -159,7 +177,7 @@ class SlideClassifier:
 
         # Announcements / Social Media (only if not an explicit question)
         if any(re.search(pat, full_text) for pat in self.ANNOUNCEMENT_INDICATORS):
-            if "?" not in full_text and not re.search(r"^[0-9]+[\.\)]\s+", text_lower):
+            if "?" not in full_text and not re.search(r"^[1-9]\d?[\.\)](?:\s+|[a-z])", text_lower, re.MULTILINE):
                 scores["ANNOUNCEMENT"] += 0.80
 
         # Section markers (Round 1, Round 2, Potpourri)
@@ -171,7 +189,13 @@ class SlideClassifier:
         # Scoreboards & Rules
         if any(re.search(pat, full_text) for pat in [r"scoreboard", r"scores", r"leaderboard", r"points"]):
             scores["SCOREBOARD"] += 0.85
-        if any(re.search(pat, full_text) for pat in self.RULES_INDICATORS):
+        has_explicit_rules = any(
+            re.search(pat, full_text)
+            for pat in [r"instructions for prelims|marking scheme|scoring system|\+20 for direct|\+10 for a pass"]
+        )
+        has_generic_rules = bool(re.search(r"\brules\b", full_text))
+        is_likely_question_with_word_rules = ("?" in full_text and word_count >= 12 and "rules" not in title_lower)
+        if has_explicit_rules or (has_generic_rules and not is_likely_question_with_word_rules):
             scores["RULES"] += 0.85
 
         # Title indicators
@@ -192,10 +216,18 @@ class SlideClassifier:
         elif q_hits == 1:
             if "?" in full_text or re.search(r"\b(q\d+|question|name the|identify)\b", full_text):
                 scores["QUESTION"] += 0.60
-            elif re.search(r"^[0-9]+[\.\)]\s+", text_lower) or re.search(r"^[0-9]+[\.\)]\s*$", title_lower):
+            elif re.search(r"^[1-9]\d?[\.\)](?:\s+|[a-z])", text_lower, re.MULTILINE) or re.search(r"^[0-9]+[\.\)]\s*$", title_lower):
                 scores["QUESTION"] += 0.65
             else:
                 scores["QUESTION"] += 0.35
+        elif text.count("|") >= 2 and word_count >= 6 and scores["SCOREBOARD"] < 0.5 and scores["RULES"] < 0.5 and scores["TEAM_INTRO"] < 0.5:
+            # Table/grid prompt slide (e.g. Finals List-It round) whose answers live in speaker notes
+            has_real_notes = bool(notes and not notes.strip().startswith(("http://", "https://", "data:image/")))
+            non_pipe_lines = [ln for ln in text.splitlines() if ln.strip() and ln.strip() != "| |"]
+            if has_real_notes:
+                scores["QUESTION"] += 0.70
+            elif len(non_pipe_lines) >= 5 and not re.search(r"\b(?:scoreboard|leaderboard)\b", text_lower):
+                scores["QUESTION"] += 0.55
 
         return scores
 
@@ -238,30 +270,57 @@ class SlideClassifier:
             s_text = (slides[i].get("extracted_text") or "").strip()
             s_text_lower = s_text.lower()
 
-            # Pattern: If next slide is ANSWER_TRANSITION, current slide is part of the question prompt!
+            # Pattern: If next slide is ANSWER_TRANSITION, current slide is part of the question prompt
+            # (unless it's a section/bumper/rules header).
+            next_norm = re.sub(r"\s+", " ", (slides[i + 1].get("extracted_text") or "")).strip() if i + 1 < n else ""
             is_next_trans = (i + 1 < n and (
                 classified_types[i + 1] == "ANSWER_TRANSITION" or
-                bool(self.ANSWER_TRANSITION_REGEX.search((slides[i + 1].get("extracted_text") or "").strip()))
+                bool(self.ANSWER_TRANSITION_REGEX.match(next_norm))
             ))
-            if is_next_trans and current_type != "SECTION_MARKER":
+            if is_next_trans and current_type not in ["SECTION_MARKER", "ANNOUNCEMENT", "RULES"]:
                 classified_types[i] = "QUESTION"
                 continue
 
-            # Pattern: If previous slide was an ANSWER_TRANSITION (e.g. "ANSWER"),
-            # the current slide is the actual answer reveal slide!
+            # Pattern: If previous slide was an ANSWER_TRANSITION (e.g. "ANSWER" or "ಉತ್ತರ!\nAnswer!"),
+            # the current slide is the actual answer reveal slide (including Round 5 "Guess the Question").
             if prev_type == "ANSWER_TRANSITION":
-                if current_type in ["CONTENT", "TITLE", "QUESTION"] and scored_slides[i]["SECTION_MARKER"] < 0.6:
+                if current_type not in ["SECTION_MARKER", "RULES", "SCOREBOARD", "ANNOUNCEMENT"] and scored_slides[i]["SECTION_MARKER"] < 0.6:
                     classified_types[i] = "ANSWER"
+                    continue
 
             # Pattern: If previous slide was a QUESTION, and current slide is CONTENT or ambiguous,
             # promote to ANSWER if not a section marker / scoreboard (and NOT followed by an answer transition)
-            elif prev_type == "QUESTION":
-                if current_type in ["CONTENT", "TITLE"]:
-                    if scored_slides[i]["SECTION_MARKER"] < 0.5 and scored_slides[i]["SCOREBOARD"] < 0.5 and current_type != "ANSWER_TRANSITION" and not is_next_trans:
-                        classified_types[i] = "ANSWER"
+            elif prev_type == "QUESTION" and current_type in ["CONTENT", "TITLE"]:
+                has_upcoming_trans = False
+                if scored_slides[i]["ANSWER"] < 0.4 and scored_slides[i]["SECTION_MARKER"] < 0.5 and scored_slides[i]["SCOREBOARD"] < 0.5:
+                    for j in range(i + 1, min(n, i + 4)):
+                        jt = classified_types[j]
+                        jn = re.sub(r"\s+", " ", (slides[j].get("extracted_text") or "")).strip()
+                        if jt == "ANSWER_TRANSITION" or self.ANSWER_TRANSITION_REGEX.match(jn):
+                            has_upcoming_trans = True
+                            break
+                        if jt in ["SECTION_MARKER", "ANNOUNCEMENT", "RULES", "SCOREBOARD", "ANSWER"]:
+                            break
+                        if scored_slides[j]["ANSWER"] >= 0.6:
+                            break
+                if has_upcoming_trans:
+                    classified_types[i] = "QUESTION"
+                    continue
+                if scored_slides[i]["SECTION_MARKER"] < 0.5 and scored_slides[i]["SCOREBOARD"] < 0.5 and current_type != "ANSWER_TRANSITION" and not is_next_trans:
+                    classified_types[i] = "ANSWER"
+            elif current_type == "CONTENT" and s_text.count("|") >= 2 and scored_slides[i]["SCOREBOARD"] < 0.5 and scored_slides[i]["RULES"] < 0.5:
+                non_pipe = [ln for ln in s_text.splitlines() if ln.strip() and ln.strip() != "| |"]
+                if len(non_pipe) >= 5:
+                    classified_types[i] = "QUESTION"
+                    continue
 
-            # Pattern: If slide was marked ANSWER but precedes a QUESTION and has question marks, recheck
-            if current_type == "ANSWER" and "?" in (slides[i].get("extracted_text") or ""):
+
+
+
+
+            # Pattern: If slide was marked ANSWER because of speaker notes or trivia, check if it's actually a QUESTION
+            # (never override a slide that immediately follows an ANSWER_TRANSITION divider).
+            if current_type == "ANSWER" and prev_type != "ANSWER_TRANSITION" and "?" in (slides[i].get("extracted_text") or ""):
                 if scored_slides[i]["QUESTION"] >= 0.5:
                     classified_types[i] = "QUESTION"
 

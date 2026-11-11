@@ -33,7 +33,7 @@ except Exception:  # pragma: no cover
     QshalaTag = None
     QshalaQuestionMetadata = None
 
-from backend.app.services.prompt_quiz.retrieval import Index, parse_prompt, tokenize, WORD_NUMS
+from backend.app.services.prompt_quiz.retrieval import Index, normalize_compound_typos, parse_prompt, tokenize, WORD_NUMS
 from backend.app.services.prompt_quiz.interpreter_llm import V6_THEMES
 from backend.app.services.prompt_quiz.audience import (
     audience_score, defaults_for_audience, difficulty_penalty, passes_hard
@@ -94,8 +94,14 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
     topics_l1 = list(gem.get("topics_l1") or (previous_brief or {}).get("topics_l1") or [])
     subtopics_l2 = list(gem.get("subtopics_l2") or (previous_brief or {}).get("subtopics_l2") or [])
 
+    p_norm = normalize_compound_typos(prompt or "").lower()
     raw_query = str(gem.get("query") or "").strip()
-    if not raw_query and previous_brief:
+    _mod_queries = {
+        "", "india", "india focus", "focus on india", "middle school",
+        "middle school kids", "school friendly", "text only", "no images",
+        "only questions with images", "only with images", "international", "global",
+    }
+    if previous_brief and (not raw_query or raw_query.lower() in _mod_queries):
         raw_query = str(previous_brief.get("query") or "").strip()
     query_bits = [raw_query] if raw_query else []
     if not raw_query:
@@ -107,8 +113,23 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
 
     filters: Dict[str, Any] = dict(prev_filters)
     if gem.get("india_focused") is not None:
-        filters["india_focused"] = gem.get("india_focused")
-        filters["india_international"] = "IN" if gem.get("india_focused") is True else "INTL"
+        ind_val = gem.get("india_focused")
+        if ind_val is False:
+            explicit_intl_ask = bool(re.search(r"\b(international|global|world|foreign|non-?indian|outside\s+india)\b", p_norm))
+            if explicit_intl_ask:
+                filters["india_focused"] = False
+                filters["india_international"] = "INTL"
+        elif ind_val is True:
+            filters["india_focused"] = True
+            explicit_india_ask = bool(re.search(r"\b(india|indian|bharat|hindustan|desh|indian\s+focus|focus\s+on\s+india)\b", p_norm))
+            universal_stem_ask = bool(re.search(
+                r"\b(science|scientific|experiment|experiments|physics|chemistry|biology|math|mathematics|astronomy|space|technology|coding)\b",
+                p_norm,
+            ))
+            if explicit_india_ask or not universal_stem_ask:
+                filters["india_international"] = "IN"
+            else:
+                filters.pop("india_international", None)
     if gem.get("evergreen") is not None:
         val = bool(gem.get("evergreen"))
         filters["evergreen"] = val
@@ -121,8 +142,13 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
         filters["no_images"] = val
         if val:
             filters["exclude_image"] = True
+            filters.pop("require_images", None)
         else:
             filters.pop("exclude_image", None)
+    if re.search(r"\b(?:only|with)\s+(?:questions?\s+with\s+)?(?:images?|pics?|visuals?|photos?)\b", p_norm) and not gem.get("no_images"):
+        filters.pop("no_images", None)
+        filters.pop("exclude_image", None)
+        filters["require_images"] = True
     if gem.get("school_safe") is not None:
         filters["school_safe"] = bool(gem.get("school_safe"))
     if gem.get("audience"):
@@ -134,7 +160,15 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
     if not raw_bias:
         raw_bias = _bias_from_text(prompt)
     raw_bias = (raw_bias or "").lower()
-    bias = "hard" if raw_bias in ("hard", "spicy") else "easy" if raw_bias == "easy" else ("medium" if raw_bias == "medium" else None)
+    bias = (
+        "hard"
+        if raw_bias in ("hard", "spicy")
+        else "easy"
+        if raw_bias == "easy"
+        else ("medium" if raw_bias in ("medium", "balanced") else None)
+    )
+    if bias is None and not previous_brief:
+        bias = _bias_from_text(prompt)
 
     framing = (gem.get("framing") or "").strip() or (previous_brief or {}).get("framing") or None
     fmt = gem.get("format_filter") or (previous_brief or {}).get("format_filter")
@@ -174,7 +208,7 @@ def _brief_from_regex(prompt: str, count: Optional[int],
                       previous_brief: Optional[Dict[str, Any]],
                       current_questions: Optional[List[Dict[str, Any]]] = None) -> Brief:
     query, raw_filters, n = parse_prompt(prompt or "")
-    p = (prompt or "").lower()
+    p = normalize_compound_typos(prompt or "").lower()
 
     # Partial replacement check: e.g. "change 3 questions to tech", "replace 2 with sports"
     partial_m = re.search(
@@ -224,6 +258,11 @@ def _brief_from_regex(prompt: str, count: Optional[int],
     if "exclude_image" in raw_filters:
         filters["exclude_image"] = True
         filters["no_images"] = True
+        filters.pop("require_images", None)
+    elif re.search(r"\b(?:only|with)\s+(?:questions?\s+with\s+)?(?:images?|pics?|visuals?|photos?)\b", p):
+        filters.pop("exclude_image", None)
+        filters.pop("no_images", None)
+        filters["require_images"] = True
     if "evergreen_only" in raw_filters:
         filters["evergreen_only"] = True
         filters["evergreen"] = True
@@ -293,16 +332,23 @@ def _brief_from_regex(prompt: str, count: Optional[int],
         search_terms = list((previous_brief or {}).get("search_terms") or [])
 
         # If this is a modifier-only refinement on an existing quiz, preserve the previous topic
+        _q_mod = query.strip().lower()
         is_modifier_prompt = previous_brief and (
             bool(re.search(r"^(?:make\s+it\s+|more\s+)?(?:harder|easier|tougher|spicier|tough|spicy|easy|warmup|balanced)$", p.strip()))
-            or bool(re.search(r"^(?:for\s+)?(?:school|kids|children|college|corporate)$", p.strip()))
-            or bool(re.search(r"^(?:no\s+images?|text\s+only|without\s+images?|with\s+images?|images?\s+only)$", p.strip()))
+            or bool(re.search(r"^(?:make\s+it\s+)?(?:for\s+)?(?:middle\s+school\s+|high\s+school\s+|primary\s+school\s+)?(?:school(?:\s+friendly)?|kids|children|college|corporate)$", p.strip()))
+            or bool(re.search(r"^(?:focus\s+on\s+india|india\s+focus|focus\s+india|global(?:\s+perspective)?|international)$", p.strip()))
+            or bool(re.search(r"^(?:no\s+images?|text\s+only(?:,?\s*no\s+images?)?|without\s+images?|only\s+(?:questions?\s+)?with\s+images?|with\s+images?|images?\s+only)$", p.strip()))
             or bool(re.search(r"^(?:evergreen\s+only|evergreen)$", p.strip()))
             or bool(more_m)
-            or query.strip().lower() in ("make it harder", "harder", "easier", "school", "kids", "no images", "text only", "evergreen", "5 more", "more")
+            or _q_mod in (
+                "", "make it harder", "harder", "easier", "school", "kids", "middle school",
+                "school friendly", "no images", "text only", "only images", "with images",
+                "evergreen", "5 more", "more", "india", "india focus", "focus india",
+                "international", "global", "world",
+            )
         )
-        if is_modifier_prompt and previous_brief.get("query"):
-            query = previous_brief.get("query")
+        if is_modifier_prompt and previous_brief.get("query") is not None:
+            query = previous_brief.get("query") or ""
 
     framing = (previous_brief or {}).get("framing")
 
@@ -532,6 +578,9 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
             "search_summary": getattr(t, 'search_summary', None) if t else None,
             "difficulty": (q.difficulty or "Medium"),
             "difficulty_score": q.difficulty_score if q.difficulty_score is not None else 0.5,
+            "grade_min": getattr(q, "grade_min", 3),
+            "grade_max": getattr(q, "grade_max", 12),
+            "audience_suitability": list(getattr(q, "audience_suitability", []) or []),
             "document_id": q.document_id,
             "document_title": docs_map.get(q.document_id, ""),
             "tagged": bool(t),
@@ -633,21 +682,38 @@ def _fp(text: str) -> frozenset:
     return frozenset(tokenize(text)[:14])
 
 
+_PLACEHOLDER_ANS_ENTITIES = {
+    "", "answer", "answers", "ans", "solution", "solutions",
+    "see image", "see video", "see audio", "see explanation",
+    "answer indicated on slide", "ಉತ್ತರ",
+}
+
+
 def _normalize_answer_entity(ans: str) -> str:
-    """Extracts a normalized core entity token set from an answer string for robust deduplication."""
+    """Extracts a normalized core entity token set from an answer string for robust deduplication.
+    Returns '' for placeholder, URL, data-URI, or punctuation-only answers so distinct questions
+    with non-entity answers never collapse onto one survivor.
+    """
     if not ans:
+        return ""
+    raw_low = ans.strip().lower()
+    if raw_low.startswith(("http://", "https://", "data:")):
         return ""
     # Strip common brackets, slashes, parentheticals: e.g. "Srinivasa Ramanujan / Ramanujan" -> "srinivasa ramanujan"
     primary = re.split(r"[/,;(]", ans)[0].strip().lower()
     primary = re.sub(r"^(word|clue|answer|question|letter|name)\s*:\s*", "", primary).strip()
     # Strip common honorifics/prefixes: Dr., Shri, Sir, Smt, The, A, An
     primary = re.sub(r"\b(dr\.?|shri|sir|smt\.?|mr\.?|mrs\.?|ms\.?|the|a|an)\b", "", primary).strip()
-    cleaned = re.sub(r"[^\w\s]", "", primary)
+    cleaned = re.sub(r"[^\w\s\u0900-\u0FFF]", "", primary)
+    norm_check = re.sub(r"\s+", " ", cleaned).strip()
+    if norm_check in _PLACEHOLDER_ANS_ENTITIES:
+        return ""
     # Transliteration compression: oo -> u, ee -> i (e.g. Sooryavanshi -> Suryavanshi)
     cleaned = re.sub(r"oo+", "u", cleaned)
     cleaned = re.sub(r"ee+", "i", cleaned)
     tokens = [t for t in cleaned.split() if t]
-    return " ".join(tokens)
+    joined = " ".join(tokens)
+    return "" if joined in _PLACEHOLDER_ANS_ENTITIES else joined
 
 
 def guardian(hits: List[Dict[str, Any]], brief: Brief, exclude_ids: Optional[Set[str]] = None) -> List[Dict[str, Any]]:
@@ -679,22 +745,26 @@ def guardian(hits: List[Dict[str, Any]], brief: Brief, exclude_ids: Optional[Set
 
 
 # ---------- Editor ----------
-def editor(cands: List[Dict[str, Any]], brief: Brief) -> List[Dict[str, Any]]:
+def editor(cands: List[Dict[str, Any]], brief: Brief, preserve_slot1_id: Optional[str] = None) -> List[Dict[str, Any]]:
     n = brief.count
     ordered_cands = list(cands)
 
-    # Primary: relevance score (BM25). Secondary: difficulty bias if requested.
+    def _rel(c: Dict[str, Any]) -> float:
+        rv = c.get("_rank_score")
+        return float(rv) if rv is not None else float(c.get("score") or 0.0)
+
+    # Primary: ranked relevance score (_rank_score if computed by build_draft, else BM25 score).
     has_specific_topic = bool(brief.topics_l1 or brief.subtopics_l2 or brief.locality or (brief.query and brief.query.lower() not in ("general knowledge", "trivia", "")))
     if not has_specific_topic and brief.hard_bias == "hard":
-        ordered_cands.sort(key=lambda c: (-(c.get("difficulty_score") or 0.5), -(c.get("score") or 0)))
+        ordered_cands.sort(key=lambda c: (-(c.get("difficulty_score") or 0.5), -_rel(c)))
     elif not has_specific_topic and brief.hard_bias == "easy":
-        ordered_cands.sort(key=lambda c: ((c.get("difficulty_score") or 0.5), -(c.get("score") or 0)))
+        ordered_cands.sort(key=lambda c: ((c.get("difficulty_score") or 0.5), -_rel(c)))
     elif brief.hard_bias == "hard":
-        ordered_cands.sort(key=lambda c: (-(c.get("score") or 0), -(c.get("difficulty_score") or 0.5)))
+        ordered_cands.sort(key=lambda c: (-_rel(c), -(c.get("difficulty_score") or 0.5)))
     elif brief.hard_bias == "easy":
-        ordered_cands.sort(key=lambda c: (-(c.get("score") or 0), (c.get("difficulty_score") or 0.5)))
+        ordered_cands.sort(key=lambda c: (-_rel(c), (c.get("difficulty_score") or 0.5)))
     else:
-        ordered_cands.sort(key=lambda c: -(c.get("score") or 0))
+        ordered_cands.sort(key=lambda c: -_rel(c))
 
     # Only filter by subtopics when the brief carries bank-validated L2 names,
     # or when a non-geographic query explicitly names a full subtopic (e.g. query 'cricket' -> subtopic 'Cricket').
@@ -709,7 +779,18 @@ def editor(cands: List[Dict[str, Any]], brief: Brief) -> List[Dict[str, Any]]:
                 target_subs.add(sub)
 
     if target_subs and not brief.cross_topic_padding and getattr(brief, "source", None) != "gemini_dynamic_intent":
-        ordered_cands = [c for c in ordered_cands if c.get("subtopic_l2") in target_subs or not c.get("subtopic_l2")]
+        sub_matched = [c for c in ordered_cands if c.get("subtopic_l2") in target_subs or not c.get("subtopic_l2")]
+        prompt_low = (brief.prompt or "").lower()
+        matched_in_prompt = {
+            s for s in target_subs
+            if s and s.lower() in prompt_low and any(c.get("subtopic_l2") == s for c in ordered_cands)
+        }
+        if (
+            len(sub_matched) >= n
+            or (matched_in_prompt and sub_matched and getattr(brief, "source", None) != "gemini")
+            or (len(target_subs) == 1 and matched_in_prompt and sub_matched)
+        ):
+            ordered_cands = sub_matched
 
     chosen: List[Dict[str, Any]] = []
     chosen_entities: Set[str] = set()
@@ -744,6 +825,11 @@ def editor(cands: List[Dict[str, Any]], brief: Brief) -> List[Dict[str, Any]]:
         chosen.sort(key=lambda c: c.get("difficulty_score") or 0.5)
         if brief.hard_bias == "hard":
             chosen.sort(key=lambda c: -(c.get("difficulty_score") or 0.5))
+    if preserve_slot1_id:
+        for idx_s, c in enumerate(chosen):
+            if c.get("id") == preserve_slot1_id and idx_s != 0:
+                chosen.insert(0, chosen.pop(idx_s))
+                break
     return chosen
 
 
@@ -772,6 +858,60 @@ def _view(c: Dict[str, Any]) -> Dict[str, Any]:
                                   "question_format", "format_payload", "slot", "play_mode", "topic_label")}
 
 
+_TOPICAL_NOISE_WORDS = {
+    "india", "indian", "bharat", "karnataka", "bengaluru", "bangalore",
+    "mumbai", "bombay", "delhi", "chennai", "madras", "kolkata", "calcutta",
+    "hyderabad", "pune", "mysore", "mysuru", "state", "board", "grade",
+    "students", "student", "relevant", "around", "one", "middle", "primary",
+    "high", "school", "kids", "children", "friendly", "focus", "focused",
+    "based", "syllabus", "curriculum", "cbse", "icse", "ncert", "class",
+}
+
+_GENERIC_DECK_WORDS = {
+    "quiz", "quizzes", "prelims", "prelim", "finals", "final", "regionals", "regional",
+    "round", "rounds", "set", "part", "level", "session", "deck", "decks", "question",
+    "questions", "answer", "answers", "series", "edition", "annual", "school", "college",
+    "corporate", "state", "board", "india", "indian", "australian", "american", "british",
+    "karnataka", "bengaluru", "bangalore", "mumbai", "delhi", "chennai", "hyderabad",
+    "kolkata", "pune", "world", "global", "international", "general", "knowledge", "trivia",
+    "history", "science", "scientific", "business", "finance", "economy", "technology",
+    "politics", "sports", "entertainment", "culture", "geography", "everyday", "experiments",
+    "experiment", "students", "student", "grade", "class", "test", "practice", "sample",
+    "semi", "quarter", "inter", "intra", "mega", "open", "national", "junior", "senior",
+    "high", "middle", "primary", "varsity", "modern", "ancient",
+}
+
+
+def _detect_deck_filter_tokens(prompt_lower: str, bank: List[Dict[str, Any]]) -> List[str]:
+    """Detect distinctive deck-series names (e.g. 'agastya') present in both prompt and bank document titles."""
+    titles = {str(b.get("document_title") or "").strip().lower() for b in bank if b.get("document_title")}
+    if not titles:
+        return []
+
+    v6_words = {w for t in V6_THEMES for w in tokenize(t)}
+    subtopic_words = {
+        w for b in bank
+        for w in tokenize(b.get("subtopic_l2") or "")
+    }
+    excluded = _GENERIC_DECK_WORDS | v6_words | subtopic_words
+
+    title_df: Dict[str, int] = {}
+    for title in titles:
+        for tok in set(tokenize(title)):
+            if len(tok) >= 4 and not tok.isdigit() and tok not in excluded:
+                title_df[tok] = title_df.get(tok, 0) + 1
+
+    # Require token to appear in prompt AND match a distinct subset of document titles (or explicit deck phrase)
+    prompt_tokens = set(tokenize(prompt_lower))
+    matched: List[str] = []
+    max_allowed = max(1, int(len(titles) * 0.85)) if len(titles) >= 3 else len(titles)
+    for tok in prompt_tokens:
+        df = title_df.get(tok, 0)
+        if df >= 1 and df <= max_allowed:
+            matched.append(tok)
+    return matched
+
+
 def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                 options: Optional[Dict[str, Any]] = None,
                 previous_brief: Optional[Dict[str, Any]] = None,
@@ -788,7 +928,10 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     # Detect if the prompt has an actual topical subject beyond geography
     non_geo_signals = (
         "people", "person", "personality", "personalities", "figure", "figures", "leader", "leaders",
-        "scientist", "scientists", "inventor", "inventors", "author", "authors", "food", "dish", "cuisine",
+        "scientist", "scientists", "science", "scientific", "experiment", "experiments",
+        "physics", "chemistry", "biology", "space", "astronomy", "agastya", "environment",
+        "nature", "health", "mathematics", "math",
+        "inventor", "inventors", "author", "authors", "food", "dish", "cuisine",
         "startup", "startups", "company", "companies", "brand", "brands", "tech", "technology", "ai",
         "finance", "bank", "banking", "cricket", "sport", "sports", "movie", "movies", "film", "music",
         "history", "heritage", "art", "law", "court", "women", "symbol", "symbols", "freedom", "education"
@@ -812,30 +955,105 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         brief.search_terms = []
 
     # Broad / vague prompts: "10 questions", "give me 5 questions", "quiz for tonight", "surprise me with 5 questions"
-    # When no topic, locality, or subtopic was requested, do a broad randomized search so every run gives a fresh, varied quiz.
-    p_lower = (brief.prompt or "").lower().strip()
-    is_vague = not (brief.topics_l1 or brief.subtopics_l2 or brief.locality) and (
+    p_lower = normalize_compound_typos(brief.prompt or "").lower().strip()
+    is_vague = not (brief.topics_l1 or brief.subtopics_l2 or brief.locality or brief.filters.get("deck_filter")) and (
         bool(re.search(r"^(?:give\s+me\s+)?(?:\d+|[a-z]+)?\s*questions?$", p_lower))
         or bool(re.search(r"\b(surprise(?:\s+me)?|tonight|random|quick|standard)\b", p_lower))
         or (brief.query or "").lower() in ("general knowledge", "trivia", "general", "surprise", "tonight", "", "evergreen", "evergreen only")
-    ) and not any(k in p_lower for k in ("on ", "about ", "finance", "bank", "sport", "cricket", "tech", "food", "ai", "brand", "startup", "delhi", "mumbai", "karnataka", "india", "tata", "paytm", "jalebi"))
+    ) and not any(k in p_lower for k in (
+        "on ", "about ", "finance", "bank", "sport", "cricket", "tech", "food", "ai",
+        "brand", "startup", "delhi", "mumbai", "karnataka", "india", "tata", "paytm",
+        "jalebi", "science", "experiment", "experiments", "agastya", "physics", "chemistry", "biology",
+    ))
     if is_vague:
         brief.query = ""
         brief.search_terms = []
 
     bank = _load_bank(db, slots_for(brief))
 
+    # Data-driven deck/series filter: when prompt names a distinctive deck series from the bank
+    # (e.g. "Agastya" matching "Agastya Regionals ..."), restrict retrieval to matching decks.
+    if not brief.filters.get("deck_filter"):
+        detected_decks = _detect_deck_filter_tokens(p_lower, bank)
+        if detected_decks:
+            brief.filters["deck_filter"] = detected_decks
+
+    deck_filter_tokens = {str(t).strip().lower() for t in (brief.filters.get("deck_filter") or []) if str(t).strip()}
+
     # 3. Librarian: search broadly across the entire bank
     idx = Index(bank)
-    search_query = brief.query
+    raw_search_query = brief.query or ""
     if getattr(brief, 'search_terms', None):
-        search_query = brief.query + " " + " ".join(brief.search_terms)
+        raw_search_query = (raw_search_query + " " + " ".join(brief.search_terms)).strip()
+
+    # Strip geo/meta wrapper tokens and deck-filter names from topical search_query when topical words exist,
+    # so "karnataka", "india", "state", "board", or deck name alone doesn't outscore subject relevance.
+    has_non_geo_topic = has_topical_subject and not is_pure_geo and not is_vague
+    if has_non_geo_topic and raw_search_query:
+        drop_from_topical = _TOPICAL_NOISE_WORDS | deck_filter_tokens
+        filtered_words = [
+            w for w in tokenize(raw_search_query)
+            if w not in drop_from_topical
+        ]
+        if filtered_words:
+            search_query = " ".join(filtered_words)
+        else:
+            search_query = raw_search_query
+    else:
+        search_query = raw_search_query
+
+    # When only a deck_filter was asked (e.g. "10 Agastya quiz questions" with no extra subject),
+    # allow broad retrieval inside those filtered decks.
+    effective_query_for_floor = "" if (deck_filter_tokens and not has_non_geo_topic) else brief.query
+
     pool_cap = max(300, len(bank))
     hits = idx.search(search_query, filters=None, top_k=pool_cap)
 
     # Drop hits below the relevance floor from on-topic retrieval
-    if brief.query:
+    if effective_query_for_floor:
         hits = [h for h in hits if float(h.get("score") or 0.0) >= MIN_RELEVANCE_SCORE]
+
+    # Domain-coherence guard for pure STEM / Science queries: prevent commercial banking,
+    # constitutional/political, or pure sports/entertainment items with stray incidental keyword
+    # matches from leaking into Science/Experiments quizzes (e.g. on "Focus on India").
+    _stem_query_words = (
+        "science", "scientific", "experiment", "experiments",
+        "physics", "chemistry", "biology", "astronomy",
+    )
+    _non_stem_prompt_hints = (
+        "business", "finance", "banking", "bank", "company", "startup", "corporate",
+        "politics", "political", "constitution", "government", "election", "law",
+        "sport", "sports", "cricket", "movie", "cinema", "bollywood", "music", "logo",
+    )
+    _query_plus_prompt = f"{(brief.query or '').lower()} {p_lower}"
+    _is_pure_stem_ask = any(w in _query_plus_prompt for w in _stem_query_words) and not any(
+        w in _query_plus_prompt for w in _non_stem_prompt_hints
+    )
+    if _is_pure_stem_ask and not deck_filter_tokens:
+        _NON_STEM_L1 = {"finance", "politics", "business", "economy", "sports", "entertainment"}
+        _CORE_STEM_TERMS = {
+            "science", "scientific", "experiment", "experiments", "physics", "chemistry",
+            "biology", "astronomy", "laboratory", "gravity", "magnet", "magnetism", "acid",
+            "base", "refraction", "reflection", "friction", "irrigation", "photosynthesis",
+            "microscope", "telescope", "lens", "mirror", "molecule", "atom", "cell",
+            "potassium", "plaster", "thermometer", "stethoscope", "circuit", "electricity",
+            "isro", "chandrayaan", "mangalyaan", "gaganyaan", "scientist", "rocket",
+        }
+        coherent_hits = []
+        for h in hits:
+            l1_low = (h.get("topic_l1") or "").strip().lower()
+            if l1_low in _NON_STEM_L1:
+                h_blob = " ".join([
+                    str(h.get("question_text") or ""),
+                    str(h.get("answer") or ""),
+                    str(h.get("subtopic_l2") or ""),
+                    " ".join(str(k) for k in (h.get("keywords") or [])),
+                ]).lower()
+                h_toks = set(tokenize(h_blob))
+                if not (h_toks & _CORE_STEM_TERMS):
+                    continue
+            coherent_hits.append(h)
+        hits = coherent_hits
 
     # Broad hits for adjacent pool only (tagged with score capped below real matches)
     if len(hits) < pool_cap:
@@ -846,7 +1064,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         for b in broad:
             if b["id"] not in seen:
                 b_adj = dict(b)
-                b_adj["score"] = round(min(pad_cap * 0.5, 0.2), 3)
+                b_adj["score"] = round(min(pad_cap * 0.5, 0.2), 3) if effective_query_for_floor else 1.0
                 hits.append(b_adj)
 
     # Split into on-topic vs adjacent
@@ -861,7 +1079,24 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     # Gemini-invented names that don't exist in the bank
     brief.subtopics_l2 = effective_l2s
 
+    # Preserve top-matching currently displayed questions on constraint refinements (e.g. "School friendly")
+    has_topic_swap = bool(re.search(
+        r"\b(?:replace|swap|change|switch)\b.*\b(?:to|with|for|into)\b|\binstead\s+of\b",
+        p_lower,
+    ))
+    is_continuity_refinement = bool(previous_brief and current_questions and not has_topic_swap)
+    current_slot_bonus: Dict[str, float] = {}
+    preserve_slot1_id: Optional[str] = None
+    if is_continuity_refinement:
+        for slot_idx, cq in enumerate(current_questions):
+            cq_id = cq.get("id")
+            if cq_id:
+                current_slot_bonus[cq_id] = max(0.15, 0.85 - 0.08 * slot_idx)
+        preserve_slot1_id = current_questions[0].get("id") if current_questions else None
+
     # 4. Score each pool item
+    has_topical_query = bool((brief.query or "").strip()) and not is_pure_geo and not is_vague
+
     def _rank_cand(c: Dict[str, Any]) -> float:
         base = float(c.get("score") or 0.0)
         aud = audience_score(
@@ -871,11 +1106,18 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
             audience=brief.filters.get("audience"),
             tone=brief.tone,
         )
+        if has_topical_query and aud > 0:
+            aud = min(aud, max(0.5, 0.5 * base))
         diff_pen = difficulty_penalty(c, brief.hard_bias)
-        return base + aud - 0.35 * diff_pen
+        cont = current_slot_bonus.get(c.get("id"), 0.0) if diff_pen < 0.7 else 0.0
+        return base + aud - 0.35 * diff_pen + cont
 
-    on_ok.sort(key=_rank_cand, reverse=True)
-    adjacent.sort(key=_rank_cand, reverse=True)
+    for c in on_ok:
+        c["_rank_score"] = _rank_cand(c)
+    for c in adjacent:
+        c["_rank_score"] = _rank_cand(c)
+    on_ok.sort(key=lambda c: c["_rank_score"], reverse=True)
+    adjacent.sort(key=lambda c: c["_rank_score"], reverse=True)
 
     # 5. Guardian + Editor on ranked on-topic list
     effective_exclude = set(exclude_ids or set())
@@ -896,29 +1138,51 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                 target_count=brief.count,
                 candidates=curator_pool,
                 current_questions=current_questions,
-                previous_brief=previous_brief,
+                previous_brief=brief.public(),
             )
             if cur_res is not None and "selected_ids" in cur_res:
                 cands_by_id = {c["id"]: c for c in curator_pool if c.get("id")}
                 seen_cur_ents: Set[str] = set()
+                seen_picked_ids: Set[str] = set()
                 deduped_cur_picked = []
+                matched_before_dedup = 0
                 common_geo = {"bengaluru", "bangalore", "mumbai", "delhi", "india", "chennai", "kolkata", "hyderabad", "pune"}
                 for qid in cur_res["selected_ids"]:
                     if qid in cands_by_id:
+                        matched_before_dedup += 1
                         c = cands_by_id[qid]
                         ent = _normalize_answer_entity(c.get("answer") or "")
                         if ent and ent not in common_geo and ent in seen_cur_ents:
                             continue
                         if ent:
                             seen_cur_ents.add(ent)
+                        seen_picked_ids.add(qid)
                         deduped_cur_picked.append(c)
+                # Replenish only slots lost to duplicate-entity filtering (preserves honest 0/partial counts).
+                target_after_dedup = min(brief.count, matched_before_dedup)
+                if len(deduped_cur_picked) < target_after_dedup:
+                    for c in cands:
+                        cid = c.get("id")
+                        if not cid or cid in seen_picked_ids:
+                            continue
+                        ent = _normalize_answer_entity(c.get("answer") or "")
+                        if ent and ent not in common_geo and ent in seen_cur_ents:
+                            continue
+                        if ent:
+                            seen_cur_ents.add(ent)
+                        seen_picked_ids.add(cid)
+                        deduped_cur_picked.append(c)
+                        if len(deduped_cur_picked) >= target_after_dedup:
+                            break
                 picked = deduped_cur_picked
                 narrative_arc = cur_res.get("narrative_arc")
         except Exception as e:
             logger.warning(f"AI Curator invocation failed ({e}), falling back to deterministic editor")
 
-    if not picked and cur_res is None:
-        picked = editor(cands, brief)
+    if not picked and (cur_res is None or not has_topical_query):
+        picked = editor(cands, brief, preserve_slot1_id=preserve_slot1_id)
+        if picked and cur_res is not None:
+            narrative_arc = None
 
     # 6. Padding if requested and short
     padded = 0

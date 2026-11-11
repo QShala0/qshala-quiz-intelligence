@@ -553,11 +553,12 @@ class QshalaTagger:
                 getattr(q_target, "answer", "") or "",
                 question_images=getattr(q_target, "question_images", None),
                 answer_images=getattr(q_target, "answer_images", None),
-                round_name=getattr(q_target, "round_name", None) or (f"Round {q_target.round_number}" if getattr(q_target, "round_number", None) else None),
+                round_name=getattr(q_target, "round_name", None) or f"{getattr(q_target, 'subtopic', '') or ''} {f'Round {q_target.round_number}' if getattr(q_target, 'round_number', None) else ''}".strip() or None,
                 stored_format=getattr(q_target, "question_format", None),
                 stored_payload=getattr(q_target, "format_payload", None),
             )
-            q_target.question_format = q_format
+            if getattr(q_target, "question_format", None) not in ("LIST_IT", "IMAGE_REVEAL"):
+                q_target.question_format = q_format
             if f_data is not None:
                 q_target.format_data = f_data
 

@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -163,6 +164,30 @@ def _max_upload_bytes() -> int:
 
 MAX_FILE_SIZE_BYTES = _max_upload_bytes()
 MAX_FILE_SIZE_MB = MAX_FILE_SIZE_BYTES / (1024 * 1024)
+
+
+def _max_chunked_upload_bytes() -> int:
+    # Chunked uploads slice decks into <= 3.5 MB requests on Vercel, bypassing the
+    # per-request 4.5 MB serverless limit; the total assembled file ceiling must
+    # therefore follow MAX_UPLOAD_MB rather than Vercel's single-request cap.
+    try:
+        mb = int(os.environ.get("MAX_UPLOAD_MB", "2048"))
+    except (TypeError, ValueError):
+        mb = 2048
+    return max(mb, 1) * 1024 * 1024
+
+
+MAX_CHUNKED_FILE_BYTES = _max_chunked_upload_bytes()
+MAX_CHUNKED_FILE_MB = MAX_CHUNKED_FILE_BYTES / (1024 * 1024)
+R2_MIN_PART_BYTES = 5 * 1024 * 1024  # S3 / R2 requires non-final multipart parts >= 5 MiB
+
+
+def _chunk_stage_prefix(upload_id: str) -> str:
+    return f"raw-chunks/{upload_id}/"
+
+
+def _chunk_stage_key(upload_id: str, chunk_index: int) -> str:
+    return f"raw-chunks/{upload_id}/{chunk_index:05d}"
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -340,51 +365,174 @@ async def _upload_chunk_direct_to_r2(
         db.commit()
         db.refresh(session_rec)
 
+    parts_map = copy.deepcopy(session_rec.parts or {})
+    staging = parts_map.get("_staging")
+
+    already_stored = (
+        (isinstance(staging, dict) and str(chunk_index) in (staging.get("received") or {}))
+        or (staging is None and str(chunk_index + 1) in parts_map)
+    )
+    if already_stored:
+        received_count = len(staging.get("received") or {}) if isinstance(staging, dict) else len(parts_map)
+        return {
+            "status": "CHUNK_RECEIVED",
+            "chunk_index": chunk_index,
+            "total_chunks": total_chunks,
+            "progress_percentage": round((received_count / max(total_chunks, 1)) * 100),
+        }
+
     body = await chunk.read()
     new_total = (session_rec.total_bytes or 0) + len(body)
-    if new_total > MAX_FILE_SIZE_BYTES:
+    if new_total > MAX_CHUNKED_FILE_BYTES:
         try:
             r2.abort_multipart_upload(session_rec.raw_key, session_rec.r2_upload_id)
         except Exception:
             pass
+        if isinstance(staging, dict):
+            try:
+                await asyncio.to_thread(r2.delete_prefix, _chunk_stage_prefix(upload_id))
+            except Exception:
+                pass
         session_rec.status = "CANCELLED"
         db.commit()
         remove_chunk_dir(upload_id)
         raise HTTPException(
             status_code=413,
             detail=(f"Upload ({new_total / (1024 * 1024):.1f} MB so far) exceeds the maximum "
-                    f"upload size ({MAX_FILE_SIZE_MB:.0f} MB). Raise MAX_UPLOAD_MB on the backend."),
+                    f"upload size ({MAX_CHUNKED_FILE_MB:.0f} MB). Raise MAX_UPLOAD_MB on the backend."),
         )
 
-    # Network call for a 20 MB slice: off the event loop so other requests keep being served meanwhile.
-    etag = await asyncio.to_thread(r2.upload_part, session_rec.raw_key, session_rec.r2_upload_id, chunk_index + 1, body)
-    parts_map = dict(session_rec.parts or {})
-    parts_map[str(chunk_index + 1)] = etag
-    session_rec.parts = parts_map
-    session_rec.total_bytes = new_total
-    session_rec.updated_at = datetime.now(timezone.utc)
-    db.commit()
+    is_small_nonfinal = len(body) < R2_MIN_PART_BYTES and chunk_index < (total_chunks - 1)
+    if staging is None and not is_small_nonfinal:
+        # Fast-path: slice >= 5 MiB (or sole/final slice) goes straight into R2 multipart
+        etag = await asyncio.to_thread(r2.upload_part, session_rec.raw_key, session_rec.r2_upload_id, chunk_index + 1, body)
+        parts_map[str(chunk_index + 1)] = etag
+        session_rec.parts = parts_map
+        session_rec.total_bytes = new_total
+        session_rec.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    else:
+        # Stage < 5 MiB slices in R2 under raw-chunks/{upload_id}/ and flush contiguous >= 5 MiB parts
+        if staging is None:
+            fast_parts = sorted(int(k) for k in parts_map.keys() if k.isdigit())
+            contiguous_fast = 0
+            for pn in fast_parts:
+                if pn == contiguous_fast + 1:
+                    contiguous_fast += 1
+                else:
+                    break
+            staging = {
+                "received": {str(idx): 0 for idx in range(contiguous_fast)},
+                "next_flush_idx": contiguous_fast,
+                "next_part_num": contiguous_fast + 1,
+            }
+
+        received_map = dict(staging.get("received") or {})
+        received_map[str(chunk_index)] = len(body)
+        next_flush_idx = int(staging.get("next_flush_idx", 0))
+        next_part_num = int(staging.get("next_part_num", 1))
+        all_received = (len(received_map) == total_chunks)
+
+        batches_to_flush = []
+        scan_idx = next_flush_idx
+        while scan_idx < total_chunks and str(scan_idx) in received_map:
+            batch_indices = []
+            run_bytes = 0
+            end_scan = scan_idx
+            while end_scan < total_chunks and str(end_scan) in received_map:
+                batch_indices.append(end_scan)
+                run_bytes += int(received_map[str(end_scan)])
+                end_scan += 1
+                if run_bytes >= R2_MIN_PART_BYTES:
+                    break
+            can_flush_tail = all_received and (end_scan == total_chunks)
+            if run_bytes < R2_MIN_PART_BYTES and not can_flush_tail:
+                break
+            batches_to_flush.append(batch_indices)
+            scan_idx = end_scan
+
+        flushed_indices = {idx for batch in batches_to_flush for idx in batch}
+        if chunk_index not in flushed_indices:
+            await asyncio.to_thread(r2.upload_bytes, _chunk_stage_key(upload_id, chunk_index), body)
+
+        for batch_indices in batches_to_flush:
+            buf_parts = []
+            keys_to_delete = []
+            for idx in batch_indices:
+                if idx == chunk_index:
+                    buf_parts.append(body)
+                else:
+                    skey = _chunk_stage_key(upload_id, idx)
+                    part_bytes = await asyncio.to_thread(r2.download, skey)
+                    buf_parts.append(part_bytes)
+                    keys_to_delete.append(skey)
+            merged_part = buf_parts[0] if len(buf_parts) == 1 else b"".join(buf_parts)
+            etag = await asyncio.to_thread(
+                r2.upload_part, session_rec.raw_key, session_rec.r2_upload_id, next_part_num, merged_part
+            )
+            parts_map[str(next_part_num)] = etag
+            next_part_num += 1
+            next_flush_idx = batch_indices[-1] + 1
+            if keys_to_delete:
+                try:
+                    await asyncio.to_thread(r2.delete, keys_to_delete)
+                except Exception:
+                    pass
+
+        staging["received"] = received_map
+        staging["next_flush_idx"] = next_flush_idx
+        staging["next_part_num"] = next_part_num
+        parts_map["_staging"] = staging
+        session_rec.parts = parts_map
+        session_rec.total_bytes = new_total
+        session_rec.updated_at = datetime.now(timezone.utc)
+        db.commit()
 
     if (session_rec.status == "CANCELLED") or upload_cancel_requested(upload_id):
         try:
             r2.abort_multipart_upload(session_rec.raw_key, session_rec.r2_upload_id)
         except Exception:
             pass
+        if isinstance(parts_map.get("_staging"), dict):
+            try:
+                await asyncio.to_thread(r2.delete_prefix, _chunk_stage_prefix(upload_id))
+            except Exception:
+                pass
         session_rec.status = "CANCELLED"
         db.commit()
         remove_chunk_dir(upload_id)
         raise HTTPException(status_code=409, detail={"code": "upload_cancelled", "detail": "Upload was cancelled."})
 
-    if len(parts_map) < total_chunks:
+    staging_state = parts_map.get("_staging")
+    if isinstance(staging_state, dict):
+        received_count = len(staging_state.get("received") or {})
+        is_complete = (
+            received_count == total_chunks
+            and int(staging_state.get("next_flush_idx", 0)) == total_chunks
+        )
+    else:
+        received_count = len(parts_map)
+        is_complete = (received_count >= total_chunks)
+
+    if not is_complete:
         return {
             "status": "CHUNK_RECEIVED",
             "chunk_index": chunk_index,
             "total_chunks": total_chunks,
-            "progress_percentage": round((len(parts_map) / total_chunks) * 100),
+            "progress_percentage": round((received_count / max(total_chunks, 1)) * 100),
         }
 
+    if isinstance(staging_state, dict):
+        try:
+            await asyncio.to_thread(r2.delete_prefix, _chunk_stage_prefix(upload_id))
+        except Exception as e:
+            logger.warning(f"[UPLOAD-CHUNK] failed to cleanup staged chunks for {upload_id}: {e}")
+
     # All parts received -- finish multipart upload
-    sorted_parts = [{"PartNumber": int(pn), "ETag": tag} for pn, tag in sorted(parts_map.items(), key=lambda x: int(x[0]))]
+    sorted_parts = [
+        {"PartNumber": int(pn), "ETag": tag}
+        for pn, tag in sorted(((k, v) for k, v in parts_map.items() if k.isdigit()), key=lambda x: int(x[0]))
+    ]
     await asyncio.to_thread(r2.complete_multipart_upload, session_rec.raw_key, session_rec.r2_upload_id, sorted_parts)
 
     doc_id = session_rec.doc_id
@@ -552,7 +700,7 @@ async def upload_document_chunk(
 
     # Enforce the same ceiling as the direct path (chunked bypasses Vercel's limit but
     # must still respect MAX_UPLOAD_MB so a runaway upload can't fill the disk).
-    if file_size > MAX_FILE_SIZE_BYTES:
+    if file_size > MAX_CHUNKED_FILE_BYTES:
         for p in (storage_path,):
             if os.path.exists(p):
                 try:
@@ -566,7 +714,7 @@ async def upload_document_chunk(
         raise HTTPException(
             status_code=413,
             detail=(f"Reassembled file ({file_size / (1024 * 1024):.1f} MB) exceeds the maximum "
-                    f"upload size ({MAX_FILE_SIZE_MB:.0f} MB). Raise MAX_UPLOAD_MB on the backend.")
+                    f"upload size ({MAX_CHUNKED_FILE_MB:.0f} MB). Raise MAX_UPLOAD_MB on the backend.")
         )
 
     saved_batch_id = None
@@ -648,7 +796,9 @@ def cancel_chunked_upload(upload_id: str, db: Session = Depends(get_db)):
     if session_rec:
         if session_rec.status == "OPEN" and session_rec.r2_upload_id:
             try:
-                get_r2_service().abort_multipart_upload(session_rec.raw_key, session_rec.r2_upload_id)
+                r2 = get_r2_service()
+                r2.abort_multipart_upload(session_rec.raw_key, session_rec.r2_upload_id)
+                r2.delete_prefix(_chunk_stage_prefix(upload_id))
             except Exception as e:
                 logger.warning(f"[UPLOAD-CHUNK] failed to abort R2 multipart upload for {upload_id}: {e}")
         session_rec.status = "CANCELLED"

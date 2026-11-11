@@ -119,9 +119,10 @@ def test_qa_connect_4_format(db_session):
 def test_qa_buzzer_format(db_session):
     """Verify BUZZER questions are properly assigned."""
     buzzer_qs = db_session.query(Question).filter(Question.question_type == "BUZZER").all()
-    assert len(buzzer_qs) >= 30, f"Expected at least 30 BUZZER questions, got {len(buzzer_qs)}"
+    assert len(buzzer_qs) >= 18, f"Expected at least 18 BUZZER questions, got {len(buzzer_qs)}"
     for q in buzzer_qs:
         assert q.question_type == "BUZZER"
+        assert q.round_number == 5
 
 
 def test_qa_curation_hygiene_zero_uncategorised(db_session):

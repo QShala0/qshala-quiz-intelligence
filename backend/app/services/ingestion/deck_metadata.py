@@ -274,20 +274,20 @@ def parse_deck_filename(filename: Optional[str], title: Optional[str] = None) ->
 # ---------------------------------------------------------------------- question format tracker
 
 _FORMAT_PATTERNS: List[Tuple[str, "re.Pattern[str]"]] = [
-    # 1. Stepped clues / Portfolio Builder (must precede generic buzzer)
-    ("STEPPED_CLUE", re.compile(r"\b(?:portfolio\s*builder|stepped\s*clues?|(?:3|three)[\s\-]*clues?|3\s*parts/clues|\+20\s*/\s*-15)\b", re.I)),
-    # 2. Connect 4 / Common Link / Market Indicators (must precede generic buzzer)
-    ("CONNECT_4", re.compile(r"\b(?:market\s*indicators|connect\s*4|4\s*pics\s*1\s*word|four\s*images|common\s*(?:theme|link|thread)|what\s*connects|connect(?:ion|ions|s)?\b|\bfind\s+the\s+link\b)", re.I)),
-    # 3. Arrange the order / Ticker Tangle
-    ("ARRANGE_ORDER", re.compile(r"\b(?:ticker\s*tangle|arrange\b|\bin\s+(?:the\s+)?(?:right|correct)\s+order\b|\border\s+(?:the|them)\b|\bsequenc|chronolog|lowest\s+to\s+highest|earliest\s+to\s+latest)", re.I)),
-    # 4. Potpourri
-    ("POTPOURRI", re.compile(r"\bpotpourri\b", re.I)),
-    # 5. Image reveal
+    # 1. Image reveal (must precede STEPPED_CLUE since Agastya Image Reveal rules mention +20/-15)
     ("IMAGE_REVEAL", re.compile(r"\bimage\s*reveal\b|\breveal\s*round\b|\bpixelat", re.I)),
+    # 2. Stepped clues / Portfolio Builder (must precede generic buzzer)
+    ("STEPPED_CLUE", re.compile(r"\b(?:portfolio\s*builder|stepped\s*clues?|(?:3|three)[\s\-]*clues?|3\s*parts/clues|\+20\s*/\s*-15)\b", re.I)),
+    # 3. Connect 4 / Common Link / Market Indicators (must precede generic buzzer)
+    ("CONNECT_4", re.compile(r"\b(?:market\s*indicators|connect\s*4|4\s*pics\s*1\s*word|four\s*images|common\s*(?:theme|link|thread)|what\s*connects|connect(?:ion|ions|s)?\b|\bfind\s+the\s+link\b)", re.I)),
+    # 4. Arrange the order / Ticker Tangle
+    ("ARRANGE_ORDER", re.compile(r"\b(?:ticker\s*tangle|arrange\b|\bin\s+(?:the\s+)?(?:right|correct)\s+order\b|\border\s+(?:the|them)\b|\bsequenc|chronolog|lowest\s+to\s+highest|earliest\s+to\s+latest)", re.I)),
+    # 5. Potpourri
+    ("POTPOURRI", re.compile(r"\bpotpourri\b", re.I)),
     # 6. List it
     ("LIST_IT", re.compile(r"\blist[\s\-]*it\b", re.I)),
     # 7. Rapid Fire / Buzzer (Closing Bell)
-    ("BUZZER", re.compile(r"\b(?:closing\s*bell|buzzer\s*round|rapid\s*fire|buzzers?!)\b", re.I)),
+    ("BUZZER", re.compile(r"\b(?:closing\s*bell|buzzer\s*round|rapid\s*fire|buzzers?|buzz(?!\s+aldrin))\b", re.I)),
     # 8. Standard QA (Opening Bell / Direct)
     ("QA", re.compile(r"\b(?:opening\s*bell|direct\s*questions?|q\s*&\s*a\b|\bqa\b|\bquestion[\s\-]*answer\b)", re.I)),
 ]
@@ -317,10 +317,12 @@ def infer_formats(slides: List[Dict[str, Any]]) -> Dict[int, str]:
         blob = f"{title} {text}".strip()
         words = len(blob.split())
 
-        # AUDIENCE / BUFFER / TIE-BREAKER sections are not part of the round that came before them: the
-        # format resets to plain QA there (their questions carry their own structure).
-        if any(re.search(r"^\W*(?:audience\s+questions?|buffer(?:\s+questions?)?|tie[\s\-]*breakers?)\W*$", x, re.I)
-               for x in (title, text, blob)):
+        # AUDIENCE / BUFFER / TIE-BREAKER / SCOREBOARD sections are not part of the round that came before them:
+        # the format resets to plain QA there (their questions carry their own structure).
+        if stype == "SCOREBOARD" or any(
+            re.search(r"^\W*(?:question\s+for\s+(?:the\s+)?audience|audience\s+questions?|buffer(?:\s+questions?)?|tie[\s\-]*breakers?(?:\s+questions?)?|scoreboard|winners?)\W*$", x, re.I)
+            for x in (title, text, blob)
+        ):
             current = "QA"
             sn = s.get("slide_number")
             if sn is not None:
@@ -344,14 +346,19 @@ def infer_formats(slides: List[Dict[str, Any]]) -> Dict[int, str]:
 
             fmt = detect_format_in_text(blob)
             if stype == "SECTION_MARKER":
-                current = fmt or "QA"
+                if fmt and not re.match(r"^\s*topics?\s*:", blob, re.I):
+                    if not (current == "IMAGE_REVEAL" and fmt == "STEPPED_CLUE" and not re.search(r"\b(?:portfolio\s*builder|stepped\s*clues?|(?:3|three)[\s\-]*clues?|3\s*parts/clues)\b", blob, re.I)):
+                        current = fmt
+                elif re.search(r"\b(?:round\s*\d+|part\s*\d+|section\s*\d+|direct\s+round)\b", blob, re.I):
+                    current = "QA"
             elif fmt and words <= 30:
                 # A short non-question slide naming a format works as a header, but a bare "connect"
                 # in a slide without round indicators must not.
                 if fmt in ("CONNECT_4", "CONNECT") and not re.search(r"\b(?:round|section|set|questions?|following|next|indicators|market|theme|4\s*pics|common|what\s*connects|connect\s*4)\b", blob, re.I):
                     pass
                 else:
-                    current = fmt
+                    if not (current == "IMAGE_REVEAL" and fmt == "STEPPED_CLUE" and not re.search(r"\b(?:portfolio\s*builder|stepped\s*clues?|(?:3|three)[\s\-]*clues?|3\s*parts/clues)\b", blob, re.I)):
+                        current = fmt
         sn = s.get("slide_number")
         if sn is not None:
             result[int(sn)] = current
@@ -440,9 +447,14 @@ def round_by_slide(slides: List[Dict[str, Any]]) -> Dict[int, Optional[int]]:
         title = s.get("title") or ""
         text = s.get("extracted_text") or ""
         blob = f"{title} {text}".strip()
-        if re.search(r"\b(?:audience\s+questions?|buffer\s+questions?)\b", blob, re.I):
+        words = len(blob.split())
+        if re.search(r"\b(?:audience\s+questions|buffer(?:\s+questions?)?|tie[\s\-]*breakers?(?:\s+questions?)?)\b", blob, re.I) and words <= 15:
             current = None
-        elif s.get("slide_type") == "SECTION_MARKER" or re.search(r"\bround\s*\d+", title, re.I):
+        elif (
+            (s.get("slide_type") == "SECTION_MARKER" and not re.match(r"^\s*topics?\s*:", blob, re.I))
+            or re.search(r"\bround\s*\d+", title, re.I)
+            or re.search(r"^\s*round\s*\d+", text, re.I)
+        ):
             m = re.search(r"\bround\s*(\d+)", blob, re.I)
             if m:
                 current = int(m.group(1))

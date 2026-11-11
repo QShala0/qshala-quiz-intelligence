@@ -43,7 +43,7 @@ def _structural_connect4(
     a_text = (answer_text or "").strip()
     q_text = (question_text or "").strip()
 
-    if 3 <= len(q_imgs) <= 5 and len(a_text) < 80:
+    if 3 <= len(q_imgs) <= 6 and len(a_text) < 80:
         # Strong: lots of question images + short answer + short/no question text
         if len(q_text) < 100:
             return True
@@ -87,7 +87,7 @@ _CONNECT_ANSWER_RE = [
 ]
 
 _CONNECT_QUESTION_RE = [
-    re.compile(r"\b(connect|common\s+link|what\s+links|what\s+connects)\b", re.I),
+    re.compile(r"^\s*(?:\d+[\.\)]\s*)?connect\b|\b(connect\s*4|connect\s+(?:these|them|all)|common\s+link|what\s+(?:links|connects))\b", re.I),
     re.compile(r"\b(what\s+do\s+.{3,60}\s+have\s+in\s+common)\b", re.I),
     re.compile(r"connect\s*[-–]?\s*4", re.I),
 ]
@@ -191,6 +191,16 @@ def classify_format(
     if _structural_stepped_clue(q, question_images):
         return STEPPED_CLUE
 
+    # ── List-It / Image Reveal / Buzzer guard (never misclassify grid/multi-image slides as Connect 4) ──
+    if re.search(r"\b(?:list[\s\-]*it|image\s*reveal|closing\s*bell|rapid\s*fire|buzzers?|buzz(?!\s+aldrin))\b", f"{q} {round_name or ''}", re.I):
+        if re.search(r"\blist[\s\-]*it\b", f"{q} {round_name or ''}", re.I):
+            return "LIST_IT"
+        if not _text_connect4(q, a):
+            if re.search(r"\bimage\s*reveal\b", f"{round_name or ''}", re.I):
+                return "IMAGE_REVEAL"
+            if re.search(r"\b(?:closing\s*bell|rapid\s*fire|buzzers?|buzz(?!\s+aldrin))\b", f"{round_name or ''}", re.I):
+                return "BUZZER"
+
     # ── Connect 4 ──
     if _structural_connect4(q, a, question_images, answer_images):
         return CONNECT_4
@@ -236,10 +246,10 @@ def classify_and_extract(
     if fmt == CONNECT_4 and question_images and len(question_images) >= 3:
         format_data = {
             "type": "CONNECT_4",
-            "prompt": "What connects these elements?",
+            "prompt": question_text.strip() if question_text and len(question_text.strip()) >= 15 else "What connects these elements?",
             "elements": [
                 {"label": f"Clue {i+1}", "image_url": img, "explanation": ""}
-                for i, img in enumerate(question_images[:4])
+                for i, img in enumerate(question_images)
             ],
             "common_link": answer_text or "",
         }

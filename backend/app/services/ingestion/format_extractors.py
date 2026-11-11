@@ -266,7 +266,8 @@ def _result(ctx: Ctx, fmt: str, payload: Dict[str, Any], confidence: float, ques
     aimgs, avids = ctx.answer_images(), ctx.answer_videos()
     q_urls, a_urls = _urls(qimgs), _urls(aimgs)
     first_no, last_no = u.first_slide, u.last_slide
-    notes = "\n".join(s.get("speaker_notes") or "" for s in ctx.slides + ([ctx.ans] if ctx.ans else []) if s.get("speaker_notes")).strip()
+    raw_notes = "\n".join(s.get("speaker_notes") or "" for s in ctx.slides + ([ctx.ans] if ctx.ans else []) if s.get("speaker_notes")).strip()
+    notes = ctx.extractor._strip_data_uris(raw_notes) if raw_notes and hasattr(ctx.extractor, "_strip_data_uris") else raw_notes
     d = {
         "slide_id": ctx.first.get("id"),
         "answer_slide_id": ctx.ans.get("id") if ctx.ans else None,
@@ -403,10 +404,13 @@ def extract_image_reveal(ctx: Ctx) -> Dict[str, Any]:
         fx, fy, fw, fh = absolute_box(full)
     else:
         boxes = [absolute_box(g["group"]) for g in groups]
-        fx = min(b[0] for b in boxes)
-        fy = min(b[1] for b in boxes)
-        fw = max(b[0] + b[2] for b in boxes) - fx
-        fh = max(b[1] + b[3] for b in boxes) - fy
+        if boxes:
+            fx = min(b[0] for b in boxes)
+            fy = min(b[1] for b in boxes)
+            fw = max(b[0] + b[2] for b in boxes) - fx
+            fh = max(b[1] + b[3] for b in boxes) - fy
+        else:
+            fx = fy = fw = fh = 0.0
     # reveal order = the exit effects of the MAIN sequence (interactive-sequence effects are ignored)
     exits = [a for a in slide.get("animations") or [] if a.get("cls") == "exit" and a.get("preset") == 10
              and a.get("target_id") in by_gid]
@@ -459,6 +463,8 @@ def is_connect(ctx: Ctx) -> bool:
         for sh in _text_shapes(s):
             if any(_CONNECT_TITLE_RE.match(l) for l in _lines(sh["text"])[:1]):
                 return True
+    if ctx.unit.section == "AUDIENCE" and len(ctx.question_images()) < 3:
+        return False
     return bool(_CONNECT_ROUND_RE.search(ctx.round_name))
 
 
@@ -475,7 +481,10 @@ def extract_connect(ctx: Ctx) -> Dict[str, Any]:
             continue                      # "MIX" style tags
         hint_parts.append(re.sub(r"^\d+\.\s*connect\s*", "", t, flags=re.I).strip() or t)
     hint = " / ".join(h for h in hint_parts if h) or None
-    notes = [l for l in _lines(ctx.first.get("speaker_notes") or "") if not re.match(r"^https?://", l)]
+    raw_notes_1 = ctx.first.get("speaker_notes") or ""
+    if raw_notes_1 and hasattr(ctx.extractor, "_strip_data_uris"):
+        raw_notes_1 = ctx.extractor._strip_data_uris(raw_notes_1)
+    notes = [l for l in _lines(raw_notes_1) if not re.match(r"^https?://", l)]
     labels = notes if notes else []
     conf = 0.95
     n = len(items)

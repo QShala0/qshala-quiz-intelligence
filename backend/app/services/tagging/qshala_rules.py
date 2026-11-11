@@ -364,17 +364,17 @@ def l2_match(expected: Optional[str], primary: Optional[str],
 # ---------------------------------------------------------------------- canonical taxonomy & format tagging
 
 TAXONOMY_RULES: List[Tuple[str, str, str]] = [
-    # Finance rules
-    (r"\b(stock|shares?|nse|bse|demat|broker|trading|sensex|nifty|market cap|listed|equit(?:y|ies))\b", "Finance", "Stock Markets"),
+    # Finance rules (tightened to avoid false positives on Science terms like chemical bonds, Earth axis, atm pressure, safe nests, options)
+    (r"\b(stock|stock\s+shares?|equity\s+shares?|share\s+price|shareholders?|market\s+share|nse|bse|demat|broker|trading|sensex|nifty|market cap|listed|equit(?:y|ies))\b", "Finance", "Stock Markets"),
     (r"\b(mutual funds?|etf|sip|investor|investing|warren buffett|portfolio)\b", "Finance", "Investing and Funds"),
-    (r"\b(derivatives?|futures?|options?|hedging)\b", "Finance", "Derivatives"),
-    (r"\b(bonds?|yields?|g-secs?|treasury bills?|debt market)\b", "Finance", "Bonds"),
-    (r"\b(gold|silver|crude oil|commodit(?:y|ies))\b", "Finance", "Commodities"),
+    (r"\b(derivatives?|(?:stock|commodity|index)\s+futures?|futures\s+(?:contract|trading|market)|stock\s+options?|call\s+options?|put\s+options?|hedging)\b", "Finance", "Derivatives"),
+    (r"(?<!chemical\s)(?<!covalent\s)(?<!ionic\s)(?<!hydrogen\s)\b(bonds?|yields?|g-secs?|treasury bills?|debt market)\b", "Finance", "Bonds"),
+    (r"\b(gold\s+(?:etf|price|sovereign|bullion|loan|reserve|futures?)|crude oil|commodit(?:y|ies)|mcx|bullion)\b", "Finance", "Commodities"),
     (r"\b(bitcoin|ethereum|crypto|blockchain|nft)\b", "Finance", "Cryptocurrency"),
     (r"\b(ipo|listings?|anchor investor|debut)\b", "Finance", "IPOs and Listings"),
-    (r"\b(index|indices|dow jones|s&p|saatvik)\b", "Finance", "Market Indices"),
-    (r"\b(bubble|crash|panic|mania|tulip mania|dot com|confirmation bias|herd mentality|bias)\b", "Finance", "Behavioural Finance"),
-    (r"\b(banks?|banking|sbi|hdfc|icici|axis|vaults?|safes?|cheques?|micr|atm)\b", "Finance", "Banks and Banking"),
+    (r"\b(market\s+index|stock\s+indices|dow jones|s&p\s+500|saatvik)\b", "Finance", "Market Indices"),
+    (r"\b(bubble|crash|panic|mania|tulip mania|dot com|confirmation bias|herd mentality|behavioural\s+bias)\b", "Finance", "Behavioural Finance"),
+    (r"\b(banks?|banking|sbi|hdfc|icici|axis\s+bank|bank\s+vaults?|bank\s+safes?|cheques?|micr|atm\s+(?:card|machine|pin|withdrawal)|automated\s+teller)\b", "Finance", "Banks and Banking"),
     (r"\b(rbi|reserve bank|central bank|federal reserve|repo rate|monetary policy)\b", "Finance", "Central Banking"),
     (r"\b(upi|wallets?|paytm|phonepe|gpay|npci|digital payments?)\b", "Finance", "Digital Payments"),
     (r"\b(insurance|lic|policy\s*bazaar|premium|irdai)\b", "Finance", "Insurance"),
@@ -384,50 +384,72 @@ TAXONOMY_RULES: List[Tuple[str, str, str]] = [
     (r"\b(money history|barter|cowrie)\b", "Finance", "Money History"),
 
     # Business rules
-    (r"\b(startups?|unicorn|founders?|seed funding|series a|venture capital|incubator|swiggy|zepto|blinkit|navi)\b", "Business", "Startups"),
-    (r"\b(founded|origin|established in|history of|earliest|tata|godrej|iti|infy|infosys)\b", "Business", "Company Origins"),
+    (r"\b((?:startups?|founders?)(?!.*\b(?:jaundice|bilirubin|newborn|diagnos\w*|disease|syndrome|patients?|hospital|search|google)\b)|unicorn|seed funding|series a|venture capital|incubator|swiggy|zepto|blinkit|navi)\b", "Business", "Startups"),
+    (r"\b((?:company|brand|startup|bank)\s+(?:founded|origin|established)|tata\s+group|godrej|iti|infy|infosys)\b", "Business", "Company Origins"),
     (r"\b(scandal|fraud|ponzi|bernie madoff|harshad mehta|enron)\b", "Business", "Corporate Scandals"),
     (r"\b(ceo|chairperson|industrialist|mukesh ambani|ratan tata|tarun mehta|tim cook|vijaypat singhania)\b", "Business", "Business Leaders"),
     (r"\b(merger|acquisition|takeover|buyout|deal)\b", "Business", "Acquisitions and Mergers"),
     (r"\b(net worth|wealthiest|billionaire|forbes|fortune 500|valuation|richest)\b", "Business", "Rankings and Awards"),
     (r"\b(accounting|double-entry|balance sheet|trial balance|ledger|journal)\b", "Business", "Accounting"),
-    (r"\b(advertising|campaign|commercial|ad|tagline|slogan|surf excel|amul|lays)\b", "Business", "Advertising"),
+    (r"\b(advertising|campaign|commercial|tagline|slogan|surf excel|amul|lays)\b", "Business", "Advertising"),
     (r"\b(collaboration|partnership|collab|camelbak|crayola)\b", "Business", "Brand Collaborations"),
     (r"\b(logo|mascot|brand identity|visual identity)\b", "Business", "Brand Identity and Logos"),
     (r"\b(retail|e-commerce|flipkart|amazon|walmart|zomato|blinkit)\b", "Business", "Retail"),
-    (r"\b(electric vehicle|ather|tata motors|automotive|cars?)\b", "Business", "Automobiles"),
+    (r"\b(electric vehicle|ather|tata motors|automotive|automaker|car\s+(?:company|brand|maker|manufacturer)|motorsport)\b", "Business", "Automobiles"),
 
     # Economy rules
     (r"\b(gdp|gross domestic product|nominal gdp|per capita|economic growth)\b", "Economy", "Macroeconomics"),
-    (r"\b(budget|union budget|finance minister|income tax|pan|taxation|gst)\b", "Economy", "Taxation"),
+    (r"\b(union budget|finance minister|income tax|pan card|taxation|gst)\b", "Economy", "Taxation"),
     (r"\b(inflation|consumer price|cpi|purchasing power)\b", "Economy", "Consumer Prices"),
     (r"\b(trade|export|import|customs|wto|tariff)\b", "Economy", "Global Trade"),
     (r"\b(infrastructure|metro|namma metro|railway|highway|ports?)\b", "Economy", "Infrastructure and Manufacturing"),
 
+    # Science rules (canonical L2 topics from qshala_taxonomy_v6.json)
+    (r"\b(isro|nasa|esa|jaxa|pslv|gslv|lvm3|sslv|slv-?3|chandrayaan|mangalyaan|gaganyaan|aditya-?l1|vikram sarabhai|satish dhawan|launch vehicle)\b", "Science", "Space Agencies and ISRO"),
+    (r"\b(astronauts?|cosmonauts?|kalpana chawla|sunita williams|rakesh sharma|neil armstrong|yuri gagarin|shubhanshu shukla)\b", "Science", "Astronauts"),
+    (r"\b(venus\s+flytrap|pitcher\s+plant|carnivorous\s+plant|tuning\s+fork|mercury\s+barometer|steam\s+engine|horsepower)\b", "Science", "Everyday Science"),
+    (r"\b(solar system|planets?|mercury(?!\s+barometer|\s+thermometer)|venus(?!\s+flytrap)|mars|jupiter|saturn|uranus|neptune|pluto|asteroids?|comets?|meteors?|meteor\s+shower|kuiper belt|solar\s+eclipse|lunar\s+eclipse|sunspot|earth'?s\s+axis)\b", "Science", "Solar System"),
+    (r"\b(galaxy|galaxies|milky way|black hole|nebula|supernova|constellation|polaris|north\s+star|light[\s\-]*year|big bang|telescope|hubble|james webb|cosmos|celestial|spectroscop)\b", "Science", "Astronomy and Cosmos"),
+    (r"\b(spacecraft|satellites?(?!\s+transmitters?)|gps|global\s+positioning|orbit|rover|lander|space station|voyager|apollo|rocket|propulsion)\b", "Science", "Space Exploration"),
+    (r"\b(aerodynamics?|bernoulli|wind tunnel|helicopter|supersonic|mach\s+number|aircraft|glider)\b", "Science", "Aerospace"),
+    (r"\b(pressure\s+cooker|steam\s+digestor|pinhole camera|periscope|kaleidoscope|capillary|surface tension|everyday science|science experiment)\b", "Science", "Everyday Science"),
+    (r"\b(human body|circulatory|digestive|respiratory|nervous system|ha?emoglobin|platelets|red blood cells?|white blood cells?|skeleton|bones?|cartilage|vertebrae|femur|tendon|ligament|lungs?|kidneys?|nephron|pancreas|thyroid|vitamins?|scurvy|rickets|goitre|beriberi|night blindness|jaundice|bilirubin|newborn|diabetes|obesity|teeth|enamel|pineal|melatonin|colou?r\s*blind\w*|retina|rods?\s+and\s+cones?|nutrition|\beyes?\b)\b", "Science", "Human Body and Health"),
+    (r"\b(vaccines?|vaccination|antibiotics?|penicillin|insulin|pathogen|malaria|tuberculosis|polio|smallpox|stethoscope|antiseptic|diagnos\w*|diseases?|medical|clinical)\b", "Science", "Medicine"),
+    (r"\b(photosynthesis|chlorophyll|stomata|xylem|phloem|transpiration|germination|pollination|botany|rhizobium|monocot|dicot|seeds?|roots?|plants?|flowers?|stigma|stamen|pollen|pistil|venus\s+flytrap|pitcher\s+plant|cactus|mangroves?|adaptations?|tree\s+bark)\b", "Science", "Plants"),
+    (r"\b(mammals?|marine\s+mammals?|reptiles?|amphibians?|vertebrates?|invertebrates?|metamorphosis|hibernation|camouflage|food chain|herbivore|carnivore|omnivore|wildlife|migration\s+of\s+birds|animals?|species|creatures?|sea\s+creatures?|birds?|owls?|owlets?|woodpeckers?|seahorses?|narwhals?|rhinocer\w*|elephants?|tigers?|lions?|macaques?|langurs?|hornbills?|frogs?|snakes?|cobra|viper|scorpions?|jellyfish|octopus\w*|lizards?|geckos?|mice|cats?|whiskers|venomous)\b", "Science", "Animals and Wildlife"),
+    (r"\b(ecosystem|biodiversity|greenhouse effect|global warming|climate change|ozone layer|acid rain|water cycle|rainwater harvesting|biodegradable|vermicompost|ecology|solar\s+energy|wind\s+energy|renewable\s+energy|non-?renewable|fossil\s+fuels?|natural\s+gas|nuclear\s+energy|composition\s+of\s+air)\b", "Science", "Ecology and Environment"),
+    (r"\b(earthquake|seismic|seismograph|richter|volcano|magma|lava|tectonic|earth'?s\s+crust|igneous|sedimentary|metamorphic|fossil|barometer|cyclone|erosion|weathering|el\s+ni[?n]o|monsoon|droughts?|weather\s+(?:phenomenon|forecast|pattern)|weather\b.{0,30}\b(?:temperature|rain|pacific))\b", "Science", "Earth Science"),
+    (r"\b(acids?|alkalis?|neutralization|litmus|ph\s+(?:scale|indicator|paper|value)|turmeric indicator|phenolphthalein|periodic table|chemical\s+(?:reaction|bond|formula|changes?)|covalent|ionic|catalyst|oxidation|reduction|electrolysis|distillation|sedimentation|decantation|filtration|sublimation|evaporation|condensation|crystallization|chromatography|separate\s+mixtures?|mixtures?|alloys?|rusting|carbon|diamond|graphite|isotopes?|radioactiv\w*|potassium|valency|molecules?|atoms?|chlorine|halogen|conical\s+flask|beakers?|test\s+tubes?|vinegar|baking\s+soda|lime\s+water|precious\s+stone\s+made\s+of\s+carbon|firecrackers?|gunpowder)\b", "Science", "Chemistry"),
+    (r"\b(refract\w*|reflection\s+of\s+light|dispersion|prism|convex|concave|lens(?:es)?|focal length|spectrum|sound waves?|tuning\s+fork|frequency|decibel|ultrasound|pendulum|gravitational|gravity|inertia|momentum|newton'?s\s+law|buoyancy|archimedes|density|conduction|convection|radiation|thermodynamics?|electromagnet|magnetic field|magnets?|magnetic|electric\s+current|electricity|static\s+electricity|lightning|generates?\s+electricity|solar\s+panel|photovoltaic|voltage|ohm'?s\s+law|resistance|conductor|insulator|kinetic energy|potential energy|pulley[s]?|levers?|simple\s+machines?|pascal|friction|physical\s+changes?|mirrors?|rear[- ]?view\s+mirror|beam\s+balance|science\s+lab\s+instrument|air\s+pressure|atmospheric\s+pressure|heat\s+energy|horse\s*power|steam\s+engine|james\s+watt|unit\s+of\s+power|si\s+units?|kelvin|joule|ampere|candela)\b", "Science", "Physics"),
+    (r"\b(anti-?virus|malware|spyware|ransomware)\b", "Technology", "Internet and Platforms"),
+    (r"\b(mitochondria|cytoplasm|nucleolus|cell membrane|cell wall|vacuoles?|storage\s+in\s+cells?|(?:plant|animal)\s+cells?|organelles?|dna|rna|genetics?|heredity|evolution|enzymes?|hormones?|microorganisms?|living\s+organisms?|parasit\w*|(?<!anti-)virus(?:es)?|bacteria|yeast|fermentation|fungi|protozoa|microscope|biology|biological|reproduction)\b", "Science", "Biology"),
+    (r"\b(scientist|physicist|chemist|biologist|c\.?\s*v\.?\s*raman|raman effect|j\.?\s*c\.?\s*bose|homi bhabha|apj abdul kalam|srinivasa ramanujan|isaac newton|albert einstein|marie curie|galileo|michael faraday|louis pasteur|alexander fleming|charles darwin|gregor mendel|edward jenner)\b", "Science", "Scientists and Discoveries"),
+    (r"\b(geometry|algebra|trigonometry|calculus|prime number|fibonacci|pythagoras|polygon|polyhedron|factorial|arithmetic|circumference)\b", "Science", "Mathematics"),
+    (r"\b(riddle|logic puzzle|brain teaser|anagram|lateral thinking|optical illusion)\b", "Science", "Puzzles and Logic"),
+
     # Technology rules
     (r"\b(ai|artificial intelligence|machine learning|chatgpt|openai)\b", "Technology", "Artificial Intelligence"),
-    (r"\b(apps?|dating apps?|tinder|software|internet|platform)\b", "Technology", "Internet and Platforms"),
+    (r"\b(apps?|dating apps?|tinder|software|internet|platform|computer\s+input|peripheral|search\s+engine|\bgoogle\b|anti-?virus|malware|spyware|ransomware)\b", "Technology", "Internet and Platforms"),
     (r"\b(social media|instagram|linkedin|twitter|youtube|content creator)\b", "Technology", "Social Media"),
-    (r"\b(gadgets?|phones?|smartphones?|laptop|hardware)\b", "Technology", "Tech Products and Gadgets"),
-    (r"\b(telecom|5g|spectrum|airtel|jio|bsnl|telephone)\b", "Technology", "Telecom"),
-    (r"\b(invention|inventor|patents?|discovered)\b", "Technology", "Inventions and Inventors"),
+    (r"\b(gadgets?|phones?|smartphones?|laptop|hardware|webcam|input\s+device|keyboard|printer|monitor)\b", "Technology", "Tech Products and Gadgets"),
+    (r"\b(telecom|5g|spectrum|airtel|jio|bsnl|telephone|radio transmission)\b", "Technology", "Telecom"),
+    (r"\b(inventions?|inventors?|invented|patents?)\b", "Technology", "Inventions and Inventors"),
 
     # Politics / Law
     (r"\b(election|voting|indelible ink|election commission|vote)\b", "Politics", "Elections"),
     (r"\b(constitution|parliament|lok sabha|rajya sabha|government policy)\b", "Politics", "Governance and Constitution"),
 
     # Sports
-    (r"\b(cricket|ipl|icc|world cup|olympic|mirabai chanu|football|futsal|bengaluru 5s)\b", "Sports", "Sports Business"),
+    (r"\b(cricket|ipl|icc|world cup|olympic|mirabai chanu|football|futsal|bengaluru 5s|tennis|badminton|athletes?)\b", "Sports", "Sports Business"),
 
     # Culture / Media / History
     (r"\b(east india company|william dalrymple|colonial|historical)\b", "History", "Economic History"),
     (r"\b(toys?|channapatna|heritage|tradition|craft)\b", "Culture", "Festivals and Traditions"),
     (r"\b(novel|author|book|christie malry|monsoon)\b", "Culture", "Literature and Authors"),
     (r"\b(music|band|beatles|song|musician|axl rose)\b", "Entertainment", "Musicians and Bands"),
-    (r"\b(cheese|gouda|kempe gouda|food|cuisine|manga|nissin)\b", "Culture", "Food and Drink"),
+    (r"\b(cheese|gouda|kempe gouda|food|cuisine|manga|nissin|street\s+snack|pani\s+puri|golgappa|spic(?:y|e)|turmeric|saffron|cinnamon)\b", "Culture", "Food and Drink"),
     (r"\b(zimbabwe|australia|sydney|bangalore|bengaluru|mumbai)\b", "Geography", "Countries and Capitals"),
 ]
-
 
 def classify_taxonomy(q_text: str, ans_text: str, round_name: str = "", fmt: str = "QA") -> Tuple[str, str, List[str]]:
     """Rule-based instant classification: returns (L1, L2, keywords). Guarantees no question is Uncategorised."""
@@ -444,6 +466,24 @@ def classify_taxonomy(q_text: str, ans_text: str, round_name: str = "", fmt: str
             l1 = rule_l1
             l2 = rule_l2
             break
+
+    if l1 == "General Knowledge" and round_name:
+        rn_low = round_name.lower()
+        for tok, map_l1, map_l2 in (
+            ("physics", "Science", "Physics"),
+            ("chemistry", "Science", "Chemistry"),
+            ("biology", "Science", "Biology"),
+            ("astronomy", "Science", "Astronomy and Cosmos"),
+            ("space", "Science", "Space Exploration"),
+            ("math", "Science", "Mathematics"),
+            ("environment", "Science", "Ecology and Environment"),
+            ("science", "Science", "Everyday Science"),
+            ("technology", "Technology", "Tech Products and Gadgets"),
+        ):
+            if tok in rn_low:
+                l1 = map_l1
+                l2 = map_l2
+                break
 
     # Add canonical question format tag
     fmt_display = {

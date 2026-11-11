@@ -36,13 +36,22 @@ SECTION_MAIN, SECTION_EXAMPLE_NAME, SECTION_AUDIENCE_NAME, SECTION_TIEBREAK_NAME
 
 SLOT_LIVE, SLOT_RESERVE, SLOT_EXAMPLE = "LIVE", "RESERVE", "EXAMPLE"
 
-_ANSWER_RE = re.compile(r"^\W*(?:the\s+)?(?:answers?|ans)\W*$", re.I)
-_DIVIDER_RE = re.compile(r"^\W*(question|team|q)\s*\.?\s*(\d+)\W*$", re.I)
-_EXAMPLE_RE = re.compile(r"^\W*(?:examples?|sample(?:\s+question)?)\W*$", re.I)
-_AUDIENCE_RE = re.compile(r"^\W*audience\s+questions?\W*(?:\d+\W*)?$", re.I)
-_TIEBREAK_RE = re.compile(r"^\W*tie[\s\-]*breaker?s?\W*(?:\d+\W*)?$", re.I)
+_ANSWER_RE = re.compile(r"^\W*(?:(?:the\s+)?(?:answers?|ans)|ಉತ್ತರ|उत्तर)\W*$", re.I)
+_DIVIDER_RE = re.compile(r"^\W*(?:(question|team|q)\s*\.?\s*(\d+)|(ready)(?:\s+for\s+q\.?\s*(\d+))?)\W*$", re.I)
+_EXAMPLE_RE = re.compile(r"^\W*(?:examples?|sample(?:\s+question)?|ಉದಾಹರಣೆ)\W*$", re.I)
+_AUDIENCE_RE = re.compile(r"^\W*(?:questions?\s+for\s+(?:the\s+)?audience|audience\s+questions?)\W*(?:\d+\W*)?$", re.I)
+_TIEBREAK_RE = re.compile(r"^\W*tie[\s\-]*breaker?s?(?:\s+questions?)?\W*(?:\d+\W*)?$", re.I)
 _BUFFER_RE = re.compile(r"^\W*buffer(?:\s+questions?)?\W*$", re.I)
-_DECOR_TEXT_RE = re.compile(r"^\W*(scores?|scoreboard|leaderboard|thank\s*you|the\s+finalists|break|intermission)\W*$", re.I)
+_DECOR_LINE_RE = re.compile(
+    r"^\W*(?:scores?|scoreboard|leaderboard|thank\s*you|the\s+finalists|break|intermission|"
+    r"winners?|all\s+the\s+best|round\s+of\s+introductions|welcome|ಸುಸ್ವಾಗತ|ಅಂಕಗಳು)\W*$",
+    re.I,
+)
+_DECOR_TEXT_RE = re.compile(
+    r"^\W*(?:scores?|scoreboard|leaderboard|thank\s*you|the\s+finalists|break|intermission|"
+    r"winners?|all\s+the\s+best|round\s+of\s+introductions)\W*$",
+    re.I,
+)
 _ROUND_LINE_RE = re.compile(r"^\W*round\s*(\d+)\W*(?:[-–—:]+\s*(.+))?$", re.I)
 _ROUND_ANYWHERE_RE = re.compile(r"\bround\s*(\d+)\b", re.I)
 _TOPIC_BOARD_RE = re.compile(r"^\W*topics?\b", re.I)
@@ -283,12 +292,14 @@ def classify_slide(slide: Dict[str, Any], noise: set, divider_art: set) -> Slide
             return SlideRole(n, DIVIDER, {"art": True})
         return SlideRole(n, CONTENT, {"empty": True})
 
-    if _ANSWER_RE.match(one_line):
+    if _ANSWER_RE.match(one_line) or (lines and len(lines) <= 2 and all(_ANSWER_RE.match(l) for l in lines)):
         return SlideRole(n, ANSWER_MARKER)
     m = _DIVIDER_RE.match(one_line)
     if m:
-        kind = m.group(1).lower()
-        return SlideRole(n, DIVIDER, {"kind": "team" if kind == "team" else "question", "number": int(m.group(2))})
+        if m.group(1):
+            kind = m.group(1).lower()
+            return SlideRole(n, DIVIDER, {"kind": "team" if kind == "team" else "question", "number": int(m.group(2))})
+        return SlideRole(n, DIVIDER, {"kind": "ready", "number": int(m.group(4)) if m.group(4) else None})
     if _EXAMPLE_RE.match(one_line):
         return SlideRole(n, SECTION_EXAMPLE)
     if _AUDIENCE_RE.match(one_line):
@@ -298,6 +309,15 @@ def classify_slide(slide: Dict[str, Any], noise: set, divider_art: set) -> Slide
     if _BUFFER_RE.match(one_line):
         return SlideRole(n, SECTION_BUFFER)
     if _DECOR_TEXT_RE.match(one_line):
+        return SlideRole(n, DECOR)
+    # Bilingual bumper/welcome/winners/scores slides ("ಅಂಕಗಳು \n SCORES", "‘The Sci-Tech Quiz’\nWINNERS!", "Regional Round Prelims - 2\nWelcome!")
+    if (
+        len(one_line.split()) <= 20
+        and "?" not in one_line
+        and not re.match(r"^\s*\d+[\.\)]", one_line)
+        and lines
+        and (_DECOR_LINE_RE.match(lines[-1]) or any(_DECOR_LINE_RE.match(l) for l in lines))
+    ):
         return SlideRole(n, DECOR)
 
     # Round header: "TOPICATOR\nROUND 1", "THREE CLUES\nROUND 3", "ROUND 5 - HOTSPOT", "Round 2 - Ticker Tangle".
@@ -330,16 +350,17 @@ def _clean_round_name(name: Optional[str]) -> Optional[str]:
 def rule_signals(text: str) -> int:
     """How many independent kinds of rule wording a slide has: question count, play mode, timer, points, 'rules'."""
     n = 0
-    if re.search(r"\d+\s*(?:questions?|topics?)\b", text, re.I):
+    if re.search(r"\d+\s*(?:questions?|topics?|rounds?|ಪ್ರಶ್ನೆಗಳು)\b", text, re.I):
         n += 1
-    if re.search(r"\b(?:buzzer|directed|each\s+team|one\s+question\s+per\s+team|for\s+a\s+pass)\b", text, re.I):
+    if re.search(r"\b(?:buzzer|directed|each\s+team|one\s+question\s+per\s+team|for\s+a\s+pass|block\s+letters|switch\s+off|negative\s+marking)\b|ನೆಗೇಟಿವ್", text, re.I):
         n += 1
     if re.search(r"\d+\s*(?:secs?|seconds?|mins?|minutes?)\b", text, re.I):
         n += 1
     if (len(_LADDER_PAIR_RE.findall(text)) >= 2 or re.search(r"\bcorrect\b[^\n]{0,20}[+]\s*\d+", text, re.I)
             or re.search(r"[+]\s*\d+\s*(?:points?\s*)?(?:for|if)\b", text, re.I)):
         n += 1
-    if re.search(r"^\W*rules?\b", text, re.I):
+    first_ln = (_lines(text) or [""])[0]
+    if re.search(r"^\W*rules?\b", text, re.I) or re.search(r"\b(?:rules?|about\s+the\s+finals)\b|ನಿಯಮಗಳು", first_ln, re.I):
         n += 1
     return n
 

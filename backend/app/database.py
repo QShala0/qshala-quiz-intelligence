@@ -492,6 +492,19 @@ def ensure_schema_columns():
         except Exception as be:
             logger.debug(f"Legacy backfill notice: {be}")
 
+        # Idempotent repair pass for broken bilingual / Agastya-style deck extractions
+        try:
+            from backend.app.services.ingestion.repair_bilingual import repair_broken_deck_extractions
+            sess = SessionLocal()
+            try:
+                rep_summary = repair_broken_deck_extractions(sess)
+                if rep_summary.get("repaired_docs") or (rep_summary.get("kannada_fallback") or {}).get("repaired"):
+                    logger.info(f"Bilingual/extraction auto-repair summary: {rep_summary}")
+            finally:
+                sess.close()
+        except Exception as re_err:
+            logger.debug(f"Bilingual repair notice: {re_err}")
+
     except Exception as e:
         logger.debug(f"Schema auto-check notice: {e}")
 
