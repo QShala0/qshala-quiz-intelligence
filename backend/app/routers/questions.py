@@ -1036,6 +1036,11 @@ def delete_all_questions_endpoint(
     if not question_ids:
         return {"status": "ok", "deleted_count": 0, "message": "No matching questions found"}
 
+    # Keep a recoverable copy first (same transaction: if the delete fails, the copy is rolled back with it).
+    from backend.app.services import trash as _trash
+    trash_id = _trash.snapshot(db, "deck" if document_id else "all_questions",
+                               f"questions of deck {document_id}" if document_id else "entire question bank", document_id)
+
     # Cascade deletions
     db.query(QshalaQuestionMetadata).filter(QshalaQuestionMetadata.question_id.in_(question_ids)).delete(synchronize_session=False)
     db.query(QuestionTopicPath).filter(QuestionTopicPath.question_id.in_(question_ids)).delete(synchronize_session=False)
@@ -1046,11 +1051,18 @@ def delete_all_questions_endpoint(
     
     deleted_n = db.query(Question).filter(Question.id.in_(question_ids)).delete(synchronize_session=False)
     db.commit()
+    try:
+        _trash.purge_expired(db)
+        db.commit()
+    except Exception:
+        db.rollback()
 
     return {
         "status": "ok",
         "deleted_count": deleted_n,
-        "message": f"Successfully removed {deleted_n} questions from the question bank"
+        "trash_id": trash_id,
+        "message": f"Successfully removed {deleted_n} questions from the question bank. "
+                   f"Undo within {_trash.retention_days()} days with POST /trash/{trash_id}/restore"
     }
 
 

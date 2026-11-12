@@ -279,6 +279,8 @@ app.mount("/slides", MultiDirStaticFiles(directory=str(settings.SLIDES_DIR), fal
 app.include_router(stats.router, prefix=settings.API_V1_STR)
 app.include_router(documents.router, prefix=settings.API_V1_STR)
 app.include_router(questions.router, prefix=settings.API_V1_STR)
+from backend.app.routers import trash as _trash_router
+app.include_router(_trash_router.router, prefix=settings.API_V1_STR)
 app.include_router(question_meta.router, prefix=settings.API_V1_STR)
 app.include_router(quizzes.router, prefix=settings.API_V1_STR)
 app.include_router(jobs.router, prefix=settings.API_V1_STR)
