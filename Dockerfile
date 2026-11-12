@@ -11,8 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
+# Install the exact versions in the lock file (built for Python 3.12) so a rebuild never silently changes a package.
+# To upgrade: see backend/DEPENDENCIES.md.
+COPY backend/requirements.txt backend/requirements.lock.txt backend/
+RUN pip install --no-cache-dir -r backend/requirements.lock.txt
 
 COPY backend backend
 
