@@ -1,0 +1,264 @@
+From ecd811f595e1db5ca880dca824e2e457a0c8be5a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 08:01:26 +0000
+Subject: [PATCH 6/9] feat(ai): central model config (same values) and a daily,
+ token-free Gemini model check shown in /health
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ backend/app/main.py                           | 10 +++
+ backend/app/services/ai/model_check.py        | 67 +++++++++++++++++++
+ backend/app/services/ai/model_config.py       | 41 ++++++++++++
+ .../app/services/prompt_quiz/curator_llm.py   |  3 +-
+ .../app/services/prompt_quiz/intent_engine.py |  3 +-
+ .../services/prompt_quiz/interpreter_llm.py   |  3 +-
+ backend/tests/test_model_config.py            | 45 +++++++++++++
+ 7 files changed, 169 insertions(+), 3 deletions(-)
+ create mode 100644 backend/app/services/ai/model_check.py
+ create mode 100644 backend/app/services/ai/model_config.py
+ create mode 100644 backend/tests/test_model_config.py
+
+diff --git a/backend/app/main.py b/backend/app/main.py
+index 0c76777..a3637fd 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -294,6 +294,15 @@ def root():
+         "docs": f"{settings.API_V1_STR}/docs"
+     }
+ 
++def _gemini_models_status():
++    """Informational only: never affects the healthy/unhealthy verdict and never blocks the health check."""
++    try:
++        from backend.app.services.ai.model_check import get_status
++        return get_status()
++    except Exception:
++        return None
++
++
+ @app.get("/health")
+ @app.get("/api/health")
+ @app.get(f"{settings.API_V1_STR}/health")
+@@ -349,6 +358,7 @@ def health():
+             "r2_configured": r2_complete if r2_touched else None,
+         },
+         "problems": problems or None,
++        "gemini_models": _gemini_models_status(),
+         "warning": None if DB_PERSISTENT else
+                    "Data is NOT persistent (SQLite on ephemeral disk). Set DATABASE_URL to Neon.",
+     }
+diff --git a/backend/app/services/ai/model_check.py b/backend/app/services/ai/model_check.py
+new file mode 100644
+index 0000000..dd86a1b
+--- /dev/null
++++ b/backend/app/services/ai/model_check.py
+@@ -0,0 +1,67 @@
++"""Daily check that every configured Gemini model still exists. Uses the models.get metadata call: no tokens are spent.
++
++A retired or misspelled model otherwise fails quietly (the prompt engine falls back to its regex path and quizzes just
++get worse). get_status() never blocks and never raises: it returns the last result and refreshes in the background.
++"""
++import logging
++import threading
++import time
++from typing import Any, Dict, Optional
++
++from backend.app.services.ai.model_config import models_in_use
++
++logger = logging.getLogger(__name__)
++_TTL_S = 24 * 3600
++_state: Dict[str, Any] = {"at": 0.0, "result": None, "running": False}
++_lock = threading.Lock()
++
++
++def _api_key() -> str:
++    from backend.app.config import settings
++    key = (getattr(settings, "GEMINI_API_KEY", None) or "").strip()
++    if len(key) > 1 and key[0] == key[-1] and key[0] in "\"'":
++        key = key[1:-1].strip()
++    return key
++
++
++def check_models(timeout_s: float = 5.0) -> Optional[Dict[str, Any]]:
++    key = _api_key()
++    if not key:
++        return None
++    from backend.app.services.prompt_quiz._http import get_client
++    out: Dict[str, Any] = {}
++    for role, model in models_in_use().items():
++        try:
++            r = get_client().get(f"https://generativelanguage.googleapis.com/v1beta/models/{model}",
++                                 headers={"x-goog-api-key": key}, timeout=timeout_s)
++            out[role] = {"model": model, "ok": r.status_code == 200, "status": r.status_code}
++            if r.status_code != 200:
++                logger.warning("Gemini model check: %s model %r returned HTTP %s", role, model, r.status_code)
++        except Exception as e:
++            out[role] = {"model": model, "ok": None, "error": type(e).__name__}
++    return out
++
++
++def _refresh() -> None:
++    try:
++        res = check_models()
++        with _lock:
++            _state["result"], _state["at"] = res, time.monotonic()
++    except Exception as e:
++        logger.warning("Gemini model check failed: %s", e)
++    finally:
++        with _lock:
++            _state["running"] = False
++
++
++def get_status() -> Optional[Dict[str, Any]]:
++    """Last known result (None before the first check finishes, or with no API key). Starts a refresh when it is stale."""
++    with _lock:
++        stale = time.monotonic() - _state["at"] > _TTL_S
++        start = stale and not _state["running"]
++        if start:
++            _state["running"] = True
++        result = _state["result"]
++    if start:
++        threading.Thread(target=_refresh, name="gemini-model-check", daemon=True).start()
++    return result
+diff --git a/backend/app/services/ai/model_config.py b/backend/app/services/ai/model_config.py
+new file mode 100644
+index 0000000..c4a885e
+--- /dev/null
++++ b/backend/app/services/ai/model_config.py
+@@ -0,0 +1,41 @@
++"""One place that says which Gemini model each role uses.
++
++Every role resolves to the same value it did before (settings.GEMINI_MODEL, which defaults to gemini-3.5-flash-lite;
++the tagger and embedder keep their own settings). The optional GEMINI_MODEL_<ROLE> variables let one role be pointed
++at a different model later without touching code; all are unset by default.
++"""
++import os
++
++DEFAULT_MODEL = "gemini-3.5-flash-lite"
++EMBEDDING_MODEL = "gemini-embedding-001"
++
++
++def _settings():
++    from backend.app.config import settings
++    return settings
++
++
++def _role(env_name: str) -> str:
++    override = (os.getenv(env_name) or "").strip()
++    return override or (getattr(_settings(), "GEMINI_MODEL", None) or DEFAULT_MODEL)
++
++
++def interpreter_model() -> str:
++    return _role("GEMINI_MODEL_INTERPRETER")
++
++
++def intent_model() -> str:
++    return _role("GEMINI_MODEL_INTENT")
++
++
++def curator_model() -> str:
++    return _role("GEMINI_MODEL_CURATOR")
++
++
++def tagger_model() -> str:
++    return getattr(_settings(), "QSHALA_TAGGER_MODEL", None) or DEFAULT_MODEL
++
++
++def models_in_use() -> dict:
++    return {"interpreter": interpreter_model(), "intent": intent_model(), "curator": curator_model(),
++            "tagger": tagger_model(), "embedding": EMBEDDING_MODEL}
+diff --git a/backend/app/services/prompt_quiz/curator_llm.py b/backend/app/services/prompt_quiz/curator_llm.py
+index fc4035f..0048425 100644
+--- a/backend/app/services/prompt_quiz/curator_llm.py
++++ b/backend/app/services/prompt_quiz/curator_llm.py
+@@ -135,7 +135,8 @@ def curate_quiz_with_gemini(
+     if not key:
+         return None
+ 
+-    model = getattr(settings, "GEMINI_MODEL", None) or "gemini-3.8-flash"
++    from backend.app.services.ai.model_config import curator_model
++    model = curator_model()
+     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+ 
+     user_text = _build_curator_prompt(
+diff --git a/backend/app/services/prompt_quiz/intent_engine.py b/backend/app/services/prompt_quiz/intent_engine.py
+index b64116e..a340dad 100644
+--- a/backend/app/services/prompt_quiz/intent_engine.py
++++ b/backend/app/services/prompt_quiz/intent_engine.py
+@@ -199,7 +199,8 @@ def deconstruct_prompt(
+ 
+     user_text = json.dumps(user_payload)
+ 
+-    model = getattr(settings, "GEMINI_MODEL", None) or "gemini-3.8-flash"
++    from backend.app.services.ai.model_config import intent_model
++    model = intent_model()
+     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+ 
+     payload = {
+diff --git a/backend/app/services/prompt_quiz/interpreter_llm.py b/backend/app/services/prompt_quiz/interpreter_llm.py
+index 703487b..2f0b10b 100644
+--- a/backend/app/services/prompt_quiz/interpreter_llm.py
++++ b/backend/app/services/prompt_quiz/interpreter_llm.py
+@@ -166,7 +166,8 @@ def interpret_with_gemini(
+     if not key:
+         return None
+ 
+-    model = getattr(settings, "GEMINI_MODEL", None) or "gemini-3.5-flash-lite"
++    from backend.app.services.ai.model_config import interpreter_model
++    model = interpreter_model()
+     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent")
+     payload = {
+diff --git a/backend/tests/test_model_config.py b/backend/tests/test_model_config.py
+new file mode 100644
+index 0000000..5f649d6
+--- /dev/null
++++ b/backend/tests/test_model_config.py
+@@ -0,0 +1,45 @@
++from unittest.mock import MagicMock, patch
++
++from backend.app.services.ai import model_check, model_config
++
++
++def test_every_role_resolves_to_the_configured_model_by_default(monkeypatch):
++    for v in ("GEMINI_MODEL_INTERPRETER", "GEMINI_MODEL_INTENT", "GEMINI_MODEL_CURATOR"):
++        monkeypatch.delenv(v, raising=False)
++    with patch("backend.app.config.settings.GEMINI_MODEL", "gemini-test-1"):
++        assert model_config.interpreter_model() == model_config.intent_model() == model_config.curator_model() == "gemini-test-1"
++
++
++def test_role_override_only_affects_that_role(monkeypatch):
++    monkeypatch.setenv("GEMINI_MODEL_CURATOR", "gemini-curator-x")
++    with patch("backend.app.config.settings.GEMINI_MODEL", "gemini-test-1"):
++        assert model_config.curator_model() == "gemini-curator-x"
++        assert model_config.interpreter_model() == "gemini-test-1"
++
++
++def test_model_check_flags_a_missing_model_without_spending_tokens():
++    fake = MagicMock()
++    fake.get.return_value = MagicMock(status_code=404)
++    with patch("backend.app.config.settings.GEMINI_API_KEY", "k"), \
++         patch("backend.app.services.prompt_quiz._http.get_client", return_value=fake):
++        res = model_check.check_models()
++    assert all(v["ok"] is False and v["status"] == 404 for v in res.values())
++    assert not fake.post.called and fake.get.called          # metadata lookups only
++
++
++def test_model_check_without_a_key_is_skipped_and_status_never_blocks(monkeypatch):
++    with patch("backend.app.config.settings.GEMINI_API_KEY", ""):
++        assert model_check.check_models() is None
++    monkeypatch.setitem(model_check._state, "at", 0.0)
++    monkeypatch.setitem(model_check._state, "running", True)     # a refresh is "in flight": get_status must just return
++    monkeypatch.setitem(model_check._state, "result", {"x": 1})
++    assert model_check.get_status() == {"x": 1}
++
++
++def test_health_reports_models_but_does_not_depend_on_them():
++    from fastapi.testclient import TestClient
++    from backend.app.main import app
++    with patch("backend.app.services.ai.model_check.get_status", return_value={"curator": {"ok": False}}):
++        body = TestClient(app).get("/health").json()
++    assert body["gemini_models"] == {"curator": {"ok": False}}
++    assert "status" in body
+-- 
+2.43.0
+

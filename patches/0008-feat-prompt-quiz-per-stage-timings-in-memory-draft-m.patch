@@ -1,0 +1,229 @@
+From 5819a1d87a910f5713ec8a1482947d7d99e900dc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 08:03:09 +0000
+Subject: [PATCH 8/9] feat(prompt-quiz): per-stage timings, in-memory draft
+ metrics and GET /prompt-quiz/metrics
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ backend/app/routers/prompt_quiz.py          | 12 ++++
+ backend/app/services/prompt_quiz/engine.py  | 20 +++++++
+ backend/app/services/prompt_quiz/metrics.py | 62 +++++++++++++++++++++
+ backend/tests/test_prompt_quiz_metrics.py   | 39 +++++++++++++
+ 4 files changed, 133 insertions(+)
+ create mode 100644 backend/app/services/prompt_quiz/metrics.py
+ create mode 100644 backend/tests/test_prompt_quiz_metrics.py
+
+diff --git a/backend/app/routers/prompt_quiz.py b/backend/app/routers/prompt_quiz.py
+index 73bf36e..fedffef 100644
+--- a/backend/app/routers/prompt_quiz.py
++++ b/backend/app/routers/prompt_quiz.py
+@@ -100,6 +100,18 @@ def parse_add_intent(prompt: str) -> Optional[Dict[str, Any]]:
+     return {'count': cnt, 'topic': topic}
+ 
+ 
++@router.get("/metrics")
++def metrics():
++    """Live view of recent drafts on this instance: stage timings, fallback rates, Gemini breaker and model status."""
++    from backend.app.services.prompt_quiz import metrics as m, llm_breaker
++    try:
++        from backend.app.services.ai.model_check import get_status
++        models = get_status()
++    except Exception:
++        models = None
++    return {**m.summary(), "gemini_breaker_open": not llm_breaker.allow(), "gemini_models": models}
++
++
+ @router.get("/starters")
+ def starters():
+     return {"starters": STARTERS}
+diff --git a/backend/app/services/prompt_quiz/engine.py b/backend/app/services/prompt_quiz/engine.py
+index 3436617..27bf72b 100644
+--- a/backend/app/services/prompt_quiz/engine.py
++++ b/backend/app/services/prompt_quiz/engine.py
+@@ -850,7 +850,10 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
+                 previous_brief: Optional[Dict[str, Any]] = None,
+                 exclude_ids: Optional[Set[str]] = None,
+                 current_questions: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
++    from backend.app.services.prompt_quiz import metrics as _metrics
++    _timer = _metrics.StageTimer()
+     brief = interpret(prompt, count, options, previous_brief, current_questions=current_questions, db=db)
++    _timer.mark("interpret")
+ 
+     # Geographic/locality queries: ONLY when the user's prompt is strictly asking for geographic trivia,
+     # NOT when geography is just a qualifier for a subject (e.g. "people in india", "food in delhi", "startups in bangalore").
+@@ -897,6 +900,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
+         brief.search_terms = []
+ 
+     bank = _load_bank(db)
++    _timer.mark("load_bank")
+ 
+     # 3. Librarian: search broadly across the entire bank
+     idx = _index_for(bank)
+@@ -922,6 +926,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
+                 b_adj["score"] = round(min(pad_cap * 0.5, 0.2), 3)
+                 hits.append(b_adj)
+ 
++    _timer.mark("retrieve")
+     # Split into on-topic vs adjacent
+     on_ok, adjacent, on_all, effective_l2s = split_pools(
+         hits,
+@@ -953,6 +958,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
+     # 5. Guardian + Editor on ranked on-topic list
+     effective_exclude = set(exclude_ids or set())
+     cands = guardian(on_ok, brief, exclude_ids=effective_exclude)
++    _timer.mark("rank_guard")
+ 
+     narrative_arc: Optional[str] = None
+     picked: List[Dict[str, Any]] = []
+@@ -993,6 +999,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
+     if not picked and cur_res is None:
+         picked = editor(cands, brief)
+ 
++    _timer.mark("select")
+     # 6. Padding if requested and short
+     padded = 0
+     if brief.cross_topic_padding and len(picked) < brief.count:
+@@ -1028,6 +1035,18 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
+ 
+     brief.narrative_arc = narrative_arc
+ 
++    _timer.mark("finish")
++    timings = {**_timer.stages, "total": _timer.total_ms()}
++    try:
++        _metrics.record({
++            "at": time.time(), "total_ms": timings["total"], "stages": _timer.stages, "bank_size": len(bank),
++            "interpreter": brief.source, "short": bool(fulfillment.get("short")),
++            "curator": "none" if cur_res is None and not narrative_arc and not os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes")
++                       else ("used" if narrative_arc else ("fallback" if cur_res is None else "empty")),
++        })
++    except Exception:
++        pass
++
+     return {
+         "brief": brief.public(),
+         "questions": [_view(p) for p in picked],
+@@ -1036,6 +1055,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
+         "stages": stages,
+         "fulfillment": fulfillment,
+         "narrative_arc": narrative_arc,
++        "timings_ms": timings,
+     }
+ 
+ 
+diff --git a/backend/app/services/prompt_quiz/metrics.py b/backend/app/services/prompt_quiz/metrics.py
+new file mode 100644
+index 0000000..01738d1
+--- /dev/null
++++ b/backend/app/services/prompt_quiz/metrics.py
+@@ -0,0 +1,62 @@
++"""In-memory record of recent drafts: how long each stage took and which path produced the result.
++
++Per process (a restart or a second instance starts its own window), so treat it as a live health view, not an audit log.
++Nothing here changes what a draft returns.
++"""
++import threading
++import time
++from collections import deque
++from typing import Any, Deque, Dict, List
++
++_MAX = 500
++_lock = threading.Lock()
++_recent: Deque[Dict[str, Any]] = deque(maxlen=_MAX)
++
++
++class StageTimer:
++    def __init__(self) -> None:
++        self._t0 = self._last = time.perf_counter()
++        self.stages: Dict[str, float] = {}
++
++    def mark(self, name: str) -> None:
++        now = time.perf_counter()
++        self.stages[name] = round((now - self._last) * 1000, 1)
++        self._last = now
++
++    def total_ms(self) -> float:
++        return round((time.perf_counter() - self._t0) * 1000, 1)
++
++
++def record(entry: Dict[str, Any]) -> None:
++    with _lock:
++        _recent.append(entry)
++
++
++def reset() -> None:
++    with _lock:
++        _recent.clear()
++
++
++def _pct(values: List[float], p: float) -> float:
++    if not values:
++        return 0.0
++    s = sorted(values)
++    return s[min(len(s) - 1, int(round(p * (len(s) - 1))))]
++
++
++def summary() -> Dict[str, Any]:
++    with _lock:
++        rows = list(_recent)
++    n = len(rows)
++    totals = [r["total_ms"] for r in rows]
++    stage_names = sorted({k for r in rows for k in r["stages"]})
++    return {
++        "drafts_in_window": n,
++        "total_ms": {"p50": _pct(totals, 0.5), "p95": _pct(totals, 0.95), "max": max(totals) if totals else 0.0},
++        "stage_p50_ms": {k: _pct([r["stages"][k] for r in rows if k in r["stages"]], 0.5) for k in stage_names},
++        "stage_p95_ms": {k: _pct([r["stages"][k] for r in rows if k in r["stages"]], 0.95) for k in stage_names},
++        "interpreter_regex_rate": round(sum(1 for r in rows if r["interpreter"] == "regex") / n, 3) if n else None,
++        "curator_fallback_rate": round(sum(1 for r in rows if r["curator"] == "fallback") / n, 3) if n else None,
++        "short_rate": round(sum(1 for r in rows if r["short"]) / n, 3) if n else None,
++        "last_bank_size": rows[-1]["bank_size"] if rows else None,
++    }
+diff --git a/backend/tests/test_prompt_quiz_metrics.py b/backend/tests/test_prompt_quiz_metrics.py
+new file mode 100644
+index 0000000..f054c71
+--- /dev/null
++++ b/backend/tests/test_prompt_quiz_metrics.py
+@@ -0,0 +1,39 @@
++from unittest.mock import MagicMock, patch
++
++from fastapi.testclient import TestClient
++
++from backend.app.services.prompt_quiz import engine, metrics
++
++
++_WORDS = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango".split()
++
++
++def _bank():
++    return [{"id": f"q{i}", "question_text": f"Banking {_WORDS[i]} {_WORDS[(i * 7 + 3) % 20]} {_WORDS[(i * 11 + 5) % 20]} {i} about rbi", "answer": f"A{i}",
++             "topic_l1": "Finance", "subtopic_l2": "Banks and Banking", "secondary_l2": [], "keywords": ["bank", "loan"],
++             "difficulty_score": 0.5, "difficulty": "Medium", "tagged": True, "image_dependent": False} for i in range(20)]
++
++
++def test_draft_records_stage_timings_and_does_not_change_the_questions(monkeypatch):
++    metrics.reset()
++    monkeypatch.setenv("ENABLE_AI_CURATOR", "false")
++    monkeypatch.setenv("ENABLE_INTENT_ENGINE", "false")
++    with patch.object(engine, "_load_bank", lambda db: [dict(r) for r in _bank()]), \
++         patch("backend.app.config.settings.GEMINI_API_KEY", ""):
++        d = engine.build_draft(MagicMock(), "5 questions on banking")
++    assert len(d["questions"]) == 5
++    assert set(d["timings_ms"]) >= {"interpret", "load_bank", "retrieve", "rank_guard", "select", "total"}
++    s = metrics.summary()
++    assert s["drafts_in_window"] == 1 and s["last_bank_size"] == 20 and s["interpreter_regex_rate"] == 1.0
++
++
++def test_metrics_endpoint_reports_percentiles_and_breaker_state():
++    metrics.reset()
++    for ms in (10, 20, 30, 40, 1000):
++        metrics.record({"at": 0, "total_ms": ms, "stages": {"retrieve": ms / 2}, "bank_size": 9,
++                        "interpreter": "gemini", "short": False, "curator": "used"})
++    from backend.app.main import app
++    body = TestClient(app).get("/api/v1/prompt-quiz/metrics").json()
++    assert body["drafts_in_window"] == 5 and body["total_ms"]["p50"] == 30 and body["total_ms"]["max"] == 1000
++    assert body["gemini_breaker_open"] is False and body["curator_fallback_rate"] == 0.0
++    metrics.reset()
+-- 
+2.43.0
+

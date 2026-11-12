@@ -1,0 +1,261 @@
+From 7e945c3a26020c19ceb7842196403bda1f0c6cfa Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 08:04:15 +0000
+Subject: [PATCH 9/9] feat(ops): nightly pg_dump backup to a private R2 bucket
+ with retention, and a restore drill script
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ backend/scripts/backup_vault.py    | 127 +++++++++++++++++++++++++++++
+ backend/scripts/restore_check.py   |  56 +++++++++++++
+ backend/tests/test_backup_vault.py |  41 ++++++++++
+ 3 files changed, 224 insertions(+)
+ create mode 100644 backend/scripts/backup_vault.py
+ create mode 100644 backend/scripts/restore_check.py
+ create mode 100644 backend/tests/test_backup_vault.py
+
+diff --git a/backend/scripts/backup_vault.py b/backend/scripts/backup_vault.py
+new file mode 100644
+index 0000000..4206c0e
+--- /dev/null
++++ b/backend/scripts/backup_vault.py
+@@ -0,0 +1,127 @@
++"""Nightly logical backup of the vault (pg_dump custom format) to a PRIVATE R2 bucket, with retention.
++
++    python backend/scripts/backup_vault.py --dry-run          # show what would happen, change nothing
++    python backend/scripts/backup_vault.py                    # dump + verify + upload + prune old backups
++    python backend/scripts/backup_vault.py --out-dir /backups # local copy only (no R2), for a drill or a laptop
++
++Environment: DATABASE_URL (Postgres), BACKUP_R2_BUCKET (a PRIVATE bucket), and the usual R2_ACCOUNT_ID /
++R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY. The media bucket (R2_BUCKET_NAME) is public (served from r2.dev), so this
++script refuses to write to it. Retention: 30 daily + 12 monthly (BACKUP_KEEP_DAILY / BACKUP_KEEP_MONTHLY).
++Never prints the database URL or any key. This does not back up the media files themselves; enable R2 object
++versioning or replicate that bucket separately.
++"""
++import argparse
++import hashlib
++import os
++import subprocess
++import sys
++import tempfile
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Iterable, List, Set
++
++PREFIX = "backups/"
++
++
++def make_key(now: datetime, monthly: bool = False) -> str:
++    kind = "monthly" if monthly else "daily"
++    return f"{PREFIX}{kind}/{now:%Y/%m}/qshala-{now:%Y%m%d-%H%M%S}.dump"
++
++
++def select_deletions(keys: Iterable[str], keep_daily: int, keep_monthly: int) -> List[str]:
++    """Keys to delete so only the newest `keep_daily` daily and `keep_monthly` monthly backups remain (names sort by time)."""
++    keys = sorted(keys)
++    daily = [k for k in keys if k.startswith(PREFIX + "daily/")]
++    monthly = [k for k in keys if k.startswith(PREFIX + "monthly/")]
++    doomed = daily[:-keep_daily] if keep_daily > 0 else daily
++    doomed += monthly[:-keep_monthly] if keep_monthly > 0 else monthly
++    return doomed
++
++
++def pg_env(database_url: str) -> dict:
++    """Connection settings as PG* variables so the password never appears on a command line."""
++    from sqlalchemy.engine import make_url
++    u = make_url(database_url)
++    env = dict(os.environ)
++    for k, v in (("PGHOST", u.host or u.query.get("host")), ("PGPORT", u.port or u.query.get("port")), ("PGUSER", u.username),
++                 ("PGPASSWORD", u.password), ("PGDATABASE", u.database)):
++        if v:
++            env[k] = str(v)
++    if u.query.get("sslmode"):
++        env["PGSSLMODE"] = u.query["sslmode"]
++    return env
++
++
++def dump_to(path: Path, database_url: str) -> str:
++    r = subprocess.run(["pg_dump", "--format=custom", "--no-owner", "--file", str(path)], env=pg_env(database_url),
++                       capture_output=True, text=True)
++    if r.returncode != 0:
++        raise RuntimeError("pg_dump failed: " + r.stderr.strip()[-400:])      # stderr never contains the password
++    listing = subprocess.run(["pg_restore", "--list", str(path)], check=True, capture_output=True, text=True).stdout
++    if "TABLE DATA" not in listing:
++        raise RuntimeError("dump has no table data; refusing to keep it")
++    h = hashlib.sha256()
++    with open(path, "rb") as f:
++        for chunk in iter(lambda: f.read(1 << 20), b""):
++            h.update(chunk)
++    return h.hexdigest()
++
++
++def _s3():
++    import boto3
++    acct = os.environ["R2_ACCOUNT_ID"]
++    return boto3.client("s3", endpoint_url=f"https://{acct}.r2.cloudflarestorage.com",
++                        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
++                        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"], region_name="auto")
++
++
++def main(argv=None) -> int:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--dry-run", action="store_true")
++    ap.add_argument("--out-dir", help="write the dump here instead of uploading to R2")
++    a = ap.parse_args(argv)
++    db_url = os.environ.get("DATABASE_URL", "")
++    if not db_url.startswith(("postgres://", "postgresql")):
++        print("DATABASE_URL must be a Postgres URL")
++        return 2
++    keep_d, keep_m = int(os.getenv("BACKUP_KEEP_DAILY", "30")), int(os.getenv("BACKUP_KEEP_MONTHLY", "12"))
++    now = datetime.now(timezone.utc)
++    monthly = now.day == 1
++    bucket = os.getenv("BACKUP_R2_BUCKET", "")
++    if not a.out_dir:
++        if not bucket:
++            print("set BACKUP_R2_BUCKET to a private bucket (or use --out-dir)")
++            return 2
++        if bucket == os.getenv("R2_BUCKET_NAME") or bucket == "qshala-media":
++            print("refusing: that is the public media bucket; backups need a private one")
++            return 2
++    key = make_key(now)
++    print(f"plan: pg_dump -> {'local ' + a.out_dir if a.out_dir else 'r2://' + bucket}/{key}"
++          + (f" (+ monthly copy)" if monthly else "") + f"; keep {keep_d} daily / {keep_m} monthly")
++    if a.dry_run:
++        return 0
++    with tempfile.TemporaryDirectory() as td:
++        tmp = Path(td) / "vault.dump"
++        digest = dump_to(tmp, db_url)
++        size = tmp.stat().st_size
++        if a.out_dir:
++            dest = Path(a.out_dir) / key
++            dest.parent.mkdir(parents=True, exist_ok=True)
++            dest.write_bytes(tmp.read_bytes())
++            print(f"wrote {dest} ({size} bytes, sha256 {digest[:12]}...)")
++            return 0
++        s3 = _s3()
++        for k in [key] + ([make_key(now, monthly=True)] if monthly else []):
++            s3.upload_file(str(tmp), bucket, k, ExtraArgs={"Metadata": {"sha256": digest}})
++            print(f"uploaded {k} ({size} bytes, sha256 {digest[:12]}...)")
++        existing: Set[str] = set()
++        for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=PREFIX):
++            existing.update(o["Key"] for o in page.get("Contents", []))
++        for k in select_deletions(existing, keep_d, keep_m):
++            s3.delete_object(Bucket=bucket, Key=k)
++            print("pruned", k)
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/backend/scripts/restore_check.py b/backend/scripts/restore_check.py
+new file mode 100644
+index 0000000..338cfdb
+--- /dev/null
++++ b/backend/scripts/restore_check.py
+@@ -0,0 +1,56 @@
++"""Restore drill: load a backup into a SCRATCH database and check it against the source.
++
++    python backend/scripts/restore_check.py BACKUP.dump postgresql://.../qshala_restore_scratch [SOURCE_DATABASE_URL]
++
++Safety: the target database name must contain "scratch" or "restore", so this can never overwrite the live database.
++With a source URL it compares per-table row counts and exits 1 on any difference. A backup that has not been
++restored at least once is not a backup; run this after setting up backups and after any schema change.
++"""
++import subprocess
++import sys
++
++sys.path.insert(0, __file__.rsplit("/", 1)[0])
++
++
++def counts(database_url: str) -> dict:
++    from sqlalchemy import create_engine, inspect, text
++    eng = create_engine(database_url)
++    out = {}
++    with eng.connect() as c:
++        for t in sorted(inspect(eng).get_table_names()):
++            out[t] = c.execute(text(f'select count(*) from "{t}"')).scalar()
++    eng.dispose()
++    return out
++
++
++def main(argv) -> int:
++    if len(argv) < 3:
++        print(__doc__)
++        return 2
++    dump, target = argv[1], argv[2]
++    source = argv[3] if len(argv) > 3 else None
++    from sqlalchemy.engine import make_url
++    name = (make_url(target).database or "").lower()
++    if "scratch" not in name and "restore" not in name:
++        print(f"refusing: target database {name!r} must contain 'scratch' or 'restore'")
++        return 2
++    from backup_vault import pg_env
++    r = subprocess.run(["pg_restore", "--no-owner", "--clean", "--if-exists", "--dbname", name, dump],
++                       env=pg_env(target), capture_output=True, text=True)
++    if r.returncode not in (0, 1):                       # 1 = warnings such as 'does not exist' on --clean
++        print(r.stderr[-800:])
++        return 1
++    restored = counts(target)
++    print(f"restored {len(restored)} tables, {sum(restored.values())} rows")
++    if source:
++        live = counts(source)
++        bad = {t: (live[t], restored.get(t)) for t in live if live[t] != restored.get(t)}
++        for t, (a, b) in bad.items():
++            print(f"MISMATCH {t}: source {a}, restored {b}")
++        print("MATCH" if not bad else "DIFFERENT")
++        return 1 if bad else 0
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv))
+diff --git a/backend/tests/test_backup_vault.py b/backend/tests/test_backup_vault.py
+new file mode 100644
+index 0000000..17c7ec0
+--- /dev/null
++++ b/backend/tests/test_backup_vault.py
+@@ -0,0 +1,41 @@
++import importlib.util
++import sys
++from datetime import datetime, timezone
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++
++
++def _mod():
++    spec = importlib.util.spec_from_file_location("backup_vault_mod", ROOT / "backend/scripts/backup_vault.py")
++    m = importlib.util.module_from_spec(spec)
++    sys.modules["backup_vault_mod"] = m
++    spec.loader.exec_module(m)
++    return m
++
++
++def test_retention_keeps_newest_30_daily_and_12_monthly():
++    m = _mod()
++    daily = [f"backups/daily/2026/{(i // 28) + 1:02d}/qshala-2026{(i // 28) + 1:02d}{(i % 28) + 1:02d}-020000.dump" for i in range(40)]
++    monthly = [f"backups/monthly/2025/{i:02d}/qshala-2025{i:02d}01-020000.dump" for i in range(1, 13)] + \
++              ["backups/monthly/2026/01/qshala-20260101-020000.dump", "backups/monthly/2026/02/qshala-20260201-020000.dump"]
++    other = ["media/slides/a.png", "backups/notes.txt"]
++    doomed = m.select_deletions(daily + monthly + other, 30, 12)
++    assert doomed == sorted(daily)[:10] + sorted(monthly)[:2]
++    assert not any(k in doomed for k in other)           # never touches anything that is not a backup file
++
++
++def test_key_layout_and_password_stays_out_of_the_command_line():
++    m = _mod()
++    now = datetime(2026, 11, 12, 2, 0, 5, tzinfo=timezone.utc)
++    assert m.make_key(now) == "backups/daily/2026/11/qshala-20261112-020005.dump"
++    assert m.make_key(now, monthly=True).startswith("backups/monthly/2026/11/")
++    env = m.pg_env("postgresql://user:s3cret@db.example.com:5432/qshala?sslmode=require")
++    assert env["PGPASSWORD"] == "s3cret" and env["PGHOST"] == "db.example.com" and env["PGSSLMODE"] == "require"
++
++
++def test_refuses_the_public_media_bucket(monkeypatch, capsys):
++    m = _mod()
++    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@h/db")
++    monkeypatch.setenv("BACKUP_R2_BUCKET", "qshala-media")
++    assert m.main(["--dry-run"]) == 2 and "public media bucket" in capsys.readouterr().out
+-- 
+2.43.0
+

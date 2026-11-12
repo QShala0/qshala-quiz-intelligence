@@ -1,0 +1,93 @@
+From 68573f93f96b0a6f6c2a2d0a374c3de77bea5648 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 07:59:53 +0000
+Subject: [PATCH 4/9] perf(prompt-quiz): optional DISTINCT ON tag lookup (off
+ by default) with a script that proves it identical
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ backend/app/services/prompt_quiz/engine.py | 13 +++++++
+ backend/scripts/compare_latest_tags.py     | 44 ++++++++++++++++++++++
+ 2 files changed, 57 insertions(+)
+ create mode 100644 backend/scripts/compare_latest_tags.py
+
+diff --git a/backend/app/services/prompt_quiz/engine.py b/backend/app/services/prompt_quiz/engine.py
+index 4dac2c2..282ada7 100644
+--- a/backend/app/services/prompt_quiz/engine.py
++++ b/backend/app/services/prompt_quiz/engine.py
+@@ -502,9 +502,22 @@ def _index_for(bank: List[Dict[str, Any]]) -> Index:
+     return Index(bank)
+ 
+ 
++def _latest_tags_distinct_on(db: Session) -> Dict[str, Any]:
++    """Same rule as _latest_tags (newest confirmed, else newest draft, ties by id) written as Postgres DISTINCT ON, which
++    can walk ix_qshala_tags_current instead of numbering every tag row. Off unless PROMPT_QUIZ_TAGS_QUERY=distinct_on;
++    run backend/scripts/compare_latest_tags.py against the real database before turning it on."""
++    rows = (db.query(QshalaTag).filter(QshalaTag.status.in_(["confirmed", "draft"]))
++            .distinct(QshalaTag.question_id)
++            .order_by(QshalaTag.question_id, case((QshalaTag.status == "confirmed", 1), else_=0).desc(),
++                      QshalaTag.created_at.desc(), QshalaTag.id.desc()).all())
++    return {r.question_id: r for r in rows}
++
++
+ def _latest_tags(db: Session) -> Dict[str, Any]:
+     """Per question, the tag the bank uses: the newest confirmed one, else the newest draft. Chosen in SQL so only
+     one row per question is loaded (it used to read every tag row, superseded ones included, and sort in Python)."""
++    if os.getenv("PROMPT_QUIZ_TAGS_QUERY", "").strip().lower() == "distinct_on" and db.get_bind().dialect.name == "postgresql":
++        return _latest_tags_distinct_on(db)
+     rank = func.row_number().over(
+         partition_by=QshalaTag.question_id,
+         order_by=(case((QshalaTag.status == "confirmed", 1), else_=0).desc(),
+diff --git a/backend/scripts/compare_latest_tags.py b/backend/scripts/compare_latest_tags.py
+new file mode 100644
+index 0000000..d22edb9
+--- /dev/null
++++ b/backend/scripts/compare_latest_tags.py
+@@ -0,0 +1,44 @@
++"""Check that the DISTINCT ON tag lookup returns exactly what the current window-function lookup returns, and time both.
++
++    DATABASE_URL=postgresql://... python backend/scripts/compare_latest_tags.py
++
++Exit code 0 only when both pick the same tag row for every question. Only then, and only if it is faster, set
++PROMPT_QUIZ_TAGS_QUERY=distinct_on. Read-only.
++"""
++import sys
++import time
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
++
++
++def main() -> int:
++    from sqlalchemy import text
++    from backend.app.database import SessionLocal
++    from backend.app.services.prompt_quiz import engine
++    db = SessionLocal()
++    try:
++        if db.get_bind().dialect.name != "postgresql":
++            print("needs a Postgres DATABASE_URL")
++            return 2
++        res = {}
++        for name, fn in (("window", engine._latest_tags), ("distinct_on", engine._latest_tags_distinct_on)):
++            best = None
++            for _ in range(3):
++                t = time.perf_counter()
++                out = fn(db)
++                dt = time.perf_counter() - t
++                best = dt if best is None else min(best, dt)
++            res[name] = (best, {k: v.id for k, v in out.items()})
++            print(f"{name:12s} {best * 1000:9.1f} ms   {len(out)} questions")
++        same = res["window"][1] == res["distinct_on"][1]
++        print("IDENTICAL" if same else "DIFFERENT")
++        n = db.execute(text("select count(*) from qshala_tags")).scalar()
++        print(f"qshala_tags rows: {n}")
++        return 0 if same else 1
++    finally:
++        db.close()
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+-- 
+2.43.0
+
