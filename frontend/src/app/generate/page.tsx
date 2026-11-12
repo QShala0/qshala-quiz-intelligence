@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { ArrowUp, Check, Lock, RefreshCw, Sparkles, Trash2, Unlock } from 'lucide-react';
 import { getApiBase, resolveMediaUrl } from '../../lib/api';
 import { SourceCatalog } from '../../lib/types';
-import FormatCounts, { VaultCounts } from '../../components/FormatCounts';
 import SourceMultiPicker, { summarizeSelectedSources } from '../../components/SourceMultiPicker';
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
@@ -139,13 +138,8 @@ export default function QuizzerHome() {
   const [editSourceIds, setEditSourceIds] = useState<string[]>([]);
   const [isEditingChips, setIsEditingChips] = useState<boolean>(false);
 
-  // What the quiz may draw from: live questions by default; reserve spares / example slides only when ticked
-  const [includeReserve, setIncludeReserve] = useState(false);
-  const [includeExample, setIncludeExample] = useState(false);
-  const [pickedFormat, setPickedFormat] = useState('');
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [sourceCatalog, setSourceCatalog] = useState<SourceCatalog | null>(null);
-  const [vault, setVault] = useState<VaultCounts | null>(null);
 
   // Refine box state
   const [refineText, setRefineText] = useState('');
@@ -164,11 +158,6 @@ export default function QuizzerHome() {
     apiFetch<{ starters: string[] }>('/prompt-quiz/starters').then((d) => setStarters(d.starters.slice(0, 4))).catch(() => {});
     apiFetch<SourceCatalog>('/documents/sources').then(setSourceCatalog).catch(() => setSourceCatalog(null));
   }, []);
-
-  useEffect(() => {
-    apiFetch<VaultCounts>(`/prompt-quiz/format-counts?include_reserve=${includeReserve}&include_example=${includeExample}`)
-      .then(setVault).catch(() => setVault(null));
-  }, [includeReserve, includeExample]);
 
   useEffect(() => {
     if (!loading) return;
@@ -199,9 +188,8 @@ export default function QuizzerHome() {
     const activeIds = sourceIdsOverride !== undefined ? sourceIdsOverride : selectedSourceIds;
     const labels = activeIds.length > 0 ? summarizeSelectedSources(activeIds, sourceCatalog) : [];
     return {
-      include_reserve: includeReserve,
-      include_example: includeExample,
-      ...(pickedFormat ? { format_filter: pickedFormat } : {}),
+      include_reserve: false,
+      include_example: false,
       ...(activeIds.length > 0 ? { document_ids: activeIds, ...(labels.length > 0 ? { source_labels: labels } : {}) } : {}),
     };
   }
@@ -418,8 +406,8 @@ export default function QuizzerHome() {
       filters: nextFilters,
       locality: editLocality.trim() || null,
       format_filter: editFormat || null,
-      include_reserve: includeReserve,
-      include_example: includeExample,
+      include_reserve: false,
+      include_example: false,
     };
     await run(lastPrompt, { previous_brief: updatedBrief, optionsOverride: nextOptions });
   }
@@ -488,16 +476,6 @@ export default function QuizzerHome() {
             </button>
           </div>
         </div>
-
-        <FormatCounts
-          data={vault}
-          includeReserve={includeReserve}
-          includeExample={includeExample}
-          onToggleReserve={setIncludeReserve}
-          onToggleExample={setIncludeExample}
-          picked={pickedFormat}
-          onPick={setPickedFormat}
-        />
 
         {!draft && !loading && (
           <ul className="mt-6 space-y-1 text-center">
