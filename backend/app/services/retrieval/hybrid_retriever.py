@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 import numpy as np
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import or_, and_, not_
+from sqlalchemy import or_, and_, not_, func, String
 from backend.app.database import is_postgres, PG_VECTOR_AVAILABLE
 from backend.app.models.question import Question
 from backend.app.models.document import Document, Slide
@@ -22,6 +22,72 @@ TAXONOMY_FILE = Path(__file__).resolve().parent.parent / "tagging" / "taxonomy.j
 # domain. A missing/unreadable file now falls back to {} -- no synonym expansion at all -- rather
 # than silently reintroducing that single-customer bias as a code-level default.
 SYNONYM_EXPANSIONS_FILE = Path(__file__).resolve().parent / "synonym_expansions.json"
+
+def apply_question_scope_filters(
+    query_builder,
+    *,
+    document_id: Optional[str] = None,
+    document_ids: Optional[List[str]] = None,
+    document_title: Optional[str] = None,
+    duplicate_status: Optional[str] = None,
+    subtopic: Optional[str] = None,
+    tag: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    slot: Optional[str] = None,
+    play_mode: Optional[str] = None,
+    question_format: Optional[str] = None,
+):
+    """Apply hard Question/Document scope filters to a SQLAlchemy query with Document joined."""
+    effective_doc_ids: List[str] = []
+    if document_id and isinstance(document_id, str) and document_id.strip():
+        effective_doc_ids.append(document_id.strip())
+    if document_ids:
+        for did in document_ids:
+            if isinstance(did, str) and did.strip() and did.strip() not in effective_doc_ids:
+                effective_doc_ids.append(did.strip())
+
+    if effective_doc_ids:
+        query_builder = query_builder.filter(Question.document_id.in_(effective_doc_ids))
+    if document_title and isinstance(document_title, str) and document_title.strip():
+        dt = document_title.strip()
+        query_builder = query_builder.filter(
+            or_(Document.title.ilike(f"%{dt}%"), Document.filename.ilike(f"%{dt}%"))
+        )
+    if duplicate_status:
+        query_builder = query_builder.filter(Question.duplicate_status == duplicate_status)
+    if subtopic:
+        query_builder = query_builder.filter(Question.subtopic.ilike(f"%{subtopic}%"))
+    if tag:
+        clean_tag = tag.strip().lstrip("#").strip()
+        if clean_tag:
+            query_builder = query_builder.filter(func.cast(Question.tags, String).ilike(f"%{clean_tag}%"))
+    if difficulty:
+        query_builder = query_builder.filter(Question.difficulty.ilike(difficulty))
+    if slot:
+        query_builder = query_builder.filter(Question.slot == slot)
+    if play_mode:
+        query_builder = query_builder.filter(Question.play_mode == play_mode)
+    if question_format:
+        fmt_str = question_format.strip().upper()
+        target_fmts = [fmt_str]
+        if fmt_str in ("CONNECT_4", "CONNECT"):
+            target_fmts = ["CONNECT_4", "CONNECT"]
+        elif fmt_str in ("STEPPED_CLUE", "THREE_CLUE"):
+            target_fmts = ["STEPPED_CLUE", "THREE_CLUE"]
+        elif fmt_str in ("STANDARD_QA", "QA"):
+            target_fmts.extend(["STANDARD_QA", "QA", "SLIDE_QA"])
+        from backend.app.models.qshala_tag import QshalaQuestionMetadata
+        query_builder = query_builder.outerjoin(
+            QshalaQuestionMetadata, Question.id == QshalaQuestionMetadata.question_id
+        ).filter(
+            or_(
+                Question.question_format.in_(target_fmts),
+                Question.question_type.in_(target_fmts),
+                QshalaQuestionMetadata.question_format.in_(target_fmts),
+            )
+        )
+    return query_builder
+
 
 class HybridRetriever:
     """
@@ -232,6 +298,10 @@ class HybridRetriever:
                     Question.grade_max >= (grade_min - 1)
                 )
             )
+        elif grade_min is not None:
+            query_builder = query_builder.filter(Question.grade_min >= grade_min)
+        elif grade_max is not None:
+            query_builder = query_builder.filter(Question.grade_max <= grade_max)
         return query_builder
 
     def _apply_topic_filter(self, query_builder, topic: Optional[str]):
@@ -254,7 +324,18 @@ class HybridRetriever:
         grade_min: Optional[int] = None,
         grade_max: Optional[int] = None,
         difficulty: Optional[str] = None,
-        limit: int = 15
+        limit: int = 15,
+        document_id: Optional[str] = None,
+        document_ids: Optional[List[str]] = None,
+        document_title: Optional[str] = None,
+        subtopic: Optional[str] = None,
+        duplicate_status: Optional[str] = None,
+        slot: Optional[str] = None,
+        play_mode: Optional[str] = None,
+        question_format: Optional[str] = None,
+        difficulty_strict: bool = False,
+        require_tag_match: bool = False,
+        allow_relax: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Executes hybrid dense + sparse retrieval with Reciprocal Rank Fusion (RRF) and Tag-Overlap Boost.
@@ -267,13 +348,28 @@ class HybridRetriever:
         On SQLite (local/dev, no pgvector) it falls back to the original
         in-process scan over the filtered candidate set.
         """
-        pool_size = self._DENSE_POOL_SIZE
+        pool_size = max(self._DENSE_POOL_SIZE, limit)
 
         # Step 1: Dense Query Embedding (cached -- a repeated search term
         # skips the live embedding API call).
         query_emb = await self._get_query_embedding(query)
 
         clean_tags = [t.strip().lstrip("#").lower() for t in (tags or []) if isinstance(t, str) and t.strip()]
+
+        def _scoped_query():
+            return apply_question_scope_filters(
+                self._join_query(),
+                document_id=document_id,
+                document_ids=document_ids,
+                document_title=document_title,
+                duplicate_status=duplicate_status,
+                subtopic=subtopic,
+                tag=(clean_tags[0] if require_tag_match and clean_tags else None),
+                difficulty=(difficulty if difficulty_strict else None),
+                slot=slot,
+                play_mode=play_mode,
+                question_format=question_format,
+            )
 
         use_pg_ann = is_postgres and PG_VECTOR_AVAILABLE and query_emb
         candidate_distances: Dict[str, float] = {}
@@ -283,7 +379,7 @@ class HybridRetriever:
             # nothing else is loaded into this process.
             distance_col = Question.embedding.cosine_distance(query_emb)
             query_builder = self._apply_topic_filter(
-                self._apply_grade_filter(self._join_query(), grade_min, grade_max),
+                self._apply_grade_filter(_scoped_query(), grade_min, grade_max),
                 topic
             ).add_columns(distance_col.label("_distance")).order_by(distance_col).limit(pool_size)
 
@@ -291,10 +387,10 @@ class HybridRetriever:
             candidates = [(q, doc, slide) for (q, doc, slide, _dist) in rows]
             candidate_distances = {q.id: float(_dist) for (q, doc, slide, _dist) in rows if _dist is not None}
 
-            # If the filtered search found nothing, relax to the nearest
-            # questions overall (same "give up on filters" fallback as before).
-            if not candidates:
-                rows = self._join_query().add_columns(distance_col.label("_distance")).\
+            # If topic/grade filters matched nothing, relax only topic/grade while
+            # strictly preserving source/deck and vault scope filters.
+            if not candidates and allow_relax:
+                rows = _scoped_query().add_columns(distance_col.label("_distance")).\
                     order_by(distance_col).limit(pool_size).all()
                 candidates = [(q, doc, slide) for (q, doc, slide, _dist) in rows]
                 candidate_distances = {q.id: float(_dist) for (q, doc, slide, _dist) in rows if _dist is not None}
@@ -303,13 +399,13 @@ class HybridRetriever:
             # in Python. Cap at 2000 to avoid OOM on large vaults.
             _FALLBACK_CAP = 2000
             query_builder = self._apply_topic_filter(
-                self._apply_grade_filter(self._join_query(), grade_min, grade_max),
+                self._apply_grade_filter(_scoped_query(), grade_min, grade_max),
                 topic
             )
             candidates = query_builder.limit(_FALLBACK_CAP).all()
 
-            if not candidates:
-                candidates = self._join_query().limit(pool_size).all()
+            if not candidates and allow_relax:
+                candidates = _scoped_query().limit(_FALLBACK_CAP).all()
 
         if not candidates:
             return []

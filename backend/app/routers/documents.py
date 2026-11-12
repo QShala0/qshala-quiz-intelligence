@@ -860,6 +860,36 @@ def list_documents(
             .offset(offset).limit(limit)
             .all())
 
+@router.get("/sources")
+def list_document_sources(db: Session = Depends(get_db)):
+    """Return uploaded decks grouped by source series alongside flat deck entries for pickers."""
+    from backend.app.services.source_grouping import build_source_catalog
+
+    docs = (
+        db.query(
+            Document.id,
+            Document.title,
+            Document.filename,
+            Document.year,
+            Document.question_count,
+            Document.processing_status,
+        )
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+    rows = [
+        {
+            "id": d.id,
+            "title": d.title,
+            "filename": d.filename,
+            "year": d.year,
+            "question_count": d.question_count or 0,
+            "processing_status": d.processing_status,
+        }
+        for d in docs
+    ]
+    return build_source_catalog(rows)
+
 @router.get("/{document_id}", response_model=DocumentResponse)
 def get_document(document_id: str, db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == document_id).first()

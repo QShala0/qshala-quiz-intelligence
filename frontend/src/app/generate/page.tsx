@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowUp, Check, Lock, RefreshCw, Sparkles, Trash2, Unlock } from 'lucide-react';
 import { getApiBase, resolveMediaUrl } from '../../lib/api';
+import { SourceCatalog } from '../../lib/types';
 import FormatCounts, { VaultCounts } from '../../components/FormatCounts';
+import SourceMultiPicker, { summarizeSelectedSources } from '../../components/SourceMultiPicker';
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
 
@@ -24,6 +26,8 @@ type DraftQ = {
   slot?: string | null;
   play_mode?: string | null;
   topic_label?: string | null;
+  document_id?: string | null;
+  document_title?: string | null;
 };
 
 type FulfillmentSuggestion = {
@@ -132,12 +136,15 @@ export default function QuizzerHome() {
   const [editAudience, setEditAudience] = useState<string>('general');
   const [editLocality, setEditLocality] = useState<string>('');
   const [editFormat, setEditFormat] = useState<string>('');
+  const [editSourceIds, setEditSourceIds] = useState<string[]>([]);
   const [isEditingChips, setIsEditingChips] = useState<boolean>(false);
 
   // What the quiz may draw from: live questions by default; reserve spares / example slides only when ticked
   const [includeReserve, setIncludeReserve] = useState(false);
   const [includeExample, setIncludeExample] = useState(false);
   const [pickedFormat, setPickedFormat] = useState('');
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [sourceCatalog, setSourceCatalog] = useState<SourceCatalog | null>(null);
   const [vault, setVault] = useState<VaultCounts | null>(null);
 
   // Refine box state
@@ -155,6 +162,7 @@ export default function QuizzerHome() {
     setGreeting(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
     setPh(PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
     apiFetch<{ starters: string[] }>('/prompt-quiz/starters').then((d) => setStarters(d.starters.slice(0, 4))).catch(() => {});
+    apiFetch<SourceCatalog>('/documents/sources').then(setSourceCatalog).catch(() => setSourceCatalog(null));
   }, []);
 
   useEffect(() => {
@@ -179,23 +187,39 @@ export default function QuizzerHome() {
     setEditAudience((b.filters?.audience as string) || 'general');
     setEditLocality(b.locality || '');
     setEditFormat(b.format_filter || '');
+    setEditSourceIds(
+      Array.isArray(b.filters?.document_ids)
+        ? (b.filters.document_ids as unknown[]).map(String)
+        : []
+    );
     setIsEditingChips(false);
   }
 
-  function quizOptions(): Record<string, unknown> {
+  function quizOptions(sourceIdsOverride?: string[]): Record<string, unknown> {
+    const activeIds = sourceIdsOverride !== undefined ? sourceIdsOverride : selectedSourceIds;
+    const labels = activeIds.length > 0 ? summarizeSelectedSources(activeIds, sourceCatalog) : [];
     return {
       include_reserve: includeReserve,
       include_example: includeExample,
       ...(pickedFormat ? { format_filter: pickedFormat } : {}),
+      ...(activeIds.length > 0 ? { document_ids: activeIds, ...(labels.length > 0 ? { source_labels: labels } : {}) } : {}),
     };
   }
 
-  async function run(text = prompt, extraPayload?: { previous_brief?: unknown; keep_ids?: string[] }) {
+  async function run(
+    text = prompt,
+    extraPayload?: { previous_brief?: unknown; keep_ids?: string[]; optionsOverride?: Record<string, unknown> }
+  ) {
     const p = text.trim();
     if (p.length < 2 || loading) return;
     setError(''); setStage(0); setLoading(true);
     try {
-      const payload: Record<string, unknown> = { prompt: p, options: quizOptions(), ...extraPayload };
+      const { optionsOverride, ...restPayload } = extraPayload || {};
+      const payload: Record<string, unknown> = {
+        prompt: p,
+        options: optionsOverride ?? quizOptions(),
+        ...restPayload,
+      };
       const d = await apiFetch<Draft>('/prompt-quiz/draft', payload);
       setDraft(d);
       setQs(d.questions);
@@ -369,20 +393,35 @@ export default function QuizzerHome() {
 
   async function handleRedoChips() {
     if (!draft || loading) return;
+    const nextFilters: Record<string, unknown> = {
+      ...(draft.brief.filters || {}),
+      audience: editAudience === 'general' ? null : editAudience,
+    };
+    const nextOptions = quizOptions(editSourceIds);
+    if (editSourceIds.length > 0) {
+      nextFilters.document_ids = editSourceIds;
+      nextFilters.source_labels = summarizeSelectedSources(editSourceIds, sourceCatalog);
+      delete nextFilters.deck_filter;
+    } else {
+      delete nextFilters.document_ids;
+      delete nextFilters.deck_filter;
+      delete nextFilters.source_labels;
+      nextOptions.document_ids = null;
+      nextOptions.deck_filter = null;
+      nextOptions.source_labels = null;
+    }
+    setSelectedSourceIds(editSourceIds);
     const updatedBrief: Record<string, unknown> = {
       ...draft.brief,
       count: editCount,
       hard_bias: editDifficulty === 'balanced' ? null : editDifficulty,
-      filters: {
-        ...(draft.brief.filters || {}),
-        audience: editAudience === 'general' ? null : editAudience,
-      },
+      filters: nextFilters,
       locality: editLocality.trim() || null,
       format_filter: editFormat || null,
       include_reserve: includeReserve,
       include_example: includeExample,
     };
-    await run(lastPrompt, { previous_brief: updatedBrief });
+    await run(lastPrompt, { previous_brief: updatedBrief, optionsOverride: nextOptions });
   }
 
   async function handleSuggestion(s: FulfillmentSuggestion) {
@@ -402,6 +441,15 @@ export default function QuizzerHome() {
         const nextFilters = { ...(draft.brief.filters || {}), evergreen: false, evergreen_only: false };
         const nextBrief = { ...draft.brief, filters: nextFilters };
         await run(lastPrompt, { previous_brief: nextBrief });
+      } else if (s.flag === 'source' || s.flag === 'document_ids' || s.flag === 'deck_filter') {
+        setSelectedSourceIds([]);
+        const nextFilters = { ...(draft.brief.filters || {}) };
+        delete nextFilters.document_ids;
+        delete nextFilters.deck_filter;
+        delete nextFilters.source_labels;
+        const nextBrief = { ...draft.brief, filters: nextFilters };
+        const nextOpts = { ...quizOptions([]), document_ids: null, deck_filter: null, source_labels: null };
+        await run(lastPrompt, { previous_brief: nextBrief, optionsOverride: nextOpts });
       }
     }
   }
@@ -425,6 +473,15 @@ export default function QuizzerHome() {
             className="w-full resize-none bg-transparent px-5 pt-4 text-[16px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none"
           />
           <div className="flex flex-wrap items-center gap-2 px-3 pb-3 pt-1">
+            {sourceCatalog && sourceCatalog.decks.length > 0 && (
+              <SourceMultiPicker
+                catalog={sourceCatalog}
+                selectedIds={selectedSourceIds}
+                onChange={setSelectedSourceIds}
+                variant="pill"
+                placeholder={`All sources (${sourceCatalog.decks.length})`}
+              />
+            )}
             <button onClick={() => run()} disabled={loading || prompt.trim().length < 2} aria-label="Build quiz"
               className="ml-auto flex h-10 w-9 items-center justify-center rounded-full bg-slate-900 text-white transition disabled:opacity-30 hover:bg-slate-700">
               <ArrowUp size={18} />
@@ -492,6 +549,15 @@ export default function QuizzerHome() {
                   {draft.brief.format_filter && (
                     <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-700 border border-slate-200">
                       Format: {draft.brief.format_filter}
+                    </span>
+                  )}
+                  {((Array.isArray(draft.brief.filters?.source_labels) && (draft.brief.filters.source_labels as unknown[]).length > 0) ||
+                    (Array.isArray(draft.brief.filters?.deck_filter) && (draft.brief.filters.deck_filter as unknown[]).length > 0)) && (
+                    <span className="rounded-full bg-indigo-50 px-3 py-1 font-medium text-indigo-800 border border-indigo-200">
+                      Source:{' '}
+                      {Array.isArray(draft.brief.filters?.source_labels) && (draft.brief.filters.source_labels as unknown[]).length > 0
+                        ? (draft.brief.filters.source_labels as unknown[]).map(String).join(', ')
+                        : (draft.brief.filters.deck_filter as unknown[]).map(String).join(', ')}
                     </span>
                   )}
                   <button
@@ -563,6 +629,18 @@ export default function QuizzerHome() {
                       ))}
                     </select>
                   </label>
+                  {sourceCatalog && sourceCatalog.decks.length > 0 && (
+                    <div className="flex items-center gap-1 text-slate-600">
+                      <span>Source:</span>
+                      <SourceMultiPicker
+                        catalog={sourceCatalog}
+                        selectedIds={editSourceIds}
+                        onChange={setEditSourceIds}
+                        variant="filter"
+                        placeholder="All Sources"
+                      />
+                    </div>
+                  )}
                   <button
                     onClick={handleRedoChips}
                     disabled={loading}
@@ -603,6 +681,8 @@ export default function QuizzerHome() {
                         label = `Allow images (+${s.count})`;
                       } else if (s.flag === 'evergreen') {
                         label = `Allow time-sensitive (+${s.count})`;
+                      } else if (s.flag === 'source' || s.flag === 'document_ids' || s.flag === 'deck_filter') {
+                        label = `Allow all sources (+${s.count})`;
                       } else {
                         label = `Relax ${s.flag} (+${s.count})`;
                       }
@@ -891,7 +971,7 @@ export default function QuizzerHome() {
                           <Lock size={11} /> Pinned
                         </span>
                       )}
-                      <p className="text-[12px] text-slate-400">{[q.subtopic_l2 || q.topic_l1, q.difficulty !== 'Unrated' ? q.difficulty : null, q.image_dependent ? 'has image' : null].filter(Boolean).join(' · ')}</p>
+                      <p className="text-[12px] text-slate-400">{[q.subtopic_l2 || q.topic_l1, q.document_title, q.difficulty !== 'Unrated' ? q.difficulty : null, q.image_dependent ? 'has image' : null].filter(Boolean).join(' · ')}</p>
                     </div>
 
                     {/* Inline Topic Change Panel for this Card */}

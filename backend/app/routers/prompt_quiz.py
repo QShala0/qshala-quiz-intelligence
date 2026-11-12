@@ -100,6 +100,26 @@ def parse_add_intent(prompt: str) -> Optional[Dict[str, Any]]:
     return {'count': cnt, 'topic': topic}
 
 
+def _inherit_brief_options(req: DraftReq) -> Dict[str, Any]:
+    """Preserve prior hard/source constraints during single-slot swaps, partial swaps, and add-ons
+    unless the caller explicitly overrides them in req.options."""
+    opts = dict(req.options or {})
+    prev_b = req.previous_brief or {}
+    prev_filters = prev_b.get("filters") or {}
+
+    if prev_b.get("hard_bias") and "hard_bias" not in opts:
+        opts["hard_bias"] = prev_b.get("hard_bias")
+    if prev_b.get("format_filter") and "format_filter" not in opts:
+        opts["format_filter"] = prev_b.get("format_filter")
+    for k in (
+        "audience", "school_safe", "evergreen", "no_images",
+        "india_focused", "document_ids", "deck_filter", "source_labels",
+    ):
+        if k in prev_filters and k not in opts:
+            opts[k] = prev_filters[k]
+    return opts
+
+
 @router.get("/format-counts")
 def format_counts(include_reserve: bool = False, include_example: bool = False, db: Session = Depends(get_db)):
     """How many questions of each format the quiz builder can draw from, and how many questions sit in each slot.
@@ -158,10 +178,11 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
             )
             effective_exclude = set(other_ids) | {target_id} | set(req.exclude_ids or [])
 
-            new_q = engine.swap_one(db, swap_prompt, target_id, keep_ids=other_ids, options=req.options)
+            swap_opts = _inherit_brief_options(req)
+            new_q = engine.swap_one(db, swap_prompt, target_id, keep_ids=other_ids, options=swap_opts)
             if not new_q:
                 sub_res = engine.build_draft(
-                    db, swap_prompt, count=1, options=req.options, exclude_ids=effective_exclude
+                    db, swap_prompt, count=1, options=swap_opts, exclude_ids=effective_exclude
                 )
                 if sub_res.get("questions"):
                     new_q = sub_res["questions"][0]
@@ -246,8 +267,9 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
         effective_exclude = kept_qids | excluded_set
 
         # Fetch new candidate questions for the replacement slots on new_topic
+        partial_opts = _inherit_brief_options(req)
         sub_res = engine.build_draft(
-            db, new_topic, count=len(replace_indices), options=req.options, exclude_ids=effective_exclude
+            db, new_topic, count=len(replace_indices), options=partial_opts, exclude_ids=effective_exclude
         )
         fresh_questions = sub_res.get("questions") or []
 
@@ -329,14 +351,8 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
         curr_ids = {q["id"] for q in req.current_questions if "id" in q}
         effective_exclude = curr_ids | set(req.exclude_ids or [])
 
-        add_options = dict(req.options or {})
+        add_options = _inherit_brief_options(req)
         prev_b = req.previous_brief or {}
-        if prev_b.get("hard_bias") and "hard_bias" not in add_options:
-            add_options["hard_bias"] = prev_b.get("hard_bias")
-        prev_filters = prev_b.get("filters") or {}
-        for k in ("audience", "school_safe", "evergreen", "no_images", "india_focused"):
-            if k in prev_filters and k not in add_options:
-                add_options[k] = prev_filters[k]
 
         search_prompt = add_topic if add_topic else (prev_b.get("query") or "general knowledge")
         brief_to_pass = None if add_topic else req.previous_brief

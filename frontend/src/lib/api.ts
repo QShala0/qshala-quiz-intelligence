@@ -1,6 +1,7 @@
 import {
   DashboardStats,
   DocumentItem,
+  SourceCatalog,
   Slide,
   HistoricalQuestion,
   Quiz,
@@ -235,6 +236,11 @@ export const api = {
     return handleResponse<DocumentItem[]>(res);
   },
 
+  getDocumentSources: async (): Promise<SourceCatalog> => {
+    const res = await fetch(`${getApiBase()}/documents/sources`, { cache: 'no-store' });
+    return handleResponse<SourceCatalog>(res);
+  },
+
   getDocument: async (id: string): Promise<DocumentItem> => {
     const res = await fetch(`${getApiBase()}/documents/${id}`, { cache: 'no-store' });
     return handleResponse<DocumentItem>(res);
@@ -436,6 +442,7 @@ export const api = {
     grade_max?: number;
     difficulty?: string;
     document_id?: string;
+    document_ids?: string[];
     document_title?: string;
     duplicate_status?: string;
     question_format?: string;
@@ -457,6 +464,9 @@ export const api = {
     if (params.grade_max) searchParams.append('grade_max', params.grade_max.toString());
     if (params.difficulty) searchParams.append('difficulty', params.difficulty);
     if (params.document_id) searchParams.append('document_id', params.document_id);
+    if (params.document_ids && params.document_ids.length > 0) {
+      searchParams.append('document_ids', params.document_ids.join(','));
+    }
     if (params.document_title) searchParams.append('document_title', params.document_title);
     if (params.duplicate_status) searchParams.append('duplicate_status', params.duplicate_status);
     if (params.question_format || params.format) searchParams.append('question_format', (params.question_format || params.format)!);

@@ -51,11 +51,11 @@ function KnowledgeBaseContent() {
     difficulty, setDifficulty,
     formatFilter, setFormatFilter,
     slotFilter, setSlotFilter,
-    selectedDeckId, setSelectedDeckId,
+    selectedDeckIds, setSelectedDeckIds,
     gradeMin, setGradeMin,
     sortBy, setSortBy,
     sortOrder, setSortOrder,
-    topicsList, documentsList, availableSubtopics,
+    topicsList, documentsList, sourceCatalog, availableSubtopics,
     questions, loading, loadError, resolvingId,
     retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
@@ -174,12 +174,13 @@ function KnowledgeBaseContent() {
         difficulty={difficulty} setDifficulty={setDifficulty}
         formatFilter={formatFilter} setFormatFilter={setFormatFilter}
         slotFilter={slotFilter} setSlotFilter={setSlotFilter}
-        selectedDeckId={selectedDeckId} setSelectedDeckId={setSelectedDeckId}
+        selectedDeckIds={selectedDeckIds} setSelectedDeckIds={setSelectedDeckIds}
         gradeMin={gradeMin} setGradeMin={setGradeMin}
         sortBy={sortBy} setSortBy={setSortBy}
         sortOrder={sortOrder} setSortOrder={setSortOrder}
         topicsList={topicsList}
         documentsList={documentsList}
+        sourceCatalog={sourceCatalog}
         availableSubtopics={availableSubtopics}
       />
 
@@ -294,7 +295,7 @@ function KnowledgeBaseContent() {
           onClose={() => setSelectedQuestionForTags(null)}
           question={selectedQuestionForTags}
           onSaved={handleQuestionTagsSaved}
-          onFilterDeck={(id) => setSelectedDeckId(id)}
+          onFilterDeck={(id) => setSelectedDeckIds(id ? [id] : [])}
           availableTopics={topicsList.map((t) => t.topic)}
         />
       )}

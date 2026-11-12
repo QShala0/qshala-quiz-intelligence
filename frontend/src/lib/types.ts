@@ -29,6 +29,30 @@ export interface DocumentDetail extends DocumentItem {
   slides?: Slide[];
 }
 
+export interface SourceSeriesItem {
+  key: string;
+  label: string;
+  document_ids: string[];
+  deck_count: number;
+  question_count: number;
+  years: number[];
+}
+
+export interface SourceDeckItem {
+  id: string;
+  title: string;
+  filename: string;
+  series: string;
+  series_key: string;
+  year?: number | null;
+  question_count: number;
+}
+
+export interface SourceCatalog {
+  series: SourceSeriesItem[];
+  decks: SourceDeckItem[];
+}
+
 export interface HistoricalQuestion {
   id: string;
   document_id: string;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, isAbortError } from '../lib/api';
-import { HistoricalQuestion, TopicItem, DocumentItem } from '../lib/types';
+import { HistoricalQuestion, TopicItem, DocumentItem, SourceCatalog } from '../lib/types';
 import { isPlaceholderIcon } from '../lib/placeholderIcons';
 
 // Data-fetching + list-mutation logic for the Knowledge Base page (QShala priority plan P3-1).
@@ -29,13 +29,14 @@ export function useVaultQuestions(
   const [difficulty, setDifficulty] = useState('');
   const [formatFilter, setFormatFilter] = useState('');
   const [slotFilter, setSlotFilter] = useState('');
-  const [selectedDeckId, setSelectedDeckId] = useState<string>('');
+  const [selectedDeckIds, setSelectedDeckIds] = useState<string[]>([]);
   const [gradeMin, setGradeMin] = useState<number | ''>('');
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   const [topicsList, setTopicsList] = useState<TopicItem[]>([]);
   const [documentsList, setDocumentsList] = useState<DocumentItem[]>([]);
+  const [sourceCatalog, setSourceCatalog] = useState<SourceCatalog | null>(null);
   const [availableSubtopics, setAvailableSubtopics] = useState<string[]>([]);
   const [questions, setQuestions] = useState<HistoricalQuestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,12 +49,14 @@ export function useVaultQuestions(
   // (not the last filter set) would win, occasionally flashing stale results after the real
   // answer. Track the in-flight request so a new one can cancel it first.
   const inFlightRequest = useRef<AbortController | null>(null);
+  const prevQueryRef = useRef<string>('');
 
   // Fetch topics list, documents list, duplicate count, and review count in parallel on mount (P0-4)
   const loadMetadata = async () => {
-    const [topicsResult, docsResult, dupsResult, reviewResult] = await Promise.allSettled([
+    const [topicsResult, docsResult, sourcesResult, dupsResult, reviewResult] = await Promise.allSettled([
       api.getTopics(),
       api.listDocuments(),
+      api.getDocumentSources(),
       api.getDuplicateCount(),
       api.getReviewCount(),
     ]);
@@ -68,6 +71,12 @@ export function useVaultQuestions(
       setDocumentsList(docsResult.value);
     } else {
       console.error('Failed to load documents:', docsResult.reason);
+    }
+
+    if (sourcesResult.status === 'fulfilled') {
+      setSourceCatalog(sourcesResult.value);
+    } else {
+      console.warn('Failed to load document sources:', sourcesResult.reason);
     }
 
     if (dupsResult.status === 'fulfilled') {
@@ -124,7 +133,7 @@ export function useVaultQuestions(
         difficulty: difficulty || undefined,
         question_format: formatFilter || undefined,
         slot: slotFilter || undefined,
-        document_id: selectedDeckId || undefined,
+        document_ids: selectedDeckIds.length > 0 ? selectedDeckIds : undefined,
         grade_min: gradeMin !== '' ? Number(gradeMin) : undefined,
         duplicate_status: activeTab === 'duplicates' ? 'POSSIBLE_DUPLICATE' : undefined,
         sort_by: sortBy,
@@ -163,7 +172,15 @@ export function useVaultQuestions(
     // state on an unmounted component.
     return () => inFlightRequest.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, topic, subtopic, tagFilter, difficulty, formatFilter, slotFilter, selectedDeckId, gradeMin, sortBy, sortOrder]);
+  }, [activeTab, topic, subtopic, tagFilter, difficulty, formatFilter, slotFilter, selectedDeckIds, gradeMin, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (prevQueryRef.current !== '' && query === '') {
+      fetchQuestions();
+    }
+    prevQueryRef.current = query;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,11 +260,11 @@ export function useVaultQuestions(
     difficulty, setDifficulty,
     formatFilter, setFormatFilter,
     slotFilter, setSlotFilter,
-    selectedDeckId, setSelectedDeckId,
+    selectedDeckIds, setSelectedDeckIds,
     gradeMin, setGradeMin,
     sortBy, setSortBy,
     sortOrder, setSortOrder,
-    topicsList, documentsList, availableSubtopics,
+    topicsList, documentsList, sourceCatalog, availableSubtopics,
     questions, loading, loadError, resolvingId,
     fetchQuestions, retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,

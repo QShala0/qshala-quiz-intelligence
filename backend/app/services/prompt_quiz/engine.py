@@ -422,7 +422,7 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
             brief.include_reserve = bool(v)
         elif k == "include_example":
             brief.include_example = bool(v)
-        elif v in (None, False, ""):
+        elif v in (None, False, "") or (isinstance(v, list) and len(v) == 0):
             brief.filters.pop(k, None)
             if k == "exclude_image":
                 brief.filters.pop("no_images", None)
@@ -432,8 +432,12 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
                 brief.filters.pop("evergreen", None)
             elif k == "evergreen":
                 brief.filters.pop("evergreen_only", None)
+            elif k == "document_ids":
+                brief.filters.pop("source_labels", None)
         else:
             brief.filters[k] = v
+            if k == "document_ids" and "deck_filter" not in (options or {}):
+                brief.filters.pop("deck_filter", None)
             if k == "exclude_image":
                 brief.filters["no_images"] = True
             elif k == "no_images":
@@ -545,11 +549,15 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
             meta = {}
 
     docs_map = {}
+    docs_filename_map = {}
     try:
         from backend.app.models.document import Document
-        docs_map = {d.id: (d.title or d.filename or "") for d in db.query(Document.id, Document.title, Document.filename).all()}
+        for d in db.query(Document.id, Document.title, Document.filename).all():
+            docs_map[d.id] = (d.title or d.filename or "")
+            docs_filename_map[d.id] = (d.filename or "")
     except Exception:
         docs_map = {}
+        docs_filename_map = {}
 
     bank = []
     for q in qs:
@@ -583,6 +591,7 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
             "audience_suitability": list(getattr(q, "audience_suitability", []) or []),
             "document_id": q.document_id,
             "document_title": docs_map.get(q.document_id, ""),
+            "document_filename": docs_filename_map.get(q.document_id, ""),
             "tagged": bool(t),
             "question_format": getattr(q, 'question_format', None) or getattr(q, 'question_type', 'STANDARD_QA'),
             "format_payload": getattr(q, 'format_payload', None) or getattr(q, 'format_data', None),
@@ -854,7 +863,7 @@ def host(brief: Brief, picked: List[Dict[str, Any]], bank_size: int) -> str:
 def _view(c: Dict[str, Any]) -> Dict[str, Any]:
     return {k: c.get(k) for k in ("id", "question_text", "answer", "topic_l1", "subtopic_l2", "difficulty_score",
                                   "difficulty", "image_dependent", "shelf_life", "tagged", "score", "document_id",
-                                  "question_images", "answer_images", "image_refs",
+                                  "document_title", "question_images", "answer_images", "image_refs",
                                   "question_format", "format_payload", "slot", "play_mode", "topic_label")}
 
 
@@ -867,49 +876,37 @@ _TOPICAL_NOISE_WORDS = {
     "based", "syllabus", "curriculum", "cbse", "icse", "ncert", "class",
 }
 
-_GENERIC_DECK_WORDS = {
-    "quiz", "quizzes", "prelims", "prelim", "finals", "final", "regionals", "regional",
-    "round", "rounds", "set", "part", "level", "session", "deck", "decks", "question",
-    "questions", "answer", "answers", "series", "edition", "annual", "school", "college",
-    "corporate", "state", "board", "india", "indian", "australian", "american", "british",
-    "karnataka", "bengaluru", "bangalore", "mumbai", "delhi", "chennai", "hyderabad",
-    "kolkata", "pune", "world", "global", "international", "general", "knowledge", "trivia",
-    "history", "science", "scientific", "business", "finance", "economy", "technology",
-    "politics", "sports", "entertainment", "culture", "geography", "everyday", "experiments",
-    "experiment", "students", "student", "grade", "class", "test", "practice", "sample",
-    "semi", "quarter", "inter", "intra", "mega", "open", "national", "junior", "senior",
-    "high", "middle", "primary", "varsity", "modern", "ancient",
-}
+def _detect_deck_scope(prompt_lower: str, bank: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Detect distinctive deck-series names and typos (e.g. 'agastya', 'aghtya', 'set 2 prelims') in the prompt."""
+    from backend.app.services.source_grouping import resolve_deck_query
+
+    docs_by_id: Dict[str, Dict[str, str]] = {}
+    subtopic_words: Set[str] = set()
+    for b in bank:
+        did = str(b.get("document_id") or "").strip()
+        if did and did not in docs_by_id:
+            docs_by_id[did] = {
+                "id": did,
+                "title": str(b.get("document_title") or "").strip(),
+                "filename": str(b.get("document_filename") or "").strip(),
+            }
+        subtopic_words.update(tokenize(b.get("subtopic_l2") or ""))
+
+    if not docs_by_id:
+        return {"doc_ids": [], "tokens": [], "matched_input_tokens": [], "labels": [], "remaining_query": ""}
+
+    v6_words = {w for t in V6_THEMES for w in tokenize(t)}
+    return resolve_deck_query(
+        prompt_lower,
+        list(docs_by_id.values()),
+        extra_excluded=(v6_words | subtopic_words),
+        is_prompt=True,
+    )
 
 
 def _detect_deck_filter_tokens(prompt_lower: str, bank: List[Dict[str, Any]]) -> List[str]:
     """Detect distinctive deck-series names (e.g. 'agastya') present in both prompt and bank document titles."""
-    titles = {str(b.get("document_title") or "").strip().lower() for b in bank if b.get("document_title")}
-    if not titles:
-        return []
-
-    v6_words = {w for t in V6_THEMES for w in tokenize(t)}
-    subtopic_words = {
-        w for b in bank
-        for w in tokenize(b.get("subtopic_l2") or "")
-    }
-    excluded = _GENERIC_DECK_WORDS | v6_words | subtopic_words
-
-    title_df: Dict[str, int] = {}
-    for title in titles:
-        for tok in set(tokenize(title)):
-            if len(tok) >= 4 and not tok.isdigit() and tok not in excluded:
-                title_df[tok] = title_df.get(tok, 0) + 1
-
-    # Require token to appear in prompt AND match a distinct subset of document titles (or explicit deck phrase)
-    prompt_tokens = set(tokenize(prompt_lower))
-    matched: List[str] = []
-    max_allowed = max(1, int(len(titles) * 0.85)) if len(titles) >= 3 else len(titles)
-    for tok in prompt_tokens:
-        df = title_df.get(tok, 0)
-        if df >= 1 and df <= max_allowed:
-            matched.append(tok)
-    return matched
+    return _detect_deck_scope(prompt_lower, bank)["tokens"]
 
 
 def build_draft(db: Session, prompt: str, count: Optional[int] = None,
@@ -956,7 +953,15 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     # Broad / vague prompts: "10 questions", "give me 5 questions", "quiz for tonight", "surprise me with 5 questions"
     p_lower = normalize_compound_typos(brief.prompt or "").lower().strip()
-    is_vague = not (brief.topics_l1 or brief.subtopics_l2 or brief.locality or brief.filters.get("deck_filter")) and (
+    if re.search(r"\b(?:all|any)\s+(?:sources?|decks?|presentations?)\b", p_lower):
+        brief.filters.pop("deck_filter", None)
+        brief.filters.pop("document_ids", None)
+        brief.filters.pop("source_labels", None)
+
+    is_vague = not (
+        brief.topics_l1 or brief.subtopics_l2 or brief.locality
+        or brief.filters.get("deck_filter") or brief.filters.get("document_ids")
+    ) and (
         bool(re.search(r"^(?:give\s+me\s+)?(?:\d+|[a-z]+)?\s*questions?$", p_lower))
         or bool(re.search(r"\b(surprise(?:\s+me)?|tonight|random|quick|standard)\b", p_lower))
         or (brief.query or "").lower() in ("general knowledge", "trivia", "general", "surprise", "tonight", "", "evergreen", "evergreen only")
@@ -972,13 +977,41 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     bank = _load_bank(db, slots_for(brief))
 
     # Data-driven deck/series filter: when prompt names a distinctive deck series from the bank
-    # (e.g. "Agastya" matching "Agastya Regionals ..."), restrict retrieval to matching decks.
-    if not brief.filters.get("deck_filter"):
-        detected_decks = _detect_deck_filter_tokens(p_lower, bank)
-        if detected_decks:
-            brief.filters["deck_filter"] = detected_decks
+    # (e.g. "Agastya", "aghtya", or "Agastya Set 2 Prelims"), restrict retrieval to matching decks.
+    matched_source_input_tokens: Set[str] = set()
+    if not brief.filters.get("deck_filter") and not brief.filters.get("document_ids"):
+        detected_scope = _detect_deck_scope(p_lower, bank)
+        if detected_scope.get("tokens"):
+            brief.filters["deck_filter"] = detected_scope["tokens"]
+        if detected_scope.get("doc_ids"):
+            brief.filters["document_ids"] = detected_scope["doc_ids"]
+        if detected_scope.get("labels"):
+            brief.filters["source_labels"] = detected_scope["labels"]
+        matched_source_input_tokens = set(detected_scope.get("matched_input_tokens") or [])
+    elif brief.filters.get("document_ids") and not brief.filters.get("source_labels"):
+        from backend.app.services.source_grouping import derive_source_series
+        sel_ids = {str(x) for x in (brief.filters.get("document_ids") or [])}
+        sel_docs = {}
+        for b in bank:
+            bid = str(b.get("document_id") or "")
+            if bid in sel_ids and bid not in sel_docs:
+                sel_docs[bid] = (b.get("document_title") or "", b.get("document_filename") or "")
+        if len(sel_docs) == 1:
+            t_only, f_only = next(iter(sel_docs.values()))
+            brief.filters["source_labels"] = [t_only or f_only]
+        elif sel_docs:
+            ser_counts: Dict[str, int] = {}
+            for t_d, f_d in sel_docs.values():
+                ser = derive_source_series(t_d, f_d)
+                ser_counts[ser] = ser_counts.get(ser, 0) + 1
+            brief.filters["source_labels"] = [
+                f"{ser} ({cnt} decks)" if cnt > 1 else ser
+                for ser, cnt in sorted(ser_counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+            ]
 
     deck_filter_tokens = {str(t).strip().lower() for t in (brief.filters.get("deck_filter") or []) if str(t).strip()}
+    source_drop_tokens = deck_filter_tokens | matched_source_input_tokens
+    has_source_filter = bool(deck_filter_tokens or brief.filters.get("document_ids"))
 
     # 3. Librarian: search broadly across the entire bank
     idx = Index(bank)
@@ -986,25 +1019,35 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     if getattr(brief, 'search_terms', None):
         raw_search_query = (raw_search_query + " " + " ".join(brief.search_terms)).strip()
 
+    # Check if the brief's own query has genuine topical words left after removing source/deck names & noise words
+    query_topical_tokens = [
+        w for w in tokenize(brief.query or "")
+        if w not in (_TOPICAL_NOISE_WORDS | source_drop_tokens)
+    ]
+    has_non_source_topic = bool(query_topical_tokens) and not is_pure_geo and not is_vague
+
     # Strip geo/meta wrapper tokens and deck-filter names from topical search_query when topical words exist,
-    # so "karnataka", "india", "state", "board", or deck name alone doesn't outscore subject relevance.
-    has_non_geo_topic = has_topical_subject and not is_pure_geo and not is_vague
-    if has_non_geo_topic and raw_search_query:
-        drop_from_topical = _TOPICAL_NOISE_WORDS | deck_filter_tokens
+    # so "karnataka", "india", "state", "board", or deck name/typo alone doesn't distort relevance scoring.
+    has_non_geo_topic = has_topical_subject and not is_pure_geo and not is_vague and (not has_source_filter or has_non_source_topic)
+    if has_source_filter and not has_non_source_topic:
+        # User only asked for a source/deck (e.g. "10 questions from aghtya") -> broad search inside those decks
+        search_query = ""
+        effective_query_for_floor = ""
+        brief.query = ""
+        brief.search_terms = []
+        brief.topics_l1 = []
+        brief.subtopics_l2 = []
+    elif (has_non_geo_topic or source_drop_tokens) and raw_search_query:
+        drop_from_topical = _TOPICAL_NOISE_WORDS | source_drop_tokens
         filtered_words = [
             w for w in tokenize(raw_search_query)
             if w not in drop_from_topical
         ]
-        if filtered_words:
-            search_query = " ".join(filtered_words)
-        else:
-            search_query = raw_search_query
+        search_query = " ".join(filtered_words) if filtered_words else raw_search_query
+        effective_query_for_floor = " ".join(query_topical_tokens) if (has_source_filter and query_topical_tokens) else brief.query
     else:
         search_query = raw_search_query
-
-    # When only a deck_filter was asked (e.g. "10 Agastya quiz questions" with no extra subject),
-    # allow broad retrieval inside those filtered decks.
-    effective_query_for_floor = "" if (deck_filter_tokens and not has_non_geo_topic) else brief.query
+        effective_query_for_floor = "" if (has_source_filter and not has_non_geo_topic) else brief.query
 
     pool_cap = max(300, len(bank))
     hits = idx.search(search_query, filters=None, top_k=pool_cap)
@@ -1234,13 +1277,27 @@ def swap_one(db: Session, prompt: str, question_id: str, keep_ids: List[str],
              options: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     brief = interpret(prompt, 1, options)
     bank = _load_bank(db, slots_for(brief))
+    p_lower = normalize_compound_typos(prompt or "").lower().strip()
+    matched_source_toks: Set[str] = set()
+    if not brief.filters.get("deck_filter") and not brief.filters.get("document_ids"):
+        detected_scope = _detect_deck_scope(p_lower, bank)
+        if detected_scope.get("tokens"):
+            brief.filters["deck_filter"] = detected_scope["tokens"]
+        if detected_scope.get("doc_ids"):
+            brief.filters["document_ids"] = detected_scope["doc_ids"]
+        matched_source_toks = set(detected_scope.get("matched_input_tokens") or [])
+    source_drop = matched_source_toks | {str(t).strip().lower() for t in (brief.filters.get("deck_filter") or []) if str(t).strip()}
+    if source_drop and brief.query:
+        brief.query = " ".join(w for w in tokenize(brief.query) if w not in source_drop).strip()
     target = next((b for b in bank if b["id"] == question_id), None)
     if target and target.get("subtopic_l2"):  # prefer a neighbour of the swapped question
-        brief.query = f"{brief.query} {target['subtopic_l2']}"
+        brief.query = f"{brief.query} {target['subtopic_l2']}".strip()
     idx = Index(bank)
     search_query = brief.query
     if getattr(brief, 'search_terms', None):
-        search_query = brief.query + " " + " ".join(brief.search_terms)
+        cleaned_terms = [w for w in tokenize(" ".join(brief.search_terms)) if w not in source_drop]
+        if cleaned_terms:
+            search_query = (brief.query + " " + " ".join(cleaned_terms)).strip()
     hits = idx.search(search_query, filters=None, top_k=max(300, len(bank)))
     if brief.query:
         hits = [h for h in hits if float(h.get("score") or 0.0) >= MIN_RELEVANCE_SCORE]

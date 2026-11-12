@@ -1,6 +1,7 @@
 import { Search, Filter, Tag, ArrowUpDown } from 'lucide-react';
-import { TopicItem, DocumentItem } from '../../lib/types';
+import { TopicItem, DocumentItem, SourceCatalog } from '../../lib/types';
 import { FORMAT_FILTER_OPTIONS } from '../../lib/formatPayloads';
+import SourceMultiPicker from '../SourceMultiPicker';
 
 // The search box + filter bar on the Knowledge Base page (QShala priority plan P3-1). Purely
 // controlled: owns no state of its own, just renders the current filter values and reports
@@ -22,8 +23,8 @@ export interface VaultFiltersProps {
   setFormatFilter: (v: string) => void;
   slotFilter: string;
   setSlotFilter: (v: string) => void;
-  selectedDeckId: string;
-  setSelectedDeckId: (v: string) => void;
+  selectedDeckIds: string[];
+  setSelectedDeckIds: (v: string[]) => void;
   gradeMin: number | '';
   setGradeMin: (v: number | '') => void;
   sortBy: string;
@@ -32,6 +33,7 @@ export interface VaultFiltersProps {
   setSortOrder: (v: 'asc' | 'desc') => void;
   topicsList: TopicItem[];
   documentsList: DocumentItem[];
+  sourceCatalog: SourceCatalog | null;
   availableSubtopics: string[];
 }
 
@@ -43,12 +45,25 @@ export default function VaultFilters({
   difficulty, setDifficulty,
   formatFilter, setFormatFilter,
   slotFilter, setSlotFilter,
-  selectedDeckId, setSelectedDeckId,
+  selectedDeckIds, setSelectedDeckIds,
   gradeMin, setGradeMin,
   sortBy, setSortBy,
   sortOrder, setSortOrder,
-  topicsList, documentsList, availableSubtopics,
+  topicsList, documentsList, sourceCatalog, availableSubtopics,
 }: VaultFiltersProps) {
+  const effectiveCatalog: SourceCatalog = sourceCatalog || {
+    series: [],
+    decks: documentsList.map((d) => ({
+      id: d.id,
+      title: d.title || d.filename,
+      filename: d.filename,
+      series: d.title || d.filename,
+      series_key: d.id,
+      year: d.year ?? null,
+      question_count: d.question_count ?? 0,
+    })),
+  };
+
   return (
     <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-100/50 space-y-3">
       <form onSubmit={onSearchSubmit} className="flex gap-2">
@@ -78,20 +93,14 @@ export default function VaultFilters({
           <span>Filters:</span>
         </div>
 
-        {/* Presentation Deck Filter */}
-        <select
-          value={selectedDeckId}
-          onChange={(e) => setSelectedDeckId(e.target.value)}
-          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:border-blue-500 focus:outline-none cursor-pointer max-w-[210px] truncate"
-          title="Filter by Presentation Deck"
-        >
-          <option value="">All Presentations / Decks ({documentsList.length})</option>
-          {documentsList.map((doc) => (
-            <option key={doc.id} value={doc.id}>
-              {doc.title || doc.filename}
-            </option>
-          ))}
-        </select>
+        {/* Presentation Deck / Series Source Filter */}
+        <SourceMultiPicker
+          catalog={effectiveCatalog}
+          selectedIds={selectedDeckIds}
+          onChange={setSelectedDeckIds}
+          variant="filter"
+          placeholder={`All Presentations / Decks (${effectiveCatalog.decks.length})`}
+        />
 
         {/* Dynamic Topics Dropdown */}
         <select
@@ -213,7 +222,7 @@ export default function VaultFilters({
           </button>
         </div>
 
-        {(query || topic || subtopic || tagFilter || difficulty || formatFilter || slotFilter || gradeMin || selectedDeckId) && (
+        {(query || topic || subtopic || tagFilter || difficulty || formatFilter || slotFilter || gradeMin || selectedDeckIds.length > 0) && (
           <button
             type="button"
             onClick={() => {
@@ -225,7 +234,7 @@ export default function VaultFilters({
               setFormatFilter('');
               setSlotFilter('');
               setGradeMin('');
-              setSelectedDeckId('');
+              setSelectedDeckIds([]);
             }}
             className="text-[13px] text-blue-600 hover:underline cursor-pointer font-medium"
           >
