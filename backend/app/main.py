@@ -164,6 +164,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count"],
 )
 
 # Performance backlog item 1 (QSHALA_PERFORMANCE_IDEAS.md): gzip JSON responses over 500 bytes.

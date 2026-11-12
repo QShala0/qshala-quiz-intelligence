@@ -9,6 +9,7 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
+import { getClientId } from '../lib/clientId';
 import { api, isAbortError, UPLOAD_CHUNK_SIZE, VERCEL_SAFE_CHUNK_SIZE, UploadProgressInfo } from '../lib/api';
 import {
   DocumentItem,
@@ -578,6 +579,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
           filename: it.filename,
           size_bytes: it.size,
         })),
+        client_id: getClientId(),
       };
 
       const res = await api.createUploadBatch(regPayload);

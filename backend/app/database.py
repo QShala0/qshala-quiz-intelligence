@@ -313,6 +313,7 @@ def _expected_extra_columns(eng_is_postgres: bool) -> dict[str, list[tuple[str, 
         ],
         "upload_batches": [
             ("last_seen_at", "TIMESTAMP WITH TIME ZONE" if eng_is_postgres else "DATETIME"),
+            ("client_id", "VARCHAR(64)"),
         ],
         "documents": [
             ("blob_url", "TEXT"),

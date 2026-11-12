@@ -14,31 +14,33 @@ import { api, downloadQuizFile, ExportOptions } from '../../lib/api';
 import ExportQuizModal from '../../components/ExportQuizModal';
 import TableSkeleton from '../../components/TableSkeleton';
 import { Quiz } from '../../lib/types';
-import { getLocalQuizzes, deleteLocalQuiz, mergeQuizzes, saveLocalQuiz } from '../../lib/quizStorage';
+import { getLocalQuizzes, deleteLocalQuiz, syncLocalQuizzesWithServer } from '../../lib/quizStorage';
+import LoadErrorBanner from '../../components/LoadErrorBanner';
 
 export default function QuizzesLibraryPage() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportingQuiz, setExportingQuiz] = useState<Quiz | null>(null);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [offlineCopy, setOfflineCopy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // The server is the single source of truth. The copy kept in this browser is only a read-only fallback for when the
+  // server cannot be reached, and it is labelled as such.
   const fetchQuizzes = async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
-      let backendQuizzes: Quiz[] = [];
-      try {
-        backendQuizzes = await api.listQuizzes();
-        // Cache backend quizzes locally for offline and serverless resilience
-        for (const bq of backendQuizzes) {
-          saveLocalQuiz(bq);
-        }
-      } catch (e) {
-        console.warn('Could not fetch backend quizzes, loading from local storage:', e);
-      }
-      const localQuizzes = getLocalQuizzes();
-      const merged = mergeQuizzes(backendQuizzes, localQuizzes);
-      setQuizzes(merged);
+      const serverQuizzes = await api.listQuizzes();
+      setQuizzes(syncLocalQuizzesWithServer(serverQuizzes));
+      setOfflineCopy(false);
     } catch (err) {
-      console.error('Error fetching quizzes:', err);
-      setQuizzes(getLocalQuizzes());
+      console.error('Could not load quizzes from the server:', err);
+      const cached = getLocalQuizzes();
+      setQuizzes(cached);
+      setOfflineCopy(cached.length > 0);
+      setLoadError(err instanceof Error && err.message ? err.message : 'The server could not be reached.');
     } finally {
       setLoading(false);
     }
@@ -47,18 +49,17 @@ export default function QuizzesLibraryPage() {
   const handleDeleteQuiz = async (quizId: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this generated quiz?')) return;
+    if (!confirm('Delete this quiz for everyone? This cannot be undone.')) return;
+    setActionError(null);
     try {
-      deleteLocalQuiz(quizId);
-      try {
-        await api.deleteQuiz(quizId);
-      } catch (err) {
-        console.warn('Backend delete notice:', err);
-      }
-      setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
+      await api.deleteQuiz(quizId);
     } catch (err) {
       console.error('Failed to delete quiz:', err);
+      setActionError(`The quiz was not deleted: ${err instanceof Error && err.message ? err.message : 'the server could not be reached.'}`);
+      return;
     }
+    deleteLocalQuiz(quizId);
+    setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
   };
 
   const handleDownloadQuiz = async (quiz: Quiz, format: 'json' | 'csv' | 'pptx', e: React.MouseEvent) => {
@@ -96,6 +97,16 @@ export default function QuizzesLibraryPage() {
           <span>New Quiz</span>
         </Link>
       </div>
+
+      {loadError && !loading && (
+        <LoadErrorBanner
+          title="Could not load the quiz library from the server."
+          message={loadError}
+          note={offlineCopy ? 'Showing the copy saved in this browser. It may be out of date, and changes made while the server is unreachable are not shared.' : undefined}
+          onRetry={fetchQuizzes}
+        />
+      )}
+      {actionError && <LoadErrorBanner title="Something went wrong." message={actionError} />}
 
       {/* Clean Table List of Quizzes */}
       <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden">
@@ -194,7 +205,9 @@ export default function QuizzesLibraryPage() {
               {quizzes.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-[13px] text-slate-400 font-normal">
-                    No quizzes generated yet. Click "New Quiz" above to create one.
+                    {loadError
+                      ? 'The quiz library could not be loaded. Use Retry above.'
+                      : 'No quizzes generated yet. Click "New Quiz" above to create one.'}
                   </td>
                 </tr>
               )}

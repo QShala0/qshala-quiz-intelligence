@@ -81,6 +81,32 @@ export function deleteLocalQuiz(id: string): void {
 }
 
 /**
+ * Makes the browser copy follow the server: quizzes the server no longer lists are dropped (so a quiz a colleague
+ * deleted does not come back), and server rows keep any full question list this browser already cached.
+ * Returns the server's list, newest first.
+ */
+export function syncLocalQuizzesWithServer(serverQuizzes: Quiz[]): Quiz[] {
+  const local = new Map(getLocalQuizzes().map((q) => [q.id, q] as const));
+  const result = serverQuizzes
+    .filter((q) => q && q.id)
+    .map((sq) => {
+      const lq = local.get(sq.id);
+      return lq && (!sq.questions || sq.questions.length === 0) && lq.questions?.length
+        ? { ...sq, questions: lq.questions }
+        : sq;
+    })
+    .sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0));
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(result.slice(0, 50)));
+    } catch {
+      // storage full: the server stays the source of truth, so losing this cache is harmless
+    }
+  }
+  return result;
+}
+
+/**
  * Seamlessly merges backend database quizzes with local browser-persisted quizzes,
  * deduplicating by ID and sorting newest first.
  */
