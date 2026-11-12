@@ -1,0 +1,398 @@
+From 0639a8a48f31442ffba991a52922b291efa925f2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 08:47:19 +0000
+Subject: [PATCH 3/5] feat(safety): recoverable deck and whole-bank deletes
+ with a restore endpoint (snapshot tables, 30-day retention)
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ backend/app/main.py                 |   2 +
+ backend/app/routers/documents.py    |   9 +-
+ backend/app/routers/questions.py    |  14 ++-
+ backend/app/routers/trash.py        |  33 +++++++
+ backend/app/services/trash.py       | 130 ++++++++++++++++++++++++++++
+ backend/tests/test_trash_restore.py | 122 ++++++++++++++++++++++++++
+ 6 files changed, 308 insertions(+), 2 deletions(-)
+ create mode 100644 backend/app/routers/trash.py
+ create mode 100644 backend/app/services/trash.py
+ create mode 100644 backend/tests/test_trash_restore.py
+
+diff --git a/backend/app/main.py b/backend/app/main.py
+index d541acb..cf461d1 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -279,6 +279,8 @@ app.mount("/slides", MultiDirStaticFiles(directory=str(settings.SLIDES_DIR), fal
+ app.include_router(stats.router, prefix=settings.API_V1_STR)
+ app.include_router(documents.router, prefix=settings.API_V1_STR)
+ app.include_router(questions.router, prefix=settings.API_V1_STR)
++from backend.app.routers import trash as _trash_router
++app.include_router(_trash_router.router, prefix=settings.API_V1_STR)
+ app.include_router(question_meta.router, prefix=settings.API_V1_STR)
+ app.include_router(quizzes.router, prefix=settings.API_V1_STR)
+ app.include_router(jobs.router, prefix=settings.API_V1_STR)
+diff --git a/backend/app/routers/documents.py b/backend/app/routers/documents.py
+index b86c994..379da13 100644
+--- a/backend/app/routers/documents.py
++++ b/backend/app/routers/documents.py
+@@ -964,11 +964,18 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
+         except Exception:
+             pass
+ 
++    from backend.app.services import trash as _trash
++    trash_id = _trash.snapshot(db, "deck", f"deck: {doc.title or doc.filename}", document_id)   # recoverable copy, same transaction
+     from backend.app.services.question_meta_service import remove_repeats_for_document
+     remove_repeats_for_document(db, document_id)  # other questions stop listing this deck as a repeat
+     db.delete(doc)
+     db.commit()
+-    return {"message": "Document deleted successfully"}
++    try:
++        _trash.purge_expired(db)
++        db.commit()
++    except Exception:
++        db.rollback()
++    return {"message": "Document deleted successfully", "trash_id": trash_id}
+ 
+ 
+ @router.post("/{document_id}/repair")
+diff --git a/backend/app/routers/questions.py b/backend/app/routers/questions.py
+index fac422a..53c87da 100644
+--- a/backend/app/routers/questions.py
++++ b/backend/app/routers/questions.py
+@@ -1036,6 +1036,11 @@ def delete_all_questions_endpoint(
+     if not question_ids:
+         return {"status": "ok", "deleted_count": 0, "message": "No matching questions found"}
+ 
++    # Keep a recoverable copy first (same transaction: if the delete fails, the copy is rolled back with it).
++    from backend.app.services import trash as _trash
++    trash_id = _trash.snapshot(db, "deck" if document_id else "all_questions",
++                               f"questions of deck {document_id}" if document_id else "entire question bank", document_id)
++
+     # Cascade deletions
+     db.query(QshalaQuestionMetadata).filter(QshalaQuestionMetadata.question_id.in_(question_ids)).delete(synchronize_session=False)
+     db.query(QuestionTopicPath).filter(QuestionTopicPath.question_id.in_(question_ids)).delete(synchronize_session=False)
+@@ -1046,11 +1051,18 @@ def delete_all_questions_endpoint(
+     
+     deleted_n = db.query(Question).filter(Question.id.in_(question_ids)).delete(synchronize_session=False)
+     db.commit()
++    try:
++        _trash.purge_expired(db)
++        db.commit()
++    except Exception:
++        db.rollback()
+ 
+     return {
+         "status": "ok",
+         "deleted_count": deleted_n,
+-        "message": f"Successfully removed {deleted_n} questions from the question bank"
++        "trash_id": trash_id,
++        "message": f"Successfully removed {deleted_n} questions from the question bank. "
++                   f"Undo within {_trash.retention_days()} days with POST /trash/{trash_id}/restore"
+     }
+ 
+ 
+diff --git a/backend/app/routers/trash.py b/backend/app/routers/trash.py
+new file mode 100644
+index 0000000..2c91535
+--- /dev/null
++++ b/backend/app/routers/trash.py
+@@ -0,0 +1,33 @@
++from fastapi import APIRouter, Depends, HTTPException
++from sqlalchemy.orm import Session
++
++from backend.app.database import get_db
++from backend.app.services import trash
++
++router = APIRouter(prefix="/trash", tags=["Trash"])
++
++
++@router.get("")
++def list_trash(db: Session = Depends(get_db)):
++    """Recently deleted decks / question banks that can still be restored (kept TRASH_RETENTION_DAYS, default 30)."""
++    items = trash.list_snapshots(db)
++    db.commit()
++    return {"retention_days": trash.retention_days(), "items": items}
++
++
++@router.post("/{snapshot_id}/restore")
++def restore_trash(snapshot_id: str, db: Session = Depends(get_db)):
++    """Put a deleted deck / question bank back. Rows that exist now are left alone."""
++    try:
++        restored = trash.restore(db, snapshot_id)
++    except KeyError:
++        raise HTTPException(status_code=404, detail="No such snapshot (it may have expired).")
++    except ValueError:
++        raise HTTPException(status_code=400, detail="Bad snapshot id.")
++    db.commit()
++    try:
++        from backend.app.services.prompt_quiz import engine as _pq
++        _pq.invalidate_bank_cache()
++    except Exception:
++        pass
++    return {"status": "ok", "restored": restored, "total": sum(restored.values())}
+diff --git a/backend/app/services/trash.py b/backend/app/services/trash.py
+new file mode 100644
+index 0000000..6423ccf
+--- /dev/null
++++ b/backend/app/services/trash.py
+@@ -0,0 +1,130 @@
++"""Recoverable bulk deletes.
++
++Before a deck or the whole question bank is deleted, the affected rows are copied (server side, inside the same
++transaction) into holding tables named trash_<id>_<table>. Nothing is read into Python, so it is fast and safe at any
++size. A restore copies back every row that is not already present. Holding tables are removed after
++TRASH_RETENTION_DAYS (default 30).
++
++What this does NOT bring back: files already removed from disk or object storage (the uploaded deck file), and
++embeddings are restored as saved. Restoring never overwrites rows that exist now.
++"""
++import json
++import logging
++import os
++import secrets
++from datetime import datetime, timedelta, timezone
++from typing import Dict, List, Optional, Tuple
++
++from sqlalchemy import inspect, text
++from sqlalchemy.orm import Session
++
++logger = logging.getLogger(__name__)
++
++# Restore order matters (parents before children). Only these tables are ever snapshotted or restored.
++TABLES = ["documents", "slides", "questions", "qshala_tags", "qshala_question_metadata", "question_topic_paths",
++          "question_edit_history", "qshala_tag_changes", "question_repeats"]
++
++_QS = "SELECT id FROM questions WHERE document_id = :doc"
++
++
++def retention_days() -> int:
++    try:
++        return max(1, int(os.getenv("TRASH_RETENTION_DAYS", "30")))
++    except ValueError:
++        return 30
++
++
++def _ensure_index(db: Session) -> None:
++    db.execute(text("CREATE TABLE IF NOT EXISTS trash_index (id VARCHAR(40) PRIMARY KEY, label VARCHAR(200), "
++                    "kind VARCHAR(40), created_at TIMESTAMP, restored_at TIMESTAMP, row_counts TEXT)"))
++
++
++def _where(kind: str, table: str, doc: Optional[str]) -> Tuple[str, dict]:
++    """The WHERE clause that selects this table's rows for the snapshot ('' = every row)."""
++    if kind == "all_questions":
++        return ("", {}) if table in ("questions", "qshala_tags", "qshala_question_metadata", "question_topic_paths",
++                                     "question_edit_history", "qshala_tag_changes", "question_repeats") else ("1 = 0", {})
++    p = {"doc": doc}
++    return {
++        "documents": ("id = :doc", p), "slides": ("document_id = :doc", p), "questions": ("document_id = :doc", p),
++        "question_repeats": (f"document_id = :doc OR question_id IN ({_QS})", p),
++    }.get(table, (f"question_id IN ({_QS})", p))
++
++
++def snapshot(db: Session, kind: str, label: str, document_id: Optional[str] = None) -> str:
++    """Copy what is about to be deleted into holding tables and return the snapshot id. kind: 'deck' or 'all_questions'.
++    Runs in the caller's transaction: if the delete then fails and rolls back, the snapshot goes with it."""
++    assert kind in ("deck", "all_questions")
++    _ensure_index(db)
++    sid = f"{datetime.now(timezone.utc):%Y%m%d%H%M%S}{secrets.token_hex(2)}"
++    existing = set(inspect(db.get_bind()).get_table_names())
++    counts: Dict[str, int] = {}
++    for table in TABLES:
++        if table not in existing:
++            continue
++        where, params = _where(kind, table, document_id)
++        if where == "1 = 0":
++            continue
++        clause = f" WHERE {where}" if where else ""
++        db.execute(text(f"CREATE TABLE trash_{sid}_{table} AS SELECT * FROM {table}{clause}"), params)
++        counts[table] = int(db.execute(text(f"SELECT COUNT(*) FROM trash_{sid}_{table}")).scalar() or 0)
++    db.execute(text("INSERT INTO trash_index (id, label, kind, created_at, row_counts) VALUES (:i, :l, :k, :c, :r)"),
++               {"i": sid, "l": label[:200], "k": kind, "c": datetime.now(timezone.utc).replace(tzinfo=None), "r": json.dumps(counts)})
++    return sid
++
++
++def list_snapshots(db: Session) -> List[dict]:
++    _ensure_index(db)
++    rows = db.execute(text("SELECT id, label, kind, created_at, restored_at, row_counts FROM trash_index ORDER BY created_at DESC")).all()
++    return [{"id": r[0], "label": r[1], "kind": r[2], "created_at": str(r[3]), "restored_at": str(r[4]) if r[4] else None,
++             "row_counts": json.loads(r[5] or "{}")} for r in rows]
++
++
++def _live_columns(db: Session, table: str) -> List[str]:
++    return [c["name"] for c in inspect(db.get_bind()).get_columns(table)]
++
++
++def restore(db: Session, sid: str) -> Dict[str, int]:
++    """Copy every snapshotted row that is not currently present back into its table. Returns rows restored per table."""
++    if not sid.isalnum():
++        raise ValueError("bad snapshot id")
++    _ensure_index(db)
++    row = db.execute(text("SELECT id FROM trash_index WHERE id = :i"), {"i": sid}).first()
++    if not row:
++        raise KeyError(sid)
++    insp = inspect(db.get_bind())
++    existing = set(insp.get_table_names())
++    restored: Dict[str, int] = {}
++    for table in TABLES:
++        held = f"trash_{sid}_{table}"
++        if held not in existing or table not in existing:
++            continue
++        cols = [c for c in _live_columns(db, table) if c in {x["name"] for x in insp.get_columns(held)}]
++        pk = insp.get_pk_constraint(table).get("constrained_columns") or []
++        collist = ", ".join(cols)
++        sel = ", ".join(f"h.{c}" for c in cols)
++        guard = " AND ".join(f"t.{c} = h.{c}" for c in pk) if pk else "1 = 0"
++        res = db.execute(text(f"INSERT INTO {table} ({collist}) SELECT {sel} FROM {held} h "
++                              f"WHERE NOT EXISTS (SELECT 1 FROM {table} t WHERE {guard})"))
++        restored[table] = int(res.rowcount or 0)
++    db.execute(text("UPDATE trash_index SET restored_at = :n WHERE id = :i"),
++               {"n": datetime.now(timezone.utc).replace(tzinfo=None), "i": sid})
++    return restored
++
++
++def purge_expired(db: Session, days: Optional[int] = None) -> List[str]:
++    """Drop holding tables older than the retention window. Returns the snapshot ids removed."""
++    _ensure_index(db)
++    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days or retention_days())
++    old = [r[0] for r in db.execute(text("SELECT id FROM trash_index WHERE created_at < :c"), {"c": cutoff}).all()]
++    for sid in old:
++        drop(db, sid)
++    return old
++
++
++def drop(db: Session, sid: str) -> None:
++    if not sid.isalnum():
++        raise ValueError("bad snapshot id")
++    for table in TABLES:
++        db.execute(text(f"DROP TABLE IF EXISTS trash_{sid}_{table}"))
++    db.execute(text("DELETE FROM trash_index WHERE id = :i"), {"i": sid})
+diff --git a/backend/tests/test_trash_restore.py b/backend/tests/test_trash_restore.py
+new file mode 100644
+index 0000000..1acccc9
+--- /dev/null
++++ b/backend/tests/test_trash_restore.py
+@@ -0,0 +1,122 @@
++"""Deleting a deck or the whole question bank can be undone."""
++import uuid
++
++from fastapi.testclient import TestClient
++from sqlalchemy import text
++
++from backend.app.database import SessionLocal
++from backend.app.main import app
++from backend.app.models.document import Document, Slide
++from backend.app.models.qshala_tag import QshalaTag
++from backend.app.models.question import Question
++from backend.app.services import trash
++
++
++def _seed_deck(n=4):
++    db = SessionLocal()
++    try:
++        doc = Document(title=f"trash-deck-{uuid.uuid4().hex[:6]}", filename="t.pptx", file_type="pptx", storage_path="/nonexistent/t.pptx",
++                       processing_status="COMPLETED")
++        db.add(doc)
++        db.commit()
++        slide = Slide(document_id=doc.id, slide_number=1, slide_type="QUESTION")
++        db.add(slide)
++        db.commit()
++        qids = []
++        for i in range(n):
++            q = Question(id=str(uuid.uuid4()), document_id=doc.id, slide_id=slide.id, question_text=f"Trash question {i} {uuid.uuid4().hex[:6]}",
++                         answer=f"A{i}", topic="TrashTopic", subtopic="s", difficulty="Easy", content_hash=uuid.uuid4().hex,
++                         duplicate_status="UNIQUE", tags=["alpha", "beta"])
++            db.add(q)
++            qids.append(q.id)
++        db.commit()
++        db.add_all([QshalaTag(id=str(uuid.uuid4()), question_id=qid, taxonomy_version="v4", topic_l1="Finance",
++                              subtopic_l2="Banks and Banking", status="confirmed", source="llm") for qid in qids])
++        db.commit()
++        return doc.id, qids
++    finally:
++        db.close()
++
++
++def _count(sql, **p):
++    db = SessionLocal()
++    try:
++        return db.execute(text(sql), p).scalar()
++    finally:
++        db.close()
++
++
++def test_deleting_a_deck_can_be_undone_with_its_questions_slides_and_tags():
++    doc_id, qids = _seed_deck()
++    c = TestClient(app)
++    r = c.delete(f"/api/v1/documents/{doc_id}")
++    assert r.status_code == 200 and r.json()["trash_id"]
++    tid = r.json()["trash_id"]
++    assert _count("select count(*) from questions where document_id = :d", d=doc_id) == 0
++    assert _count("select count(*) from documents where id = :d", d=doc_id) == 0
++    assert any(i["id"] == tid for i in c.get("/api/v1/trash").json()["items"])
++
++    back = c.post(f"/api/v1/trash/{tid}/restore")
++    assert back.status_code == 200 and back.json()["restored"]["questions"] == 4
++    assert _count("select count(*) from documents where id = :d", d=doc_id) == 1
++    assert _count("select count(*) from slides where document_id = :d", d=doc_id) == 1
++    assert _count("select count(*) from questions where document_id = :d", d=doc_id) == 4
++    assert _count("select count(*) from qshala_tags where question_id in (select id from questions where document_id = :d)", d=doc_id) == 4
++    assert _count("select answer from questions where id = :q", q=qids[0]) == "A0"          # content is back exactly
++
++
++def test_restore_twice_does_not_duplicate_and_never_overwrites_newer_edits():
++    doc_id, qids = _seed_deck(3)
++    c = TestClient(app)
++    tid = c.delete(f"/api/v1/documents/{doc_id}").json()["trash_id"]
++    assert c.post(f"/api/v1/trash/{tid}/restore").json()["total"] > 0
++    db = SessionLocal()
++    try:
++        db.execute(text("update questions set answer = 'EDITED' where id = :q"), {"q": qids[0]})
++        db.commit()
++    finally:
++        db.close()
++    again = c.post(f"/api/v1/trash/{tid}/restore").json()
++    assert again["total"] == 0
++    assert _count("select count(*) from questions where document_id = :d", d=doc_id) == 3
++    assert _count("select answer from questions where id = :q", q=qids[0]) == "EDITED"
++
++
++def test_bulk_delete_of_one_decks_questions_can_be_undone():
++    doc_id, qids = _seed_deck(5)
++    c = TestClient(app)
++    r = c.delete("/api/v1/questions", params={"document_id": doc_id})
++    assert r.json()["deleted_count"] == 5 and r.json()["trash_id"]
++    assert _count("select count(*) from questions where document_id = :d", d=doc_id) == 0
++    assert c.post(f"/api/v1/trash/{r.json()['trash_id']}/restore").json()["restored"]["questions"] == 5
++    assert _count("select count(*) from questions where document_id = :d", d=doc_id) == 5
++
++
++def test_whole_bank_purge_can_be_undone_and_a_bare_delete_is_still_refused():
++    doc_id, qids = _seed_deck(3)
++    c = TestClient(app)
++    assert c.delete("/api/v1/questions").status_code == 400
++    before = _count("select count(*) from questions")
++    r = c.delete("/api/v1/questions", params={"all": "true"})
++    assert r.json()["deleted_count"] == before and _count("select count(*) from questions") == 0
++    c.post(f"/api/v1/trash/{r.json()['trash_id']}/restore")
++    assert _count("select count(*) from questions") == before
++
++
++def test_unknown_snapshot_is_a_404_and_expired_snapshots_are_dropped():
++    c = TestClient(app)
++    assert c.post("/api/v1/trash/doesnotexist/restore").status_code == 404
++    doc_id, _ = _seed_deck(2)
++    tid = c.delete(f"/api/v1/documents/{doc_id}").json()["trash_id"]
++    db = SessionLocal()
++    try:
++        db.execute(text("update trash_index set created_at = '2000-01-01 00:00:00' where id = :i"), {"i": tid})
++        db.commit()
++        assert tid in trash.purge_expired(db)
++        db.commit()
++        from sqlalchemy import inspect
++        names = set(inspect(db.get_bind()).get_table_names())
++        assert not any(n.startswith(f"trash_{tid}_") for n in names)
++    finally:
++        db.close()
++    assert c.post(f"/api/v1/trash/{tid}/restore").status_code == 404
+-- 
+2.43.0
+
