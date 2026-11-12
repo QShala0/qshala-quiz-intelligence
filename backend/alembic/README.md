@@ -59,3 +59,15 @@ particular are worth double-checking).
   there's an actual migration to run that way, not just the baseline).
 - `ensure_schema_columns()` isn't being removed. It's legacy, frozen, and still runs on boot;
   removing it is a separate, more invasive change than this one.
+
+## 0008 - format-aware questions (play_mode, slot, topic_label)
+
+Adds three columns to `questions`: `play_mode` (BUZZER, DIRECTED, PASS, AUDIENCE, TIEBREAK, ALL_ON_SCREEN, BUFFER; nullable),
+`slot` (LIVE, RESERVE, EXAMPLE; NOT NULL, default LIVE) and `topic_label` (nullable). Every existing row becomes
+`slot = 'LIVE'`; nothing else about it changes. `ensure_schema_columns()` adds the same columns on boot, so the revision
+is idempotent (it checks before adding) and `alembic upgrade head` is only needed to record the version.
+No index is created: run one by hand off-peak if a slot filter ever needs it.
+
+**Old decks need a re-upload.** The extra data (Image Reveal order, List It ticks and crosses, Arrange reveal values,
+round / team, confidence) comes from the slide XML and exists only in the file, so questions ingested before this
+revision keep their old `format_payload` until their deck is deleted and uploaded again.

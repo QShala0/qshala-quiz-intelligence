@@ -16,7 +16,7 @@ import time
 from typing import Any, Dict, List, Optional, Set
 from sqlalchemy.orm import Session
 
-from backend.app.services.prompt_quiz.retrieval import parse_prompt, WORD_NUMS
+from backend.app.services.prompt_quiz.retrieval import normalize_compound_typos, parse_prompt, WORD_NUMS
 
 logger = logging.getLogger(__name__)
 
@@ -146,8 +146,11 @@ def _build_system_prompt(taxonomy: Dict[str, List[str]]) -> str:
         "CRITICAL RULES:\n"
         "1. INTUITIVE UNDERSTANDING & TYPO CORRECTION:\n"
         "   - Autocorrect colloquialisms, slang, and typos (e.g. 'improtant epople' -> 'important people', 'scinetist' -> 'scientist').\n"
-        "   - Distinguish SUBJECT from SCOPE: If the user asks for 'important people for school students in India', the subject is 'important people', the scope is India, and the audience is school students.\n"
-        "   - Never let a geographic scope erase the subject.\n\n"
+        "   - Distinguish SUBJECT from SCOPE & WRAPPERS: If the user asks for 'grade 6 & 7 karnataka state board students everyday science experiments', the subject is 'everyday science and science experiments', the locality is 'Karnataka', and the audience is school.\n"
+        "   - Never include wrapper words ('grade', 'state board', 'students', 'relevant', 'around', 'focus on') in normalized_subject or expansion_terms.\n"
+        "   - Never include pure country/city names ('india', 'karnataka') in normalized_subject or expansion_terms when a subject exists.\n"
+        "   - Never let a geographic scope erase the subject.\n"
+        "   - CRITICAL FOR FOLLOW-UPS: When previous_brief is provided and the prompt is a modifier/adjustment ('Focus on India', 'Make it for middle school kids', 'Make it harder', 'Text only', 'Only questions with images', 'Give me 5 more questions'), you MUST preserve normalized_subject, expansion_terms, locality, and mapped_topics_l1 from previous_brief, changing ONLY the adjusted constraint.\n\n"
         "2. SEMANTIC EXPANSION TERMS (Absolute Priority):\n"
         "   - Generate 15-25 rich, high-affinity search terms including specific famous entities, pioneers, role models, technical terms, or synonyms.\n"
         "   - Example: 'important people in India' -> ['kalam', 'ramanujan', 'modi', 'bose', 'wangchuk', 'chanu', 'scientist', 'inventor', 'pioneer', 'leader', 'achiever', 'author', 'freedom fighter', 'isro', 'president', 'nobel'].\n"
@@ -192,14 +195,22 @@ def deconstruct_prompt(
             "query": previous_brief.get("query"),
             "count": previous_brief.get("count"),
             "audience": (previous_brief.get("filters") or {}).get("audience"),
+            "india_focused": (previous_brief.get("filters") or {}).get("india_focused"),
+            "locality": previous_brief.get("locality"),
+            "hard_bias": previous_brief.get("hard_bias"),
             "topics_l1": previous_brief.get("topics_l1"),
+            "subtopics_l2": previous_brief.get("subtopics_l2"),
+            "search_terms": previous_brief.get("search_terms"),
+            "filters": previous_brief.get("filters"),
+            "format_filter": previous_brief.get("format_filter"),
         }
     if options:
         user_payload["explicit_options"] = options
 
     user_text = json.dumps(user_payload)
 
-    model = getattr(settings, "GEMINI_MODEL", None) or "gemini-3.8-flash"
+    from backend.app.services.ai.model_config import intent_model
+    model = intent_model()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
     payload = {
@@ -214,9 +225,9 @@ def deconstruct_prompt(
     }
 
     try:
-        from backend.app.services.prompt_quiz._http import get_client
+        from backend.app.services.prompt_quiz._http import guarded_post
         headers = {"x-goog-api-key": api_key}
-        res = get_client().post(url, json=payload, headers=headers, timeout=INTENT_TIMEOUT_S)
+        res = guarded_post(url, json=payload, headers=headers, timeout=INTENT_TIMEOUT_S)
         if res.status_code != 200:
             logger.warning(f"Intent engine HTTP {res.status_code} on {model}: {res.text[:120]}")
             return None
@@ -243,8 +254,8 @@ def deconstruct_prompt(
 
         parsed = json.loads(raw_text)
 
-        # Relative count expansion and inheritance
-        p_lower = (prompt or "").lower()
+        # Normalize compound typos (e.g. "quizkarnataka" -> "quiz karnataka")
+        p_lower = normalize_compound_typos(prompt or "").lower()
         more_m = re.search(r"\b(?:add|give\s+me\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|couple|few)\s+more\b", p_lower)
         fewer_m = re.search(r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s+fewer\b", p_lower)
         double_m = re.search(r"\bdouble\s+it\b", p_lower)
@@ -275,64 +286,184 @@ def deconstruct_prompt(
             raw_sub = prompt
         raw_sub = str(raw_sub).strip()
 
-        from backend.app.services.prompt_quiz.retrieval import parse_prompt
         clean_sub, _, _ = parse_prompt(raw_sub)
+        clean_prompt_topical, _, _ = parse_prompt(prompt or "")
 
         GENERIC_SUBJECTS = {
             "general knowledge", "general knowledge for kids", "general quiz",
             "general questions", "kids quiz", "school quiz", "family quiz",
             "trivia", "quiz", "questions", "general", "general gk", "gk",
-            "general trivia", "kids trivia"
+            "general trivia", "kids trivia", "middle school quiz", "middle school",
+            "school friendly", "india focus", "focus on india", "india",
         }
-        if raw_sub.lower() in GENERIC_SUBJECTS or not clean_sub:
-            subject = ""
-            expansions = []
-        else:
-            subject = raw_sub
-        expansions = parsed.get("expansion_terms") or []
-        target_aud = parsed.get("target_audience") or "general"
-        is_india = bool(parsed.get("india_focused"))
+        GEO_ONLY_WORDS = {
+            "india", "indian", "bharat", "karnataka", "bengaluru", "bangalore",
+            "mumbai", "bombay", "delhi", "chennai", "madras", "kolkata",
+            "calcutta", "hyderabad", "pune", "mysore", "mysuru", "international",
+            "global", "world",
+        }
+        META_MODIFIER_WORDS = {
+            "make", "focus", "focused", "perspective", "images", "image", "pictures",
+            "picture", "photos", "photo", "visuals", "visual", "only", "more", "less",
+            "add", "keep", "middle", "high", "primary", "school", "kids", "friendly",
+            "harder", "easier", "tougher", "spicier", "balanced", "warm", "up",
+            "students", "student", "relevant", "curriculum", "syllabus",
+        }
 
-        filters: Dict[str, Any] = {}
-        has_no_images = bool(parsed.get("no_images")) or bool(
-            re.search(r"\b(no|without|zero|non-?visual|text-?only)\s*(?:of\s+)?(?:images?|pics?|visuals?|photos?)\b|\btext\s+only\b", prompt.lower())
+        has_topic_swap = bool(re.search(
+            r"\b(?:replace|swap|change|switch)\b.*\b(?:to|with|for|into)\b|\binstead\s+of\b",
+            p_lower,
+        ))
+        followup_topical_tokens = [
+            w for w in re.findall(r"[a-z]+", clean_prompt_topical.lower())
+            if w not in GEO_ONLY_WORDS and w not in META_MODIFIER_WORDS and len(w) > 1
+        ]
+        is_constraint_refinement = (
+            bool(previous_brief)
+            and not has_topic_swap
+            and (
+                not followup_topical_tokens
+                or raw_sub.lower() in GENERIC_SUBJECTS
+                or raw_sub.lower() in GEO_ONLY_WORDS
+            )
         )
+
+        # Preserve core topical intent on constraint-only refinements (e.g. "Focus on India", "Make it for middle school kids")
+        if is_constraint_refinement and previous_brief:
+            subject = str(previous_brief.get("query") or "").strip()
+            expansions = list(previous_brief.get("search_terms") or [])
+            l1_override = list(previous_brief.get("topics_l1") or [])
+            l2_override = list(previous_brief.get("subtopics_l2") or [])
+        else:
+            if raw_sub.lower() in GENERIC_SUBJECTS or not clean_sub:
+                subject = ""
+                expansions = []
+            else:
+                subject = clean_sub if clean_sub else raw_sub
+                raw_exp = parsed.get("expansion_terms") or []
+                expansions = [
+                    str(t).strip() for t in raw_exp
+                    if isinstance(t, str) and t.strip() and t.strip().lower() not in GEO_ONLY_WORDS
+                ]
+            l1_override = None
+            l2_override = None
+
+        target_aud = parsed.get("target_audience") or "general"
+        prev_filters = dict((previous_brief or {}).get("filters") or {}) if previous_brief else {}
+        filters: Dict[str, Any] = dict(prev_filters)
+
+        explicit_india = bool(re.search(r"\b(india|indian|bharat)\b", p_lower))
+        explicit_intl = bool(re.search(r"\b(international|global|world|foreign|non-?indian|outside\s+india)\b", p_lower))
+        is_universal_stem = any(
+            s in p_lower or s in subject.lower()
+            for s in (
+                "science", "scientific", "experiment", "experiments",
+                "physics", "chemistry", "biology", "astronomy", "math", "mathematics",
+            )
+        )
+        if explicit_india:
+            filters["india_focused"] = True
+            filters["india_international"] = "IN"
+        elif explicit_intl:
+            filters["india_focused"] = False
+            filters["india_international"] = "INTL"
+        elif parsed.get("india_focused") is True and not is_universal_stem:
+            filters["india_focused"] = True
+            filters["india_international"] = "IN"
+        elif parsed.get("india_focused") is True and is_universal_stem:
+            # Curriculum/state hint on universal STEM subjects: nudge Indian/local questions softly,
+            # but keep universal science questions (NA/INTL) eligible unless India-only is explicitly asked.
+            filters["india_focused"] = True
+
+        has_no_images = bool(parsed.get("no_images")) or bool(
+            re.search(r"\b(no|without|zero|non-?visual|text-?only)\s*(?:of\s+)?(?:images?|pics?|visuals?|photos?)\b|\btext\s+only\b", p_lower)
+        )
+        wants_images = bool(
+            re.search(r"\b(?:only|with)\s+(?:questions?\s+with\s+)?(?:images?|pics?|visuals?|photos?)\b", p_lower)
+        ) and not has_no_images
         if has_no_images:
             filters["no_images"] = True
             filters["exclude_image"] = True
-        if is_india:
-                filters["india_focused"] = True
-                filters["india_international"] = "IN"
+            filters.pop("require_images", None)
+        elif wants_images:
+            filters.pop("no_images", None)
+            filters.pop("exclude_image", None)
+            filters["require_images"] = True
 
-        is_family_or_school = target_aud == "school" or any(w in p_lower for w in ("school", "kid", "child", "family", "student", "assembly"))
-        if is_family_or_school:
-            filters["school_safe"] = True
-
-        if target_aud == "school":
-            filters["audience"] = "school"
+        if re.search(r"\b(evergreen|timeless|any year)\b", p_lower):
             filters["evergreen"] = True
             filters["evergreen_only"] = True
+
+        is_family_or_school = target_aud == "school" or any(
+            w in p_lower for w in ("school", "kid", "child", "family", "student", "assembly")
+        )
+        if is_family_or_school:
+            filters["school_safe"] = True
+            filters["audience"] = "school"
         elif target_aud in ("college", "corporate"):
             filters["audience"] = target_aud
+        elif not filters.get("audience") and target_aud:
+            filters["audience"] = target_aud
 
-        hard_bias = parsed.get("hard_bias")
-        if target_aud == "school" and not hard_bias:
+        explicit_diff = bool(re.search(
+            r"\b(hard(?:er)?|tough(?:er)?|difficult|finals?|killer|spicy|spicier|easy|easier|warm-?up|beginner|gentle|balanced|medium)\b",
+            p_lower,
+        ))
+        prev_bias = (previous_brief or {}).get("hard_bias") if previous_brief else None
+        if is_constraint_refinement and previous_brief and not explicit_diff:
+            hard_bias = prev_bias
+        else:
+            hard_bias = parsed.get("hard_bias")
+            if hard_bias == "balanced":
+                hard_bias = "medium"
+            if not hard_bias and explicit_diff:
+                if re.search(r"\b(hard(?:er)?|tough(?:er)?|difficult|finals?|killer|spicy|spicier)\b", p_lower):
+                    hard_bias = "hard"
+                elif re.search(r"\b(easy|easier|warm-?up|beginner|gentle)\b", p_lower):
+                    hard_bias = "easy"
+                elif re.search(r"\b(balanced|medium)\b", p_lower):
+                    hard_bias = "medium"
+            if filters.get("audience") == "school" and not hard_bias and not is_constraint_refinement:
                 hard_bias = "easy"
 
         fmt_filter = parsed.get("format_filter")
         if fmt_filter in ("STANDARD_QA", "STANDARD", "", "NONE", None):
-            fmt_filter = None
+            fmt_filter = (previous_brief or {}).get("format_filter") if is_constraint_refinement else None
 
-        # For thematic / multidisciplinary prompts, unconstrain category filters so rich BM25 search terms find all matches
+        # Detect Karnataka / Indian localities deterministically (handles glued typos like 'quizkarnataka')
+        locality = parsed.get("locality")
+        if not locality and "karnataka" in p_lower:
+            locality = "Karnataka"
+        if locality and locality.lower() not in ("global", "international", "world") and not explicit_intl:
+            filters["india_focused"] = True
+            if not is_universal_stem and not is_constraint_refinement:
+                filters["india_international"] = "IN"
+        if not locality and previous_brief and not explicit_intl:
+            locality = previous_brief.get("locality")
+
+        # For thematic / multidisciplinary prompts (including everyday science & experiments),
+        # unconstrain L1/L2 filters so BM25 semantic search finds matches across Science/Tech/GK decks.
         thematic_signals = (
             "people", "person", "personality", "leader", "pioneer", "scientist",
+            "science", "scientific", "experiment", "experiments", "physics", "chemistry", "biology",
             "astronaut", "space", "mission", "freedom", "fighter", "women", "achiever",
             "inventor", "hero", "startup", "founder", "underdog", "inventions",
             "history", "heritage", "movement", "revolution"
         )
-        is_thematic = any(s in subject.lower() or s in prompt.lower() for s in thematic_signals)
-        l1s = [] if is_thematic else (parsed.get("mapped_topics_l1") or [])
-        l2s = [] if is_thematic else (parsed.get("mapped_subtopics_l2") or [])
+        is_thematic = any(s in subject.lower() or s in p_lower for s in thematic_signals)
+        if l1_override is not None:
+            l1s = [] if is_thematic else l1_override
+            l2s = [] if is_thematic else l2_override
+        else:
+            l1s = [] if is_thematic else (parsed.get("mapped_topics_l1") or [])
+            l2s = [] if is_thematic else (parsed.get("mapped_subtopics_l2") or [])
+
+        framing = (
+            (previous_brief or {}).get("framing")
+            if is_constraint_refinement and (previous_brief or {}).get("framing")
+            else (parsed.get("framing") or f"A curated round on {subject or prompt}")
+        )
+        effective_aud = filters.get("audience") or target_aud
 
         from backend.app.services.prompt_quiz.engine import Brief
         brief = Brief(
@@ -342,11 +473,11 @@ def deconstruct_prompt(
                 filters=filters,
                 ramp=True,
                 hard_bias=hard_bias,
-                framing=parsed.get("framing") or f"A curated round on {subject}",
+                framing=framing,
                 source="gemini_dynamic_intent",
                 format_filter=fmt_filter,
-                locality=parsed.get("locality"),
-                venue_type=target_aud,
+                locality=locality,
+                venue_type=effective_aud,
                 tone=[],
                 cross_topic_padding=False,
                 topics_l1=l1s,

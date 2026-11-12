@@ -186,9 +186,12 @@ def _write_item(db: Session, q: Dict[str, Any], llm_out: Dict[str, Any], model: 
             q.get("answer") or getattr(question_obj, "answer", "") or "",
             question_images=q.get("question_images") or getattr(question_obj, "question_images", None),
             answer_images=q.get("answer_images") or getattr(question_obj, "answer_images", None),
-            round_name=q.get("round_name") or q.get("round_type") or (f"Round {question_obj.round_number}" if getattr(question_obj, "round_number", None) else None),
+            round_name=q.get("round_name") or q.get("round_type") or f"{getattr(question_obj, 'subtopic', '') or ''} {f'Round {question_obj.round_number}' if getattr(question_obj, 'round_number', None) else ''}".strip() or None,
+            stored_format=getattr(question_obj, "question_format", None),
+            stored_payload=getattr(question_obj, "format_payload", None),
         )
-        question_obj.question_format = q_format
+        if getattr(question_obj, "question_format", None) not in ("LIST_IT", "IMAGE_REVEAL"):
+            question_obj.question_format = q_format
         if f_data is not None:
             question_obj.format_data = f_data
 

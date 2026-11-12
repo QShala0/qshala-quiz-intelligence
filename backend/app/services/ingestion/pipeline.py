@@ -314,6 +314,11 @@ class IngestionPipeline:
                                 "current_step": f"Skipped: identical to '{twin.title}', already ingested",
                                 "duplicates_filtered": 0,
                             })
+                            try:
+                                from backend.app.routers.stats import invalidate_stats_cache
+                                invalidate_stats_cache()
+                            except Exception:
+                                pass
                             return
             except Exception as hash_err:
                 logger.warning("deck fingerprint check failed (continuing normally): %s", safe_error(hash_err))
@@ -430,6 +435,16 @@ class IngestionPipeline:
             # (question number, format, star, answer type, language).
             deck_row = upsert_deck_metadata(db, doc)
             annotate_questions(raw_questions, classified_slides, deck_row_to_info(deck_row))
+            # Mid-confidence format readings (0.7-0.9) get one optional Gemini look (FORMAT_VISION_CHECK=1); the rest
+            # are accepted (>= 0.9) or left flagged for review (< 0.7) without any AI call.
+            try:
+                from backend.app.services.ingestion.format_vision import vision_check_enabled, verify_band
+                if vision_check_enabled():
+                    _fv = await verify_band(raw_questions, self.llm_provider)
+                    if _fv.get('checked') or _fv.get('skipped'):
+                        progress.event(INGESTION_STATUS_REGISTRY[document_id], f"Format check: {_fv}")
+            except Exception as _fv_err:
+                logger.warning('format vision check skipped: %s', safe_error(_fv_err))
             # Show a clean quiz name in Recent Uploads instead of the raw ".pptx" filename: the deck
             # parser already pulled a quiz_name out of the filename. Only override an auto-derived
             # title (the filename), never a title the user typed in.
@@ -772,7 +787,7 @@ class IngestionPipeline:
                 )
                 final_topic = q_data.get("primary_topic") or rule_l1
                 raw_sub = (q_data.get("subtopic") or "").strip()
-                if not raw_sub or any(w in raw_sub.lower() for w in ["round", "closing bell", "market indicators", "ticker tangle", "portfolio builder", "opening bell"]):
+                if not raw_sub or raw_sub.lower() in {"topic", "topics", "direct", "general"} or any(w in raw_sub.lower() for w in ["round", "closing bell", "market indicators", "ticker tangle", "portfolio builder", "opening bell", "list it", "list-it", "image reveal", "connect", "buzz", "audience question", "tie breaker", "dry run"]):
                     final_subtopic = rule_l2
                 else:
                     final_subtopic = raw_sub
@@ -820,6 +835,10 @@ class IngestionPipeline:
                     occurrence_count=1,
                     question_type=q_data.get("question_type", "SLIDE_QA"),
                     format_payload=q_data.get("format_payload"),
+                    play_mode=q_data.get("play_mode"),
+                    slot=q_data.get("slot") or "LIVE",
+                    topic_label=q_data.get("topic_label"),
+                    format_needs_review=bool((q_data.get("_ingest") or {}).get("needs_review")),
                     source_year=q_data.get("source_year", doc.year),
                     round_number=(q_data.get("_meta") or {}).get("round_number"),
                     image_refs=q_data.get("image_refs", []),
@@ -940,6 +959,11 @@ class IngestionPipeline:
                 "duplicates_filtered": len(duplicates),
                 "_ts": time.time(),
             })
+            try:
+                from backend.app.routers.stats import invalidate_stats_cache
+                invalidate_stats_cache()
+            except Exception:
+                pass
 
         except IngestionCancelled:
             logger.info(f"[CANCEL] ingestion of {document_id} cancelled by user, cleaning up")

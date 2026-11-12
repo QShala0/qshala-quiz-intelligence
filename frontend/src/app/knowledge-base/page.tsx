@@ -3,7 +3,7 @@
 import { useState, useCallback, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
-import { AlertTriangle, Eye, X } from 'lucide-react';
+import { AlertTriangle, Eye, RefreshCw, X } from 'lucide-react';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../../lib/api';
 import { HistoricalQuestion } from '../../lib/types';
 // Performance backlog item 5 (QSHALA_PERFORMANCE_IDEAS.md): these three only ever render once a
@@ -32,6 +32,7 @@ function KnowledgeBaseContent() {
     speaker_notes?: string | null;
     slide_type?: string;
     image_paths?: string[];
+    question?: HistoricalQuestion | null;
   } | null>(null);
   const [selectedQuestionForTags, setSelectedQuestionForTags] = useState<HistoricalQuestion | null>(null);
   const [selectedQuestionForMedia, setSelectedQuestionForMedia] = useState<HistoricalQuestion | null>(null);
@@ -49,14 +50,16 @@ function KnowledgeBaseContent() {
     tagFilter, setTagFilter,
     difficulty, setDifficulty,
     formatFilter, setFormatFilter,
-    selectedDeckId, setSelectedDeckId,
+    slotFilter, setSlotFilter,
+    selectedDeckIds, setSelectedDeckIds,
     gradeMin, setGradeMin,
     sortBy, setSortBy,
     sortOrder, setSortOrder,
-    topicsList, documentsList, availableSubtopics,
-    questions, loading, resolvingId,
-    handleSearch,
+    topicsList, documentsList, sourceCatalog, availableSubtopics,
+    questions, loading, loadError, resolvingId,
+    retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
+    handleQuestionUpdated, handleConfirmFormat,
   } = useVaultQuestions(initialTopic, setSelectedDuplicateForReview);
 
   const getImageSrc = useCallback((rawUrl: string | null | undefined) => {
@@ -90,6 +93,7 @@ function KnowledgeBaseContent() {
       speaker_notes: q.explanation,
       slide_type: 'QUESTION',
       image_paths: allSlideImgs,
+      question: q,
     });
   }, []);
 
@@ -169,14 +173,37 @@ function KnowledgeBaseContent() {
         tagFilter={tagFilter} setTagFilter={setTagFilter}
         difficulty={difficulty} setDifficulty={setDifficulty}
         formatFilter={formatFilter} setFormatFilter={setFormatFilter}
-        selectedDeckId={selectedDeckId} setSelectedDeckId={setSelectedDeckId}
+        slotFilter={slotFilter} setSlotFilter={setSlotFilter}
+        selectedDeckIds={selectedDeckIds} setSelectedDeckIds={setSelectedDeckIds}
         gradeMin={gradeMin} setGradeMin={setGradeMin}
         sortBy={sortBy} setSortBy={setSortBy}
         sortOrder={sortOrder} setSortOrder={setSortOrder}
         topicsList={topicsList}
         documentsList={documentsList}
+        sourceCatalog={sourceCatalog}
         availableSubtopics={availableSubtopics}
       />
+
+      {/* Error Banner if question bank request fails or times out */}
+      {loadError && !loading && (
+        <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-[13.5px] text-amber-900">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+            <div>
+              <span className="font-semibold">Unable to load the question bank:</span>{' '}
+              <span className="text-amber-800">{loadError}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={retryLoad}
+            className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[12.5px] font-medium text-amber-900 hover:bg-amber-100/70 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Professional CMS Data Table */}
       <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden">
@@ -195,8 +222,21 @@ function KnowledgeBaseContent() {
               <tbody className="divide-y divide-slate-100">
                 {questions.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="py-12 text-center text-slate-400">
-                      {activeTab === 'duplicates'
+                    <td colSpan={3} className="py-12 text-center text-slate-500">
+                      {loadError ? (
+                        <div className="space-y-2">
+                          <p className="font-medium text-slate-700">Could not reach the question bank API.</p>
+                          <p className="text-xs text-slate-500">{loadError}</p>
+                          <button
+                            type="button"
+                            onClick={retryLoad}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            Retry loading questions
+                          </button>
+                        </div>
+                      ) : activeTab === 'duplicates'
                         ? 'No possible duplicates pending review!'
                         : activeTab === 'review'
                         ? 'Nothing needs review — every tag is confirmed!'
@@ -217,6 +257,8 @@ function KnowledgeBaseContent() {
                       setSelectedDuplicateForReview={setSelectedDuplicateForReview}
                       handleViewSlide={handleViewSlide}
                       handleAcceptReview={handleAcceptReview}
+                      handleConfirmFormat={handleConfirmFormat}
+                      onQuestionUpdated={handleQuestionUpdated}
                       resolvingId={resolvingId}
                       tagFilter={tagFilter}
                       setTagFilter={setTagFilter}
@@ -253,7 +295,7 @@ function KnowledgeBaseContent() {
           onClose={() => setSelectedQuestionForTags(null)}
           question={selectedQuestionForTags}
           onSaved={handleQuestionTagsSaved}
-          onFilterDeck={(id) => setSelectedDeckId(id)}
+          onFilterDeck={(id) => setSelectedDeckIds(id ? [id] : [])}
           availableTopics={topicsList.map((t) => t.topic)}
         />
       )}

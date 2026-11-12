@@ -177,3 +177,36 @@ def test_heal_reclassifies_mislabeled(in_memory_db):
     healed = in_memory_db.query(Question).filter(Question.id == "6914a915-73e1-41a9-a205-120fdaa5f67b").first()
     assert healed.question_format == "ARRANGE_ORDER"
     assert healed.question_type == "ARRANGE_ORDER"
+
+
+def test_arrange_order_format_and_heal_preserve_timer_fields(in_memory_db):
+    from backend.app.services.ingestion.question_formats import detect_and_structure_format
+
+    fmt, payload = detect_and_structure_format(
+        "Arrange in chronological order: A, B, C, D",
+        "A -> B -> C -> D",
+        deck_round_format="ARRANGE_ORDER",
+    )
+    assert fmt == "ARRANGE_ORDER"
+    assert payload["has_timer"] is True
+    assert payload["timer_seconds"] == 60
+    assert payload["time_limit_seconds"] == 60
+
+    q_arr = Question(
+        id="test-arr-timer-1",
+        document_id="test-doc-1",
+        topic="Business",
+        question_text="Arrange from oldest to newest",
+        answer="A -> B -> C -> D",
+        question_format="ARRANGE_ORDER",
+        question_type="ARRANGE_ORDER",
+        format_payload={"type": "ARRANGE_ORDER", "time_limit_seconds": 60},
+    )
+    in_memory_db.add(q_arr)
+    in_memory_db.commit()
+
+    heal_specialized_questions(in_memory_db)
+    in_memory_db.refresh(q_arr)
+    assert q_arr.format_payload["has_timer"] is True
+    assert q_arr.format_payload["timer_seconds"] == 60
+    assert q_arr.format_payload["time_limit_seconds"] == 60

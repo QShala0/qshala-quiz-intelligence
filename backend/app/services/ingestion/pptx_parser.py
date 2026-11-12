@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional, Set, Tuple
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from backend.app.config import settings
+from backend.app.services.ingestion.pptx_structure import extract_slide_structure, classify_overlay_pixels
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ _PIL_FORMAT_EXT = {"BMP": "bmp", "GIF": "gif", "JPEG": "jpg", "PNG": "png", "TIF
 _VIDEO_ICON_MD5 = "c050197d0f5c8b511e976e3975d4d36f"
 # The icon is tiny; only files up to this size are hashed to look for it (bigger files can't be it).
 _ICON_CHECK_MAX_BYTES = 512 * 1024
+# Media identity (shape.media_md5) is a real MD5 up to this size; bigger entries use size + CRC instead.
+_MD5_MAX_BYTES = 512 * 1024
 
 # Parts the "lite" copy of the deck keeps byte-for-byte. Everything else (pictures, audio, video,
 # embedded workbooks, fonts...) is replaced by a 1-byte placeholder -- python-pptx only needs the
@@ -110,6 +113,8 @@ class PPTXParser:
         self._used_filenames: Set[str] = set()
         self._header_cache: Dict[str, Optional[Tuple[str, Tuple[int, int]]]] = {}
         self._icon_cache: Dict[str, bool] = {}
+        self._md5_cache: Dict[str, Optional[str]] = {}
+        self._overlay_cache: Dict[str, str] = {}
         self._tmp_dir: Optional[Path] = None             # staging area when write_to_disk=False but R2 is on
         self._upload_slots = threading.BoundedSemaphore(UPLOAD_SLOTS)
         self._stats = {"stored": 0, "stored_bytes": 0, "reused": 0, "template_skipped": 0}
@@ -375,6 +380,79 @@ class PPTXParser:
                 return False
         return True
 
+    def _media_md5(self, zip_name: str) -> Optional[str]:
+        """MD5 of one media entry, streamed in 1 MB chunks (never whole in memory) and cached per entry.
+        Identical files reused across slides get the same value, which is how decorative media is told apart."""
+        if zip_name in self._md5_cache:
+            return self._md5_cache[zip_name]
+        digest = None
+        info = self._entry_info(zip_name)
+        if info is not None and info.file_size > _MD5_MAX_BYTES:
+            # Big files (timer videos, music) are identified by size + CRC from the zip directory: free, and
+            # equally good at telling "same file reused on many slides" without reading hundreds of MB.
+            digest = f"crc{info.CRC:08x}{info.file_size:x}"
+            self._md5_cache[zip_name] = digest
+            return digest
+        try:
+            h = hashlib.md5()
+            with self._zip_lock:
+                with self._get_zip().open(zip_name) as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        h.update(chunk)
+            digest = h.hexdigest()
+        except Exception as e:
+            logger.debug(f"Could not hash {zip_name}: {e}")
+        self._md5_cache[zip_name] = digest
+        return digest
+
+    def _overlay_class(self, zip_name: str) -> str:
+        """'tick' | 'cross' | 'unknown' from the picture's pixels (List-It overlays; file names mean nothing)."""
+        if zip_name in self._overlay_cache:
+            return self._overlay_cache[zip_name]
+        result = "unknown"
+        info = self._entry_info(zip_name)
+        if info is not None and info.file_size <= 2 * 1024 * 1024:       # overlays are small icons
+            try:
+                from PIL import Image
+                with self._zip_lock:
+                    with self._get_zip().open(zip_name) as fh:
+                        with Image.open(fh) as im:
+                            im.seek(0)
+                            result = classify_overlay_pixels(im.copy())
+            except Exception as e:
+                logger.debug(f"Could not classify overlay {zip_name}: {e}")
+        self._overlay_cache[zip_name] = result
+        return result
+
+    def _resolve_shape_media(self, slides_data: List[Dict[str, Any]]) -> None:
+        """Give every picture/video shape a servable URL (`media_url`), including GIFs and videos the per-slide
+        pass skips. Deck furniture (the same file on 3+ slides: timer video, round music, divider art) and timer
+        shapes are left without one -- they are not clue media. Content that was already stored is reused."""
+        use_count: Dict[str, set] = {}
+        for sd in slides_data:
+            for sh in sd.get("shapes", []):
+                if sh.get("media_md5") and not (sh.get("name") or "").startswith("QSHALA "):   # QShala's own exports repeat pictures on purpose
+                    use_count.setdefault(sh["media_md5"], set()).add(sd["slide_number"])
+        furniture = {k for k, v in use_count.items() if len(v) >= 3}
+        for sd in slides_data:
+            for sh in sd.get("shapes", []):
+                zip_name = sh.get("zip_name")
+                if not zip_name or sh.get("media_url"):
+                    continue
+                if (sh.get("media_md5") in furniture and not (sh.get("name") or "").startswith("QSHALA ")) or (sh.get("name") or "").strip().lower().startswith("timer"):
+                    continue
+                ext = Path(zip_name).suffix.lower()
+                if ext not in IMAGE_EXTS and ext not in VIDEO_EXTS and ext not in AUDIO_EXTS:
+                    continue
+                info = self._entry_info(zip_name)
+                if info is None or info.file_size < 2048:        # spacer / bullet artefacts
+                    continue
+                try:
+                    _name, url, _path = self._store_media(zip_name, Path(zip_name).name)
+                    sh["media_url"] = url
+                except Exception as e:
+                    logger.warning(f"Could not store {zip_name} for slide {sd['slide_number']}: {e}")
+
     # ------------------------------------------------------------------ zip relationship scan
 
     @staticmethod
@@ -547,6 +625,7 @@ class PPTXParser:
             if self.should_cancel is not None and self.should_cancel():
                 from backend.app.services.ingestion.cancellation import IngestionCancelled
                 raise IngestionCancelled(self.document_id)
+            structure = extract_slide_structure(slide, self._media_md5, self._overlay_class)
             slide_text_chunks = []
             title = None
             speaker_notes = ""
@@ -571,7 +650,11 @@ class PPTXParser:
 
             def _walk_shapes_recursive(shapes_collection):
                 for s in shapes_collection:
-                    if getattr(s, "shape_type", None) == MSO_SHAPE_TYPE.GROUP or hasattr(s, "shapes"):
+                    try:
+                        s_type = s.shape_type
+                    except NotImplementedError:      # python-pptx cannot name some shape kinds (raises, not None)
+                        s_type = None
+                    if s_type == MSO_SHAPE_TYPE.GROUP or hasattr(s, "shapes"):
                         try:
                             yield from _walk_shapes_recursive(s.shapes)
                         except Exception:
@@ -769,6 +852,11 @@ class PPTXParser:
                 "audio_items": audio_items,
                 "video_items": video_items,
                 "all_media_items": all_media_items,
+                "hidden": structure["hidden"],
+                "layout_name": structure["layout_name"],
+                "shapes": structure["shapes"],
+                "animations": structure["animations"],
+                "interactive_animations": structure["interactive_animations"],
                 "metadata_json": {
                     "shape_count": len(slide.shapes),
                     "has_notes": bool(speaker_notes),
@@ -778,6 +866,8 @@ class PPTXParser:
                     "has_star_shape": has_star_shape,
                 }
             })
+
+        self._resolve_shape_media(slides_data)
 
         logger.info(
             f"PPTX {self.document_id}: {total_slides} slides, stored {self._stats['stored']} media files "

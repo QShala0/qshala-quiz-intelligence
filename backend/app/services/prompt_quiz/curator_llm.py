@@ -50,6 +50,7 @@ _SYSTEM = (
     "3. HIGH-ORDER HUMAN CURATION:\n"
     "   - Look beyond surface keywords. Match the user's requested tone, audience psychology, and subtle themes.\n"
     "   - When an audience like 'school students' or 'kids' in India is requested, prioritize inspiring figures, scientists, space pioneers, educators, national icons, and achievers that school students study, relate to, and find educational, rather than adult corporate finance, tax avoidance, or adult satire.\n"
+    "   - REFINEMENT CONTINUITY: When refining an existing quiz (e.g. 'Make it for middle school kids', 'Focus on India', 'Only with images'), ALWAYS honor the Core Topic, Locality, and Source Deck from ACTIVE QUIZ CONTEXT, and keep top-matching questions from CURRENTLY DISPLAYED QUIZ (especially Slot 1) when they still fit the active topic and filters rather than dropping relevant questions unnecessarily.\n"
     "   - Build a narrative arc: start with an engaging icebreaker/hook, explore the theme with increasing depth, and finish with a memorable climax or tie-breaker.\n"
     "4. DIVERSITY & ZERO DUPLICATE ENTITIES (Crucial):\n"
     "   - NEVER select two questions that ask about or have the same answer/entity (e.g. do NOT pick two questions about Dadabhai Naoroji, or two about Ramanujan).\n"
@@ -70,10 +71,28 @@ def _build_curator_prompt(
         f"TARGET QUESTION COUNT: {target_count}",
     ]
 
+    if previous_brief:
+        pb_lines = []
+        if previous_brief.get("query"):
+            pb_lines.append(f"  Core Topic: {previous_brief.get('query')}")
+        if previous_brief.get("locality"):
+            pb_lines.append(f"  Locality: {previous_brief.get('locality')}")
+        pb_filters = previous_brief.get("filters") or {}
+        if pb_filters.get("audience"):
+            pb_lines.append(f"  Audience: {pb_filters.get('audience')}")
+        if pb_filters.get("deck_filter"):
+            pb_lines.append(f"  Source Deck Filter: {', '.join(pb_filters.get('deck_filter') or [])}")
+        if pb_filters.get("india_international"):
+            pb_lines.append(f"  Geography: {pb_filters.get('india_international')}")
+        if pb_lines:
+            parts.append("ACTIVE QUIZ CONTEXT (MUST BE RESPECTED ON REFINEMENTS):\n" + "\n".join(pb_lines))
+
+    curr_slots = {}
     if current_questions:
         curr_summary = []
         for i, q in enumerate(current_questions, 1):
             qid = q.get("id", f"slot_{i}")
+            curr_slots[qid] = i
             text = (q.get("question_text") or "")[:80]
             ans = (q.get("answer") or "")[:50]
             curr_summary.append(f"  Slot {i} [{qid}]: {text} -> {ans}")
@@ -83,8 +102,8 @@ def _build_curator_prompt(
     for c in candidates:
         cid = c.get("id")
         text = (c.get("question_text") or "").strip().replace("\n", " ")
-        if len(text) > 120:
-            text = text[:117] + "..."
+        if len(text) > 150:
+            text = text[:147] + "..."
         ans = (c.get("answer") or "").strip().replace("\n", " ")
         if len(ans) > 60:
             ans = ans[:57] + "..."
@@ -92,8 +111,12 @@ def _build_curator_prompt(
         diff = c.get("difficulty") or "Medium"
         diff_score = c.get("difficulty_score", 0.5)
         fmt = c.get("question_format") or "STANDARD_QA"
+        deck = (c.get("document_title") or "").strip()
+        deck_tag = f" [Deck: {deck[:45]}]" if deck else ""
+        slot_tag = f" [Current Slot #{curr_slots[cid]}]" if cid in curr_slots else ""
+        rel = float(c.get("score") or 0.0)
         cand_lines.append(
-            f"- ID: {cid} | [{topic}] [{diff} {diff_score:.2f}] [{fmt}] Q: {text} | Ans: {ans}"
+            f"- ID: {cid} | [{topic}] [{diff} {diff_score:.2f}] [{fmt}] [Rel {rel:.2f}]{deck_tag}{slot_tag} Q: {text} | Ans: {ans}"
         )
 
     parts.append(f"CANDIDATE POOL ({len(candidates)} pre-verified questions from vault):\n" + "\n".join(cand_lines))
@@ -135,7 +158,8 @@ def curate_quiz_with_gemini(
     if not key:
         return None
 
-    model = getattr(settings, "GEMINI_MODEL", None) or "gemini-3.8-flash"
+    from backend.app.services.ai.model_config import curator_model
+    model = curator_model()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
     user_text = _build_curator_prompt(
@@ -160,9 +184,9 @@ def curate_quiz_with_gemini(
     valid_id_set: Set[str] = {c.get("id") for c in candidates if c.get("id")}
 
     try:
-        from backend.app.services.prompt_quiz._http import get_client
+        from backend.app.services.prompt_quiz._http import guarded_post
         headers = {"x-goog-api-key": key} if key else {}
-        resp = get_client().post(url, json=payload, headers=headers, timeout=timeout_s)
+        resp = guarded_post(url, json=payload, headers=headers, timeout=timeout_s)
         resp.raise_for_status()
         data = resp.json()
 

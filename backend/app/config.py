@@ -34,68 +34,77 @@ if is_vercel or is_cloud_run:
     STORAGE_DIR = Path("/tmp/storage")
     default_db_url = "sqlite:////tmp/qshala.db"
     tmp_db = Path("/tmp/qshala.db")
+    _env_db_url = os.environ.get("DATABASE_URL", "").strip().lower()
+    _has_postgres_env = _env_db_url.startswith(("postgres://", "postgresql"))
+    _has_r2_env = bool(
+        os.environ.get("R2_BUCKET_NAME", "").strip()
+        and os.environ.get("R2_PUBLIC_BASE_URL", "").strip()
+    )
 
-    # Locate pre-seeded SQLite database across multiple potential runtime roots
-    candidate_dbs = [
-        BASE_DIR / "qshala.db",
-        Path.cwd() / "qshala.db",
-        Path.cwd() / "backend" / "qshala.db",
-        Path(__file__).resolve().parent.parent / "qshala.db",
-    ]
-    bundled_db = next((p for p in candidate_dbs if p.exists() and p.stat().st_size > 0), None)
+    if not _has_postgres_env:
+        # Locate pre-seeded SQLite database across multiple potential runtime roots
+        candidate_dbs = [
+            BASE_DIR / "qshala.db",
+            Path.cwd() / "qshala.db",
+            Path.cwd() / "backend" / "qshala.db",
+            Path(__file__).resolve().parent.parent / "qshala.db",
+        ]
+        bundled_db = next((p for p in candidate_dbs if p.exists() and p.stat().st_size > 0), None)
 
-    needs_copy = False
-    if bundled_db:
-        if not tmp_db.exists() or tmp_db.stat().st_size == 0:
-            needs_copy = True
-        elif tmp_db.stat().st_size < bundled_db.stat().st_size or tmp_db.stat().st_mtime < bundled_db.stat().st_mtime:
-            needs_copy = True
+        needs_copy = False
+        if bundled_db:
+            if not tmp_db.exists() or tmp_db.stat().st_size == 0:
+                needs_copy = True
+            elif tmp_db.stat().st_size < bundled_db.stat().st_size or tmp_db.stat().st_mtime < bundled_db.stat().st_mtime:
+                needs_copy = True
 
-    if bundled_db and needs_copy:
-        try:
-            shutil.copy2(bundled_db, tmp_db)
-            print(f"[Vercel Init] Seeded DB copied from {bundled_db} ({bundled_db.stat().st_size} bytes) to {tmp_db}", file=sys.stderr)
-        except Exception as e:
-            print(f"[Vercel Init] Failed to copy bundled DB: {e}", file=sys.stderr)
+        if bundled_db and needs_copy:
+            try:
+                shutil.copy2(bundled_db, tmp_db)
+                print(f"[Vercel Init] Seeded DB copied from {bundled_db} ({bundled_db.stat().st_size} bytes) to {tmp_db}", file=sys.stderr)
+            except Exception as e:
+                print(f"[Vercel Init] Failed to copy bundled DB: {e}", file=sys.stderr)
 
-    candidate_deck_dirs = [
-        BASE_DIR / "sample_decks",
-        Path.cwd() / "sample_decks",
-        Path.cwd() / "backend" / "sample_decks",
-    ]
-    bundled_decks = next((p for p in candidate_deck_dirs if p.exists()), None)
     tmp_uploads = STORAGE_DIR / "uploads"
     try:
         tmp_uploads.mkdir(parents=True, exist_ok=True)
-        if bundled_decks and bundled_decks.exists():
-            for f in bundled_decks.glob("*.pptx"):
-                dest_f = tmp_uploads / f.name
-                if not dest_f.exists():
-                    shutil.copy2(f, dest_f)
+        if not _has_r2_env:
+            candidate_deck_dirs = [
+                BASE_DIR / "sample_decks",
+                Path.cwd() / "sample_decks",
+                Path.cwd() / "backend" / "sample_decks",
+            ]
+            bundled_decks = next((p for p in candidate_deck_dirs if p.exists()), None)
+            if bundled_decks and bundled_decks.exists():
+                for f in bundled_decks.glob("*.pptx"):
+                    dest_f = tmp_uploads / f.name
+                    if not dest_f.exists():
+                        shutil.copy2(f, dest_f)
     except Exception as e:
         print(f"[Vercel Init] Failed to copy sample decks: {e}", file=sys.stderr)
 
-    candidate_slide_dirs = [
-        BASE_DIR / "storage" / "slides",
-        Path.cwd() / "storage" / "slides",
-        Path.cwd() / "backend" / "storage" / "slides",
-        PROJECT_ROOT / "backend" / "storage" / "slides",
-    ]
-    bundled_slides = next((p for p in candidate_slide_dirs if p.exists()), None)
     tmp_slides = STORAGE_DIR / "slides"
-    if bundled_slides and bundled_slides.exists():
-        try:
-            tmp_slides.mkdir(parents=True, exist_ok=True)
-            for item in bundled_slides.rglob("*"):
-                if item.is_file():
-                    rel = item.relative_to(bundled_slides)
-                    target = tmp_slides / rel
-                    if not target.exists():
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(item, target)
-            print(f"[Vercel Init] Seeded slide assets copied to {tmp_slides}", file=sys.stderr)
-        except Exception as e:
-            print(f"[Vercel Init] Failed to copy bundled slides: {e}", file=sys.stderr)
+    try:
+        tmp_slides.mkdir(parents=True, exist_ok=True)
+        if not _has_r2_env:
+            candidate_slide_dirs = [
+                BASE_DIR / "storage" / "slides",
+                Path.cwd() / "storage" / "slides",
+                Path.cwd() / "backend" / "storage" / "slides",
+                PROJECT_ROOT / "backend" / "storage" / "slides",
+            ]
+            bundled_slides = next((p for p in candidate_slide_dirs if p.exists()), None)
+            if bundled_slides and bundled_slides.exists():
+                for item in bundled_slides.rglob("*"):
+                    if item.is_file():
+                        rel = item.relative_to(bundled_slides)
+                        target = tmp_slides / rel
+                        if not target.exists():
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(item, target)
+                print(f"[Vercel Init] Seeded slide assets copied to {tmp_slides}", file=sys.stderr)
+    except Exception as e:
+        print(f"[Vercel Init] Failed to copy bundled slides: {e}", file=sys.stderr)
 else:
     STORAGE_DIR = BASE_DIR / "storage"
     default_db_url = f"sqlite:///{(BASE_DIR / 'qshala.db').resolve().as_posix()}"

@@ -21,3 +21,25 @@ def get_client() -> Any:
                 _client = cls()
                 _client_cls = cls
     return _client
+
+
+class BreakerOpen(Exception):
+    """Gemini is being skipped because it has been failing; callers already treat any exception as 'use the fallback'."""
+
+
+def guarded_post(url: str, *, json: Any, headers: Any, timeout: float) -> Any:
+    from backend.app.services.prompt_quiz import llm_breaker
+    if not llm_breaker.allow():
+        raise BreakerOpen("Gemini circuit breaker is open")
+    try:
+        resp = get_client().post(url, json=json, headers=headers, timeout=timeout)
+    except Exception as e:
+        if llm_breaker.is_service_failure(e):
+            llm_breaker.record_failure()
+        raise
+    code = getattr(resp, "status_code", 200)
+    if isinstance(code, int) and (code == 429 or code >= 500):
+        llm_breaker.record_failure()
+    else:
+        llm_breaker.record_success()
+    return resp

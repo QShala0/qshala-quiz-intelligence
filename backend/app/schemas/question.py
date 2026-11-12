@@ -27,6 +27,10 @@ class QuestionBase(BaseModel):
     question_format: Optional[str] = "STANDARD_QA"
     format_data: Optional[Dict[str, Any]] = None
     format_payload: Optional[Dict[str, Any]] = None
+    play_mode: Optional[str] = None      # BUZZER | DIRECTED | PASS | AUDIENCE | TIEBREAK | ALL_ON_SCREEN | BUFFER
+    slot: str = "LIVE"                   # LIVE | RESERVE | EXAMPLE
+    topic_label: Optional[str] = None
+    format_needs_review: bool = False
     source_year: Optional[int] = None
     # Multi-modal media & canonical representations
     image_refs: List[str] = []
@@ -88,6 +92,14 @@ class QuestionUpdate(BaseModel):
     answer: Optional[str] = None
     explanation: Optional[str] = None
     visual_clues: Optional[str] = None
+    slot: Optional[str] = None
+    play_mode: Optional[str] = None
+
+
+class ArrangeOrderUpdate(BaseModel):
+    """The correct order of an ARRANGE_ORDER question, as the item labels (1-4) in order. [] clears it."""
+    correct_order: List[int]
+
 
 class QuestionSearchParams(BaseModel):
     query: Optional[str] = None

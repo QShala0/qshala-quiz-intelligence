@@ -1,6 +1,7 @@
 import {
   DashboardStats,
   DocumentItem,
+  SourceCatalog,
   Slide,
   HistoricalQuestion,
   Quiz,
@@ -128,6 +129,14 @@ export function getFallbackMediaUrl(currentUrl: string): string | null {
   return null;
 }
 
+// Vercel rejects any request body over ~4.5 MB with a 413 before it ever reaches the backend, so
+// slices cannot travel through the /api/v1 rewrite. Set NEXT_PUBLIC_UPLOAD_API_URL to the Cloud Run
+// API base (e.g. https://<service>.run.app/api/v1) to send uploads straight to the backend; the
+// backend's CORS regex already allows the Vercel origins. Unset = previous behaviour.
+export function getUploadApiBase(): string {
+  return process.env.NEXT_PUBLIC_UPLOAD_API_URL || getApiBase();
+}
+
 // Size of each slice sent by uploadDocumentChunked. Exported so the UI can show the same number.
 // 24 MB: Cloud Run enforces a hard 32 MiB request-body cap on HTTP/1 (no limit only if the service
 // speaks HTTP/2 end-to-end, which the backend doesn't). A 50 MB slice was fine on Render -- which
@@ -137,6 +146,10 @@ export function getFallbackMediaUrl(currentUrl: string): string | null {
 // a more conservative 16 MB would. The real cost of a smaller slice is only that a failed slice
 // has to resend less.
 export const UPLOAD_CHUNK_SIZE = 24 * 1024 * 1024;
+// Vercel Serverless Functions enforce a hard 4.5 MB request body limit.
+// When uploads travel through Vercel rewrites (non-localhost without direct Cloud Run proxy bypass),
+// slice uploads into <= 3.5 MB requests so every chunk clears the platform gateway safely.
+export const VERCEL_SAFE_CHUNK_SIZE = Math.floor(3.5 * 1024 * 1024);
 
 /** Live numbers the Upload Center shows while a file is going up. */
 export interface UploadProgressInfo {
@@ -223,6 +236,11 @@ export const api = {
     return handleResponse<DocumentItem[]>(res);
   },
 
+  getDocumentSources: async (): Promise<SourceCatalog> => {
+    const res = await fetch(`${getApiBase()}/documents/sources`, { cache: 'no-store' });
+    return handleResponse<SourceCatalog>(res);
+  },
+
   getDocument: async (id: string): Promise<DocumentItem> => {
     const res = await fetch(`${getApiBase()}/documents/${id}`, { cache: 'no-store' });
     return handleResponse<DocumentItem>(res);
@@ -256,7 +274,7 @@ export const api = {
     if (options?.batchId) formData.append('batch_id', options.batchId);
     if (options?.clientItemId) formData.append('client_item_id', options.clientItemId);
 
-    const res = await xhrPost(`${getApiBase()}/documents/upload`, formData, {
+    const res = await xhrPost(`${getUploadApiBase()}/documents/upload`, formData, {
       signal: options?.signal,
       onUploadProgress: (loaded) =>
         options?.onProgress?.({
@@ -337,7 +355,7 @@ export const api = {
       let lastError: any = null;
       for (let attempt = 0; attempt < BACKOFF_DELAYS.length; attempt++) {
         try {
-          res = await xhrPost(`${getApiBase()}/documents/upload-chunk`, formData, {
+          res = await xhrPost(`${getUploadApiBase()}/documents/upload-chunk`, formData, {
             signal,
             onUploadProgress: (loaded) => report(start + Math.min(loaded, end - start), chunkIndex),
           });
@@ -384,7 +402,7 @@ export const api = {
 
   /** Cancel a chunked upload that is still sending slices: the server deletes what it already received. */
   cancelChunkedUpload: async (uploadId: string): Promise<{ status: string }> => {
-    const res = await fetch(`${getApiBase()}/documents/upload-chunk/${encodeURIComponent(uploadId)}`, {
+    const res = await fetch(`${getUploadApiBase()}/documents/upload-chunk/${encodeURIComponent(uploadId)}`, {
       method: 'DELETE',
       keepalive: true,
     });
@@ -424,10 +442,13 @@ export const api = {
     grade_max?: number;
     difficulty?: string;
     document_id?: string;
+    document_ids?: string[];
     document_title?: string;
     duplicate_status?: string;
     question_format?: string;
     format?: string;
+    slot?: string;
+    play_mode?: string;
     sort_by?: string;
     sort_order?: 'asc' | 'desc';
     limit?: number;
@@ -443,9 +464,14 @@ export const api = {
     if (params.grade_max) searchParams.append('grade_max', params.grade_max.toString());
     if (params.difficulty) searchParams.append('difficulty', params.difficulty);
     if (params.document_id) searchParams.append('document_id', params.document_id);
+    if (params.document_ids && params.document_ids.length > 0) {
+      searchParams.append('document_ids', params.document_ids.join(','));
+    }
     if (params.document_title) searchParams.append('document_title', params.document_title);
     if (params.duplicate_status) searchParams.append('duplicate_status', params.duplicate_status);
     if (params.question_format || params.format) searchParams.append('question_format', (params.question_format || params.format)!);
+    if (params.slot) searchParams.append('slot', params.slot);
+    if (params.play_mode) searchParams.append('play_mode', params.play_mode);
     if (params.sort_by) searchParams.append('sort_by', params.sort_by);
     if (params.sort_order) searchParams.append('sort_order', params.sort_order);
     if (params.limit) searchParams.append('limit', params.limit.toString());
@@ -463,6 +489,11 @@ export const api = {
     return handleResponse<HistoricalQuestion[]>(res);
   },
 
+  getDuplicateCount: async (): Promise<{ count: number }> => {
+    const res = await fetch(`${getApiBase()}/questions/duplicates/count`, { cache: 'no-store' });
+    return handleResponse<{ count: number }>(res);
+  },
+
   getReviewCandidates: async (signal?: AbortSignal): Promise<HistoricalQuestion[]> => {
     const res = await fetch(`${getApiBase()}/questions/needs-review`, { cache: 'no-store', signal });
     return handleResponse<HistoricalQuestion[]>(res);
@@ -472,6 +503,25 @@ export const api = {
     const res = await fetch(`${getApiBase()}/questions/needs-review/count`, { cache: 'no-store' });
     const data = await handleResponse<{ count: number }>(res);
     return data.count;
+  },
+
+  // Arrange the Order: enter (or, with [], clear) the correct order of the four item labels by hand.
+  setArrangeOrder: async (questionId: string, correctOrder: number[]): Promise<HistoricalQuestion> => {
+    const res = await fetch(`${getApiBase()}/questions/${questionId}/arrange-order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ correct_order: correctOrder }),
+    });
+    return handleResponse<HistoricalQuestion>(res);
+  },
+
+  // A person has checked a flagged format reading: it leaves the review queue.
+  acceptFormatReview: async (questionId: string): Promise<HistoricalQuestion> => {
+    const res = await fetch(`${getApiBase()}/questions/${questionId}/accept-format-review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return handleResponse<HistoricalQuestion>(res);
   },
 
   acceptReview: async (questionId: string): Promise<HistoricalQuestion> => {

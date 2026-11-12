@@ -53,7 +53,7 @@ def test_index_is_built_once_per_bank_cache_load():
     engine.invalidate_bank_cache()
     bank = _bank(30)
     db = MagicMock()
-    with patch.object(engine, "_bank_ttl", return_value=60.0), patch.object(engine, "_load_bank_uncached", lambda d: bank):
+    with patch.object(engine, "_bank_ttl", return_value=60.0), patch.object(engine, "_load_bank_uncached", lambda d, *a, **k: bank):
         a, b = engine._load_bank(db), engine._load_bank(db)
         assert engine._index_for(a) is engine._index_for(b)
         a[0]["question_text"] = "mutated by a caller"            # a caller's copy must not leak into the shared index

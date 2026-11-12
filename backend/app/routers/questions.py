@@ -1,13 +1,13 @@
 import asyncio
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import or_, func, desc, asc, String
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import or_, and_, func, desc, asc, String
 from backend.app.database import get_db
 from backend.app.models.question import Question
 from backend.app.models.document import Document, Slide
-from backend.app.schemas.question import QuestionResponse, QuestionUpdate, DuplicateResolveRequest
-from backend.app.services.retrieval.hybrid_retriever import HybridRetriever
+from backend.app.schemas.question import QuestionResponse, QuestionUpdate, DuplicateResolveRequest, ArrangeOrderUpdate
+from backend.app.services.retrieval.hybrid_retriever import HybridRetriever, apply_question_scope_filters
 
 router = APIRouter(prefix="/questions", tags=["Knowledge Base Questions"])
 
@@ -122,6 +122,10 @@ def to_question_response(q: Question, doc: Optional[Document], slide: Optional[S
         question_format=getattr(q, "question_format", None) or getattr(q, "question_type", "STANDARD_QA") or "STANDARD_QA",
         format_data=getattr(q, "format_data", None) or getattr(q, "format_payload", None),
         format_payload=getattr(q, "format_payload", None) or getattr(q, "format_data", None),
+        play_mode=getattr(q, "play_mode", None),
+        slot=getattr(q, "slot", None) or "LIVE",
+        topic_label=getattr(q, "topic_label", None),
+        format_needs_review=bool(getattr(q, "format_needs_review", False)),
         image_refs=clean_imgs,
         question_images=clean_q_imgs,
         answer_images=clean_ans_imgs,
@@ -356,9 +360,12 @@ async def search_questions(
     difficulty: Optional[str] = Query(None),
     duplicate_status: Optional[str] = Query(None),
     document_id: Optional[str] = Query(None),
+    document_ids: Optional[str] = Query(None, description="Comma-separated document IDs for multi-deck or series filtering"),
     document_title: Optional[str] = Query(None),
     question_format: Optional[str] = Query(None, description="Filter by format: CONNECT_4, STEPPED_CLUE, ARRANGE_ORDER, BUZZER, QA, VISUAL_CLUE, AUDIO_CLUE, VIDEO_CLUE"),
     format: Optional[str] = Query(None, description="Alias for question_format"),
+    slot: Optional[str] = Query(None, description="LIVE | RESERVE | EXAMPLE"),
+    play_mode: Optional[str] = Query(None, description="BUZZER | DIRECTED | PASS | AUDIENCE | TIEBREAK | ALL_ON_SCREEN | BUFFER"),
     sort_by: Optional[str] = Query("created_at"),
     sort_order: Optional[str] = Query("desc"),
     limit: int = Query(50, ge=1, le=200),
@@ -373,9 +380,19 @@ async def search_questions(
     diff_str = difficulty if isinstance(difficulty, str) and difficulty.strip() else None
     dup_status_str = duplicate_status if isinstance(duplicate_status, str) and duplicate_status.strip() else None
     doc_id_str = document_id if isinstance(document_id, str) and document_id.strip() else None
+    doc_ids_list: List[str] = []
+    if doc_id_str:
+        doc_ids_list.append(doc_id_str)
+    if isinstance(document_ids, str) and document_ids.strip():
+        for part in document_ids.split(","):
+            did = part.strip()
+            if did and did not in doc_ids_list:
+                doc_ids_list.append(did)
     doc_title_str = document_title if isinstance(document_title, str) and document_title.strip() else None
     fmt_raw = question_format or format
     fmt_str = fmt_raw.strip().upper() if isinstance(fmt_raw, str) and fmt_raw.strip() else None
+    slot_str = slot.strip().upper() if isinstance(slot, str) and slot.strip() else None
+    play_mode_str = play_mode.strip().upper() if isinstance(play_mode, str) and play_mode.strip() else None
     grade_min_val = grade_min if isinstance(grade_min, int) else None
     grade_max_val = grade_max if isinstance(grade_max, int) else None
     _allowed_sort = {"created_at", "question_text", "topic", "subtopic", "difficulty",
@@ -385,59 +402,25 @@ async def search_questions(
     limit_int = limit if isinstance(limit, int) else 50
     offset_int = offset if isinstance(offset, int) else 0
 
-    if query_str:
-        # 1. Check if query matches a deck / document title directly
-        # (Database work in this endpoint runs in a worker thread so one slow query cannot stall the whole server.)
-        def _title_matches():
-            return [d.id for d in db.query(Document).filter(Document.title.ilike(f"%{query_str}%")).all()]
-
-        doc_ids = await asyncio.to_thread(_title_matches)
-
-        # 2. Perform semantic/hybrid search
-        retriever = HybridRetriever(db)
-        results = await retriever.search(
-            query=query_str,
-            topic=topic_str,
-            grade_min=grade_min_val,
-            grade_max=grade_max_val,
-            difficulty=diff_str,
-            limit=limit_int
-        )
-        def _assemble():
-            output = []
-            seen_q_ids = set()
-
-            # If any document matches the query string by title, prioritize and include its questions
-            if doc_ids:
-                deck_questions = db.query(Question, Document, Slide).\
-                    outerjoin(Document, Question.document_id == Document.id).\
-                    outerjoin(Slide, Question.slide_id == Slide.id).\
-                    filter(Question.document_id.in_(doc_ids)).limit(limit_int).all()
-                for q, doc, slide in deck_questions:
-                    if q.id not in seen_q_ids:
-                        seen_q_ids.add(q.id)
-                        output.append(to_question_response(q, doc, slide))
-
-            for r in results:
-                if r["question"].id not in seen_q_ids:
-                    seen_q_ids.add(r["question"].id)
-                    output.append(to_question_response(r["question"], r["document"], r["slide"]))
-            return _enrich(db, output[:limit_int])
-
-        return await asyncio.to_thread(_assemble)
-
-    def _filtered_search():
-        # Direct query with rich metadata filters
+    def _filtered_search(override_doc_ids: Optional[List[str]] = None):
+        target_doc_ids = override_doc_ids if override_doc_ids is not None else doc_ids_list
         q_builder = db.query(Question, Document, Slide).\
+            options(selectinload(Question.duplicate_of)).\
             outerjoin(Document, Question.document_id == Document.id).\
             outerjoin(Slide, Question.slide_id == Slide.id)
 
-        if dup_status_str:
-            q_builder = q_builder.filter(Question.duplicate_status == dup_status_str)
-        if doc_id_str:
-            q_builder = q_builder.filter(Question.document_id == doc_id_str)
-        if doc_title_str:
-            q_builder = q_builder.filter(Document.title.ilike(f"%{doc_title_str}%"))
+        q_builder = apply_question_scope_filters(
+            q_builder,
+            document_ids=target_doc_ids or None,
+            document_title=doc_title_str,
+            duplicate_status=dup_status_str,
+            subtopic=subtopic_str,
+            tag=tag_str,
+            difficulty=diff_str,
+            slot=slot_str,
+            play_mode=play_mode_str,
+            question_format=fmt_str,
+        )
         if topic_str:
             q_builder = q_builder.filter(
                 or_(
@@ -445,35 +428,10 @@ async def search_questions(
                     Question.subtopic.ilike(f"%{topic_str}%")
                 )
             )
-        if subtopic_str:
-            q_builder = q_builder.filter(Question.subtopic.ilike(f"%{subtopic_str}%"))
-        if tag_str:
-            clean_tag = tag_str.strip().lstrip("#").strip()
-            q_builder = q_builder.filter(func.cast(Question.tags, String).ilike(f"%{clean_tag}%"))
-        if diff_str:
-            q_builder = q_builder.filter(Question.difficulty.ilike(diff_str))
         if grade_min_val is not None:
             q_builder = q_builder.filter(Question.grade_min >= grade_min_val)
         if grade_max_val is not None:
             q_builder = q_builder.filter(Question.grade_max <= grade_max_val)
-        if fmt_str:
-            target_fmts = [fmt_str]
-            if fmt_str in ("CONNECT_4", "CONNECT"):
-                target_fmts = ["CONNECT_4", "CONNECT"]
-            elif fmt_str in ("STEPPED_CLUE", "THREE_CLUE"):
-                target_fmts = ["STEPPED_CLUE", "THREE_CLUE"]
-            from backend.app.models.qshala_tag import QshalaQuestionMetadata
-            if fmt_str in ("STANDARD_QA", "QA"):
-                target_fmts.extend(["STANDARD_QA", "QA", "SLIDE_QA"])
-            q_builder = q_builder.outerjoin(
-                QshalaQuestionMetadata, Question.id == QshalaQuestionMetadata.question_id
-            ).filter(
-                or_(
-                    Question.question_format.in_(target_fmts),
-                    Question.question_type.in_(target_fmts),
-                    QshalaQuestionMetadata.question_format.in_(target_fmts)
-                )
-            )
 
         # Sorting
         sort_col = getattr(Question, sort_by_str, Question.created_at)
@@ -489,6 +447,87 @@ async def search_questions(
             output.append(to_question_response(q, doc, slide))
         return _enrich(db, output)
 
+    if query_str:
+        # 1. Resolve explicit or fuzzy deck/source references in query_str (e.g. "Agastya", "aghtya", "aghtya radio")
+        def _resolve_source_scope():
+            from backend.app.services.source_grouping import resolve_deck_query
+            from backend.app.services.prompt_quiz.retrieval import SYNONYMS, tokenize as pq_tokenize
+            from backend.app.services.prompt_quiz.interpreter_llm import V6_THEMES
+
+            doc_q = db.query(Document.id, Document.title, Document.filename)
+            if doc_ids_list:
+                doc_q = doc_q.filter(Document.id.in_(doc_ids_list))
+            docs_rows = [
+                {"id": d.id, "title": d.title or "", "filename": d.filename or ""}
+                for d in doc_q.all()
+            ]
+            if not docs_rows:
+                return None
+
+            extra_excl = set(SYNONYMS.keys()) | {w for t in V6_THEMES for w in pq_tokenize(t)}
+            # Don't hijack single-word global searches when the word is an actual Question topic/subtopic outside matched decks
+            topic_rows = db.query(Question.topic, Question.subtopic).distinct().all()
+            topic_words = set()
+            for t_val, st_val in topic_rows:
+                topic_words.update(pq_tokenize(t_val or ""))
+                topic_words.update(pq_tokenize(st_val or ""))
+
+            resolved = resolve_deck_query(
+                query_str,
+                docs_rows,
+                extra_excluded=(extra_excl | (topic_words if not doc_ids_list else set())),
+                is_prompt=False,
+            )
+            return resolved
+
+        resolved_scope = await asyncio.to_thread(_resolve_source_scope)
+        effective_doc_ids = list(doc_ids_list)
+        effective_query = query_str
+
+        if resolved_scope and resolved_scope["doc_ids"]:
+            effective_doc_ids = resolved_scope["doc_ids"]
+            effective_query = resolved_scope["remaining_query"]
+            # Pure source/deck lookup (e.g. "Agastya" or "aghtya" or "Agastya Set 2 Prelims") -> strict SQL listing
+            if not effective_query:
+                return await asyncio.to_thread(lambda: _filtered_search(override_doc_ids=effective_doc_ids))
+
+        # 2. Perform semantic/hybrid search strictly scoped to active deck/source and vault filters
+        retriever = HybridRetriever(db)
+        has_hard_scope = bool(
+            effective_doc_ids or doc_title_str or dup_status_str or subtopic_str
+            or tag_str or diff_str or slot_str or play_mode_str or fmt_str
+        )
+        results = await retriever.search(
+            query=effective_query,
+            topic=topic_str,
+            tags=[tag_str] if tag_str else None,
+            grade_min=grade_min_val,
+            grade_max=grade_max_val,
+            difficulty=diff_str,
+            limit=limit_int,
+            document_ids=effective_doc_ids or None,
+            document_title=doc_title_str,
+            subtopic=subtopic_str,
+            duplicate_status=dup_status_str,
+            slot=slot_str,
+            play_mode=play_mode_str,
+            question_format=fmt_str,
+            difficulty_strict=bool(diff_str),
+            require_tag_match=bool(tag_str),
+            allow_relax=not has_hard_scope,
+        )
+
+        def _assemble():
+            output = []
+            seen_q_ids = set()
+            for r in results:
+                if r["question"].id not in seen_q_ids:
+                    seen_q_ids.add(r["question"].id)
+                    output.append(to_question_response(r["question"], r["document"], r["slide"]))
+            return _enrich(db, output[:limit_int])
+
+        return await asyncio.to_thread(_assemble)
+
     return await asyncio.to_thread(_filtered_search)
 
 @router.get("/duplicates", response_model=List[QuestionResponse])
@@ -501,6 +540,7 @@ def list_duplicate_candidates(
     Lists all questions flagged with duplicate_status == 'POSSIBLE_DUPLICATE' for human review.
     """
     items = db.query(Question, Document, Slide).\
+        options(selectinload(Question.duplicate_of)).\
         outerjoin(Document, Question.document_id == Document.id).\
         outerjoin(Slide, Question.slide_id == Slide.id).\
         filter(Question.duplicate_status == "POSSIBLE_DUPLICATE").\
@@ -508,6 +548,15 @@ def list_duplicate_candidates(
         offset(offset).limit(limit).all()
 
     return _enrich(db, [to_question_response(q, doc, slide) for q, doc, slide in items])
+
+
+@router.get("/duplicates/count", response_model=Dict[str, int])
+def duplicate_candidates_count(db: Session = Depends(get_db)):
+    """Count questions flagged with duplicate_status == 'POSSIBLE_DUPLICATE' in one query."""
+    n = db.query(func.count(Question.id)).filter(
+        Question.duplicate_status == "POSSIBLE_DUPLICATE"
+    ).scalar()
+    return {"count": int(n or 0)}
 
 
 def _needs_review_ids(db: Session):
@@ -552,6 +601,26 @@ def _needs_review_ids(db: Session):
     return needs_review, well_tagged
 
 
+def _confirm_format_reading(q: Question) -> bool:
+    """Mark a flagged format reading as checked by a person (it leaves the review queue). True if it changed."""
+    import copy
+    fp = q.format_payload
+    ex = fp.get("extraction") if isinstance(fp, dict) else None
+    if not isinstance(ex, dict) or not (ex.get("needs_review") or q.format_needs_review):
+        return False
+    new = copy.deepcopy(fp)
+    new["extraction"].update({"needs_review": False, "reviewed": True, "route": "accept"})
+    q.format_payload = new
+    q.format_needs_review = False
+    return True
+
+
+def _format_flagged_clause():
+    """Questions whose format reading was flagged at ingestion (confidence < 0.7, an unreadable Arrange order, a List It
+    that does not add up...) and that nobody has confirmed yet."""
+    return Question.format_needs_review.is_(True)
+
+
 @router.get("/needs-review", response_model=List[QuestionResponse])
 def list_review_candidates(
     limit: int = Query(100, ge=1, le=200),
@@ -562,9 +631,10 @@ def list_review_candidates(
     Well-tagged questions with valid canonical taxonomy subtopics bypass this queue."""
     needs_review, well_tagged = _needs_review_ids(db)
     items = db.query(Question, Document, Slide).\
+        options(selectinload(Question.duplicate_of)).\
         outerjoin(Document, Question.document_id == Document.id).\
         outerjoin(Slide, Question.slide_id == Slide.id).\
-        filter(Question.id.in_(needs_review), ~Question.id.in_(well_tagged)).\
+        filter(or_(and_(Question.id.in_(needs_review), ~Question.id.in_(well_tagged)), _format_flagged_clause())).\
         order_by(desc(Question.created_at)).\
         offset(offset).limit(limit).all()
     return _enrich(db, [to_question_response(q, doc, slide) for q, doc, slide in items])
@@ -574,7 +644,7 @@ def list_review_candidates(
 def review_candidates_count(db: Session = Depends(get_db)):
     needs_review, well_tagged = _needs_review_ids(db)
     n = db.query(func.count(Question.id)).filter(
-        Question.id.in_(needs_review), ~Question.id.in_(well_tagged)
+        or_(and_(Question.id.in_(needs_review), ~Question.id.in_(well_tagged)), _format_flagged_clause())
     ).scalar()
     return {"count": int(n or 0)}
 
@@ -593,6 +663,7 @@ def accept_review(question_id: str, db: Session = Depends(get_db)):
         filter(Question.id == question_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Question not found")
+    _confirm_format_reading(item[0])
 
     tag = db.query(QshalaTag).filter(
         QshalaTag.question_id == question_id).\
@@ -785,10 +856,85 @@ def update_question(
         q.explanation = payload.explanation.strip()
     if payload.visual_clues is not None:
         q.visual_clues = payload.visual_clues.strip() or None
+    if payload.slot is not None:
+        slot_v = payload.slot.strip().upper()
+        if slot_v not in ALLOWED_SLOTS:
+            raise HTTPException(status_code=400, detail=f"slot must be one of {sorted(ALLOWED_SLOTS)}")
+        q.slot = slot_v
+    if payload.play_mode is not None:
+        pm = payload.play_mode.strip().upper()
+        if pm and pm not in ALLOWED_PLAY_MODES:
+            raise HTTPException(status_code=400, detail=f"play_mode must be one of {sorted(ALLOWED_PLAY_MODES)}")
+        q.play_mode = pm or None
 
     db.commit()
     db.refresh(q)
     return _enrich_one(db, to_question_response(q, doc, slide))
+
+ALLOWED_SLOTS = {"LIVE", "RESERVE", "EXAMPLE"}
+ALLOWED_PLAY_MODES = {"BUZZER", "DIRECTED", "PASS", "AUDIENCE", "TIEBREAK", "ALL_ON_SCREEN", "BUFFER"}
+
+
+@router.put("/{question_id}/arrange-order", response_model=QuestionResponse)
+def set_arrange_order(question_id: str, body: ArrangeOrderUpdate, db: Session = Depends(get_db)):
+    """Enter (or clear) the correct order of an Arrange the Order question by hand.
+
+    The deck never states the order; it is computed only when the reveal values parse. When it could not be, a
+    person enters it here (order_source becomes "human") and the question leaves the format review queue."""
+    import copy
+    item = db.query(Question, Document, Slide).\
+        outerjoin(Document, Question.document_id == Document.id).\
+        outerjoin(Slide, Question.slide_id == Slide.id).\
+        filter(Question.id == question_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Question not found")
+    q, doc, slide = item
+    fp = q.format_payload
+    if (q.question_format or "") != "ARRANGE_ORDER" or not isinstance(fp, dict) or not fp.get("items"):
+        raise HTTPException(status_code=400, detail="Not an Arrange the Order question")
+    labels = sorted(int(i["label"]) for i in fp["items"])
+    order = list(body.correct_order)
+    new = copy.deepcopy(fp)
+    ex = new.setdefault("extraction", {})
+    names = {int(i["label"]): i.get("text") or str(i["label"]) for i in fp["items"]}
+    if not order:
+        new["correct_order"], new["order_source"] = [], "none"
+        ex.update({"needs_review": True, "reviewed": False, "route": "review"})
+        q.format_needs_review = True
+        q.answer = "Correct order not recorded"
+        ordered = [names[l] for l in labels]
+    else:
+        if sorted(order) != labels:
+            raise HTTPException(status_code=400, detail=f"correct_order must list each label exactly once: {labels}")
+        new["correct_order"], new["order_source"] = order, "human"
+        ex.update({"needs_review": False, "reviewed": True, "route": "accept"})
+        q.format_needs_review = False
+        reasons = [r for r in (ex.get("reasons") or []) if "order" not in r.lower()]
+        ex["reasons"] = reasons + ["order entered by hand"]
+        ordered = [names[l] for l in order]
+        q.answer = " \u2192 ".join(ordered)
+    q.question_text = (str(fp.get("prompt") or "") + " " + ", ".join(ordered)).strip()
+    q.format_payload = new
+    db.commit()
+    db.refresh(q)
+    return _enrich_one(db, to_question_response(q, doc, slide))
+
+
+@router.post("/{question_id}/accept-format-review", response_model=QuestionResponse)
+def accept_format_review(question_id: str, db: Session = Depends(get_db)):
+    """A person has checked the format reading of a flagged question: it leaves the review queue."""
+    item = db.query(Question, Document, Slide).\
+        outerjoin(Document, Question.document_id == Document.id).\
+        outerjoin(Slide, Question.slide_id == Slide.id).\
+        filter(Question.id == question_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Question not found")
+    q, doc, slide = item
+    if _confirm_format_reading(q):
+        db.commit()
+        db.refresh(q)
+    return _enrich_one(db, to_question_response(q, doc, slide))
+
 
 @router.post("/{question_id}/tags", response_model=QuestionResponse)
 def add_question_tag(

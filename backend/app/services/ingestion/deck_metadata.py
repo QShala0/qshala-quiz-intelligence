@@ -36,6 +36,8 @@ QUESTION_FORMATS = [
     "LIST_IT",
     "CONNECT",
     "THREE_CLUE",
+    "STANDARD_QA",
+    "MCQ",
 ]
 
 STAGE_WORDS: Dict[str, str] = {
@@ -272,20 +274,20 @@ def parse_deck_filename(filename: Optional[str], title: Optional[str] = None) ->
 # ---------------------------------------------------------------------- question format tracker
 
 _FORMAT_PATTERNS: List[Tuple[str, "re.Pattern[str]"]] = [
-    # 1. Stepped clues / Portfolio Builder (must precede generic buzzer)
-    ("STEPPED_CLUE", re.compile(r"\b(?:portfolio\s*builder|stepped\s*clues?|(?:3|three)[\s\-]*clues?|3\s*parts/clues|\+20\s*/\s*-15)\b", re.I)),
-    # 2. Connect 4 / Common Link / Market Indicators (must precede generic buzzer)
-    ("CONNECT_4", re.compile(r"\b(?:market\s*indicators|connect\s*4|4\s*pics\s*1\s*word|four\s*images|common\s*(?:theme|link|thread)|what\s*connects|connect(?:ion|ions|s)?\b|\bfind\s+the\s+link\b)", re.I)),
-    # 3. Arrange the order / Ticker Tangle
-    ("ARRANGE_ORDER", re.compile(r"\b(?:ticker\s*tangle|arrange\b|\bin\s+(?:the\s+)?(?:right|correct)\s+order\b|\border\s+(?:the|them)\b|\bsequenc|chronolog|lowest\s+to\s+highest|earliest\s+to\s+latest)", re.I)),
-    # 4. Potpourri
-    ("POTPOURRI", re.compile(r"\bpotpourri\b", re.I)),
-    # 5. Image reveal
+    # 1. Image reveal (must precede STEPPED_CLUE since Agastya Image Reveal rules mention +20/-15)
     ("IMAGE_REVEAL", re.compile(r"\bimage\s*reveal\b|\breveal\s*round\b|\bpixelat", re.I)),
+    # 2. Stepped clues / Portfolio Builder (must precede generic buzzer)
+    ("STEPPED_CLUE", re.compile(r"\b(?:portfolio\s*builder|stepped\s*clues?|(?:3|three)[\s\-]*clues?|3\s*parts/clues|\+20\s*/\s*-15)\b", re.I)),
+    # 3. Connect 4 / Common Link / Market Indicators (must precede generic buzzer)
+    ("CONNECT_4", re.compile(r"\b(?:market\s*indicators|connect\s*4|4\s*pics\s*1\s*word|four\s*images|common\s*(?:theme|link|thread)|what\s*connects|connect(?:ion|ions|s)?\b|\bfind\s+the\s+link\b)", re.I)),
+    # 4. Arrange the order / Ticker Tangle
+    ("ARRANGE_ORDER", re.compile(r"\b(?:ticker\s*tangle|arrange\b|\bin\s+(?:the\s+)?(?:right|correct)\s+order\b|\border\s+(?:the|them)\b|\bsequenc|chronolog|lowest\s+to\s+highest|earliest\s+to\s+latest)", re.I)),
+    # 5. Potpourri
+    ("POTPOURRI", re.compile(r"\bpotpourri\b", re.I)),
     # 6. List it
     ("LIST_IT", re.compile(r"\blist[\s\-]*it\b", re.I)),
     # 7. Rapid Fire / Buzzer (Closing Bell)
-    ("BUZZER", re.compile(r"\b(?:closing\s*bell|buzzer\s*round|rapid\s*fire|buzzers?!)\b", re.I)),
+    ("BUZZER", re.compile(r"\b(?:closing\s*bell|buzzer\s*round|rapid\s*fire|buzzers?|buzz(?!\s+aldrin))\b", re.I)),
     # 8. Standard QA (Opening Bell / Direct)
     ("QA", re.compile(r"\b(?:opening\s*bell|direct\s*questions?|q\s*&\s*a\b|\bqa\b|\bquestion[\s\-]*answer\b)", re.I)),
 ]
@@ -315,6 +317,18 @@ def infer_formats(slides: List[Dict[str, Any]]) -> Dict[int, str]:
         blob = f"{title} {text}".strip()
         words = len(blob.split())
 
+        # AUDIENCE / BUFFER / TIE-BREAKER / SCOREBOARD sections are not part of the round that came before them:
+        # the format resets to plain QA there (their questions carry their own structure).
+        if stype == "SCOREBOARD" or any(
+            re.search(r"^\W*(?:question\s+for\s+(?:the\s+)?audience|audience\s+questions?|buffer(?:\s+questions?)?|tie[\s\-]*breakers?(?:\s+questions?)?|scoreboard|winners?)\W*$", x, re.I)
+            for x in (title, text, blob)
+        ):
+            current = "QA"
+            sn = s.get("slide_number")
+            if sn is not None:
+                result[int(sn)] = current
+            continue
+
         # Ignore agenda / structure overview slides
         if re.search(r"\b(?:structure\s+of\s+(?:the\s+)?quiz|quiz\s+structure|overview|agenda)\b", blob, re.I):
             sn = s.get("slide_number")
@@ -332,14 +346,19 @@ def infer_formats(slides: List[Dict[str, Any]]) -> Dict[int, str]:
 
             fmt = detect_format_in_text(blob)
             if stype == "SECTION_MARKER":
-                current = fmt or "QA"
+                if fmt and not re.match(r"^\s*topics?\s*:", blob, re.I):
+                    if not (current == "IMAGE_REVEAL" and fmt == "STEPPED_CLUE" and not re.search(r"\b(?:portfolio\s*builder|stepped\s*clues?|(?:3|three)[\s\-]*clues?|3\s*parts/clues)\b", blob, re.I)):
+                        current = fmt
+                elif re.search(r"\b(?:round\s*\d+|part\s*\d+|section\s*\d+|direct\s+round)\b", blob, re.I):
+                    current = "QA"
             elif fmt and words <= 30:
                 # A short non-question slide naming a format works as a header, but a bare "connect"
                 # in a slide without round indicators must not.
                 if fmt in ("CONNECT_4", "CONNECT") and not re.search(r"\b(?:round|section|set|questions?|following|next|indicators|market|theme|4\s*pics|common|what\s*connects|connect\s*4)\b", blob, re.I):
                     pass
                 else:
-                    current = fmt
+                    if not (current == "IMAGE_REVEAL" and fmt == "STEPPED_CLUE" and not re.search(r"\b(?:portfolio\s*builder|stepped\s*clues?|(?:3|three)[\s\-]*clues?|3\s*parts/clues)\b", blob, re.I)):
+                        current = fmt
         sn = s.get("slide_number")
         if sn is not None:
             result[int(sn)] = current
@@ -428,14 +447,23 @@ def round_by_slide(slides: List[Dict[str, Any]]) -> Dict[int, Optional[int]]:
         title = s.get("title") or ""
         text = s.get("extracted_text") or ""
         blob = f"{title} {text}".strip()
-        if re.search(r"\b(?:audience\s+questions?|buffer\s+questions?)\b", blob, re.I):
+        words = len(blob.split())
+        if re.search(r"\b(?:audience\s+questions|buffer(?:\s+questions?)?|tie[\s\-]*breakers?(?:\s+questions?)?)\b", blob, re.I) and words <= 15:
             current = None
-        elif s.get("slide_type") == "SECTION_MARKER" or re.search(r"\bround\s*\d+", title, re.I):
+        elif (
+            (s.get("slide_type") == "SECTION_MARKER" and not re.match(r"^\s*topics?\s*:", blob, re.I))
+            or re.search(r"\bround\s*\d+", title, re.I)
+            or re.search(r"^\s*round\s*\d+", text, re.I)
+        ):
             m = re.search(r"\bround\s*(\d+)", blob, re.I)
             if m:
                 current = int(m.group(1))
         out[int(s["slide_number"])] = current
     return out
+
+
+class _IngestDecided(Exception):
+    """The format-aware extractor already decided this question's format."""
 
 
 def annotate_questions(
@@ -457,7 +485,8 @@ def annotate_questions(
                          if s.get("slide_number") is not None and (s.get("metadata_json") or {}).get("has_star_shape")}
     for idx, q in enumerate(questions, start=1):
         sn = q.get("slide_number")
-        rnd = rounds.get(int(sn)) if sn else None
+        ing = q.get("_ingest")          # set by the format-aware extractor: the one source of truth for the format
+        rnd = ing.get("round_number") if ing is not None else (rounds.get(int(sn)) if sn else None)
         per_round[rnd] = per_round.get(rnd, 0) + 1
         star, cleaned = detect_star(q.get("question_text") or "", slide_text_by_no.get(int(sn), "") if sn else "")
         if not star and sn and int(sn) in star_shape_slides:
@@ -466,7 +495,12 @@ def annotate_questions(
             q["question_text"] = cleaned
         lang_default = deck.language if deck and deck.language else None
         round_fmt = fmt_by_slide.get(int(sn), "QA") if sn else "QA"
+        if ing is not None:
+            final_fmt = ing["question_format"]
+            q["question_type"] = final_fmt
         try:
+            if ing is not None:
+                raise _IngestDecided()
             from backend.app.services.ingestion.question_formats import detect_and_structure_format
             detected_fmt, payload = detect_and_structure_format(
                 question_text=q.get("question_text") or "",
@@ -481,6 +515,8 @@ def annotate_questions(
             q["question_type"] = detected_fmt
             q["format_payload"] = payload
             final_fmt = detected_fmt
+        except _IngestDecided:
+            pass
         except Exception:
             final_fmt = round_fmt
 

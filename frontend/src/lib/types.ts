@@ -23,7 +23,34 @@ export interface DocumentItem {
   processing_status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
   processing_error?: string | null;
   uploaded_at: string;
+}
+
+export interface DocumentDetail extends DocumentItem {
   slides?: Slide[];
+}
+
+export interface SourceSeriesItem {
+  key: string;
+  label: string;
+  document_ids: string[];
+  deck_count: number;
+  question_count: number;
+  years: number[];
+}
+
+export interface SourceDeckItem {
+  id: string;
+  title: string;
+  filename: string;
+  series: string;
+  series_key: string;
+  year?: number | null;
+  question_count: number;
+}
+
+export interface SourceCatalog {
+  series: SourceSeriesItem[];
+  decks: SourceDeckItem[];
 }
 
 export interface HistoricalQuestion {
@@ -83,6 +110,11 @@ export interface HistoricalQuestion {
   question_format?: string | null;
   format_data?: any;
   format_payload?: any;
+  // format-aware ingestion: how the question is played, whether it is part of the live quiz, the deck's own topic label
+  play_mode?: string | null;
+  slot?: 'LIVE' | 'RESERVE' | 'EXAMPLE' | string;
+  topic_label?: string | null;
+  format_needs_review?: boolean;
   star_marked?: boolean;
   topic_paths?: TopicPath[];
   repeated?: RepeatEntry[];
@@ -330,6 +362,9 @@ export interface GeneratedQuestion {
   grade_max?: number;
   topic?: string;
   question_type: string;
+  // present once the quiz API returns the format reading (see formatPayloads.ts for the shapes)
+  question_format?: string | null;
+  format_payload?: unknown;
   image_refs?: string[];
   question_images?: string[];
   answer_images?: string[];

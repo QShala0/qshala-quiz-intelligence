@@ -103,7 +103,7 @@ def test_bank_cache_reuses_one_load_within_the_ttl_and_hands_out_copies(monkeypa
     calls = []
     real = engine._load_bank_uncached
 
-    def counting(db):
+    def counting(db, slots=None):
         calls.append(1)
         return [{"id": "x", "question_text": "t"}]
 
@@ -145,3 +145,114 @@ def test_bank_query_does_not_fetch_the_embedding_column():
         db.close()
     assert seen and all("questions.embedding," not in s and "questions.embedding " not in s.replace("embedding_model", "")
                         for s in seen)
+
+
+def test_bank_query_skips_unused_heavy_columns_and_never_lazy_loads_them():
+    from sqlalchemy import event
+    from backend.app.database import engine as db_engine
+    seen = []
+
+    def grab(conn, cursor, statement, *a):
+        if "FROM questions" in statement:
+            seen.append(statement)
+
+    event.listen(db_engine, "before_cursor_execute", grab)
+    db = SessionLocal()
+    try:
+        bank = engine._load_bank_uncached(db)
+    finally:
+        event.remove(db_engine, "before_cursor_execute", grab)
+        db.close()
+    assert bank, "needs at least one question in the test database"
+    for col in engine._BANK_UNUSED_COLUMNS:
+        assert all(f"questions.{col}," not in s and f"questions.{col} " not in s for s in seen), col
+    assert len(seen) == 1, "a deferred column was read, which fetches it one row at a time"
+
+
+def test_deferring_unused_columns_does_not_change_the_bank(monkeypatch):
+    db = SessionLocal()
+    try:
+        with_defer = engine._load_bank_uncached(db)
+        monkeypatch.setattr(engine, "_BANK_UNUSED_COLUMNS", ())
+        without = engine._load_bank_uncached(db)
+    finally:
+        db.close()
+    assert with_defer and with_defer == without
+
+
+def test_expired_bank_is_served_while_one_background_refresh_runs(monkeypatch):
+    import threading
+    import time as _t
+    monkeypatch.setenv("PROMPT_QUIZ_BANK_TTL_S", "1")
+    monkeypatch.setenv("PROMPT_QUIZ_BANK_STALE_S", "60")
+    engine.invalidate_bank_cache()
+    gate, calls = threading.Event(), []
+
+    def loader(db, *a, **k):
+        calls.append(1)
+        if len(calls) > 1:
+            gate.wait(5)
+        return [{"id": f"v{len(calls)}", "question_text": "t"}]
+
+    monkeypatch.setattr(engine, "_load_bank_uncached", loader)
+    db = SessionLocal()
+    try:
+        assert engine._load_bank(db)[0]["id"] == "v1"
+        _t.sleep(1.1)                                              # past the TTL, inside the stale window
+        for _ in range(3):
+            assert engine._load_bank(db)[0]["id"] == "v1"          # served at once, never waits for the reload
+        assert len(calls) <= 2                                     # many requests, a single background reload
+        gate.set()
+        for _ in range(100):
+            if engine._load_bank(db)[0]["id"] == "v2":
+                break
+            _t.sleep(0.05)
+        assert engine._load_bank(db)[0]["id"] == "v2" and len(calls) == 2
+    finally:
+        gate.set()
+        engine.invalidate_bank_cache()
+        db.close()
+
+
+def test_failed_background_refresh_keeps_serving_the_old_bank(monkeypatch):
+    import time as _t
+    monkeypatch.setenv("PROMPT_QUIZ_BANK_TTL_S", "1")
+    monkeypatch.setenv("PROMPT_QUIZ_BANK_STALE_S", "60")
+    engine.invalidate_bank_cache()
+    state = {"n": 0}
+
+    def loader(db, *a, **k):
+        state["n"] += 1
+        if state["n"] > 1:
+            raise RuntimeError("database blip")
+        return [{"id": "old", "question_text": "t"}]
+
+    monkeypatch.setattr(engine, "_load_bank_uncached", loader)
+    monkeypatch.setattr(engine, "_REFRESH_FAILED_AT", 0.0)
+    db = SessionLocal()
+    try:
+        engine._load_bank(db)
+        _t.sleep(1.1)
+        assert engine._load_bank(db)[0]["id"] == "old"
+        _t.sleep(0.3)
+        assert engine._load_bank(db)[0]["id"] == "old"
+    finally:
+        engine.invalidate_bank_cache()
+        db.close()
+
+
+def test_stale_window_zero_reloads_inside_the_request_as_before(monkeypatch):
+    import time as _t
+    monkeypatch.setenv("PROMPT_QUIZ_BANK_TTL_S", "1")
+    monkeypatch.setenv("PROMPT_QUIZ_BANK_STALE_S", "0")
+    engine.invalidate_bank_cache()
+    calls = []
+    monkeypatch.setattr(engine, "_load_bank_uncached", lambda db, *a, **k: calls.append(1) or [{"id": str(len(calls)), "question_text": "t"}])
+    db = SessionLocal()
+    try:
+        engine._load_bank(db)
+        _t.sleep(1.1)
+        assert engine._load_bank(db)[0]["id"] == "2"
+    finally:
+        engine.invalidate_bank_cache()
+        db.close()

@@ -137,3 +137,11 @@ def setup_test_schema(tmp_path_factory):
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def _reset_llm_breaker():
+    from backend.app.services.prompt_quiz import llm_breaker
+    llm_breaker.reset()
+    yield
+    llm_breaker.reset()

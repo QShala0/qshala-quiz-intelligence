@@ -55,6 +55,10 @@ export default function UploadPage() {
     'Ready',
   ];
 
+  // P1-2: Load documents on initial mount, and on version bump only when an upload newly completes
+  const prevItemsRef = useRef(items);
+  const isInitialMount = useRef(true);
+
   useEffect(() => {
     let ignore = false;
     async function loadDocs() {
@@ -67,18 +71,36 @@ export default function UploadPage() {
         if (!ignore) setLoading(false);
       }
     }
-    loadDocs();
+
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      loadDocs();
+      return () => {
+        ignore = true;
+      };
+    }
+
+    // Only refetch when an item in the upload queue newly transitions to 'COMPLETED'
+    const hasNewlyCompleted = items.some(
+      (item) => item.phase === 'COMPLETED' && !prevItemsRef.current.some((p) => p.clientItemId === item.clientItemId && p.phase === 'COMPLETED')
+    );
+    prevItemsRef.current = items;
+
+    if (hasNewlyCompleted) {
+      loadDocs();
+    }
+
     return () => {
       ignore = true;
     };
-  }, [version]);
+  }, [version, items]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this historical document?')) return;
     try {
       await api.deleteDocument(id);
-      const data = await api.listDocuments();
-      setDocuments(data);
+      // P1-2: Update local state immediately instead of refetching the entire list
+      setDocuments((prev) => prev.filter((d) => d.id !== id));
     } catch (err) {
       console.error(err);
     }

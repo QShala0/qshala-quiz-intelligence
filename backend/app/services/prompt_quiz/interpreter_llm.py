@@ -166,7 +166,8 @@ def interpret_with_gemini(
     if not key:
         return None
 
-    model = getattr(settings, "GEMINI_MODEL", None) or "gemini-3.5-flash-lite"
+    from backend.app.services.ai.model_config import interpreter_model
+    model = interpreter_model()
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
            f"{model}:generateContent")
     payload = {
@@ -180,9 +181,9 @@ def interpret_with_gemini(
     }
 
     try:
-        from backend.app.services.prompt_quiz._http import get_client
+        from backend.app.services.prompt_quiz._http import guarded_post
         headers = {"x-goog-api-key": key} if key else {}
-        resp = get_client().post(url, json=payload, headers=headers, timeout=timeout_s)
+        resp = guarded_post(url, json=payload, headers=headers, timeout=timeout_s)
         resp.raise_for_status()
         data = resp.json()
         cands = data.get("candidates") or []

@@ -43,6 +43,13 @@ def parse_stepped_clues(q_text: str) -> Tuple[Optional[str], Optional[str], Opti
     return None, None, None
 
 
+def is_format_aware(q: Question) -> bool:
+    """True for a question read by format-aware ingestion (its payload carries an `extraction` block). Those payloads
+    are already canonical; this legacy healer, which runs on every boot, must never rewrite them into the older shapes."""
+    fp = q.format_payload
+    return isinstance(fp, dict) and isinstance(fp.get("extraction"), dict)
+
+
 def heal_specialized_questions(db: Session) -> Dict[str, int]:
     """Scans and heals all CONNECT_4 and STEPPED_CLUE questions in the database."""
     stats = {"stepped_healed": 0, "connect4_healed": 0, "reclassified_arrange": 0, "reclassified_visual": 0}
@@ -78,6 +85,17 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
         q_insta.format_data = {"type": "VISUAL_CLUE", "image_url": (q_insta.question_images or [None])[0]}
         q_insta.format_payload = {"type": "VISUAL_CLUE", "image_url": (q_insta.question_images or [None])[0]}
         stats["reclassified_visual"] += 1
+
+    # Ensure every legacy ARRANGE_ORDER row carries canonical 60s timer fields alongside time_limit_seconds.
+    arrange_qs = db.query(Question).filter(Question.question_format == "ARRANGE_ORDER").all()
+    for aq in arrange_qs:
+        if is_format_aware(aq):
+            continue
+        payload = dict(aq.format_payload or aq.format_data or {})
+        if not payload.get("has_timer") or payload.get("timer_seconds") != 60 or payload.get("time_limit_seconds") != 60:
+            payload.update({"type": "ARRANGE_ORDER", "has_timer": True, "timer_seconds": 60, "time_limit_seconds": 60})
+            aq.format_payload = payload
+            aq.format_data = payload
     db.commit()
 
     # 2. Heal STEPPED_CLUE questions
@@ -92,6 +110,8 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
     ]
 
     for q in stepped_qs:
+        if is_format_aware(q):
+            continue
         c1, c2, c3 = parse_stepped_clues(q.question_text)
         if not (c1 and c2 and c3):
             continue
@@ -160,15 +180,31 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
     }
 
     for q in connect_qs:
+        if is_format_aware(q):
+            continue
         imgs = list(q.question_images or q.image_refs or [])
         default_prompt, sub_hint = connect_prompts.get(
             q.id,
             ("What common thread or concept connects all four clues and images?", None)
         )
 
-        # Build 4 clean items
+        raw_q = (q.question_text or "").strip()
+        raw_body = re.sub(r"^\[Connect 4[^\]]*\]\s*", "", raw_q).strip()
+        is_generic = (
+            (q.id in connect_prompts)
+            or not raw_body
+            or len(raw_body) < 20
+            or raw_body.lower().startswith((
+                "look at the 4 elements",
+                "what connects all these",
+                "what common thread",
+                "what common concept connects these",
+            ))
+        )
+        resolved_prompt = default_prompt if is_generic else raw_body
+        # Build clean clue items (keep all clue images when > 4)
         elements = []
-        for i in range(4):
+        for i in range(max(4, len(imgs))):
             img_url = imgs[i] if i < len(imgs) else None
             elements.append({
                 "index": i + 1,
@@ -182,14 +218,14 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
         payload = {
             "type": "CONNECT_4",
             "badge": "Connect 4 • Common Link",
-            "prompt": default_prompt,
+            "prompt": resolved_prompt,
             "sub_hint": sub_hint,
             "elements": elements,
             "common_link": q.answer,
             "connection_reveal": q.answer,
         }
 
-        clean_text = f"[Connect 4 · Common Link]\n{default_prompt}"
+        clean_text = f"[Connect 4 · Common Link]\n{resolved_prompt}"
         if sub_hint:
             clean_text += f"\n\nContext Hint: {sub_hint}"
 

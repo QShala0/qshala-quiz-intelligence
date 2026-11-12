@@ -19,6 +19,7 @@ import logging
 logger = logging.getLogger(__name__)
 import os
 import re
+import threading
 import time
 from functools import lru_cache
 from dataclasses import dataclass, field, asdict
@@ -34,7 +35,7 @@ except Exception:  # pragma: no cover
     QshalaTag = None
     QshalaQuestionMetadata = None
 
-from backend.app.services.prompt_quiz.retrieval import Index, parse_prompt, tokenize, WORD_NUMS
+from backend.app.services.prompt_quiz.retrieval import Index, normalize_compound_typos, parse_prompt, tokenize, WORD_NUMS
 from backend.app.services.prompt_quiz.interpreter_llm import V6_THEMES
 from backend.app.services.prompt_quiz.audience import (
     audience_score, defaults_for_audience, difficulty_penalty, passes_hard
@@ -65,6 +66,9 @@ class Brief:
     subtopics_l2: List[str] = field(default_factory=list)
     search_terms: List[str] = field(default_factory=list)
     narrative_arc: Optional[str] = None
+    # Reserve spares and example slides are left out of a quiz unless asked for
+    include_reserve: bool = False
+    include_example: bool = False
 
     def public(self) -> Dict[str, Any]:
         return asdict(self)
@@ -92,8 +96,14 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
     topics_l1 = list(gem.get("topics_l1") or (previous_brief or {}).get("topics_l1") or [])
     subtopics_l2 = list(gem.get("subtopics_l2") or (previous_brief or {}).get("subtopics_l2") or [])
 
+    p_norm = normalize_compound_typos(prompt or "").lower()
     raw_query = str(gem.get("query") or "").strip()
-    if not raw_query and previous_brief:
+    _mod_queries = {
+        "", "india", "india focus", "focus on india", "middle school",
+        "middle school kids", "school friendly", "text only", "no images",
+        "only questions with images", "only with images", "international", "global",
+    }
+    if previous_brief and (not raw_query or raw_query.lower() in _mod_queries):
         raw_query = str(previous_brief.get("query") or "").strip()
     query_bits = [raw_query] if raw_query else []
     if not raw_query:
@@ -105,8 +115,23 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
 
     filters: Dict[str, Any] = dict(prev_filters)
     if gem.get("india_focused") is not None:
-        filters["india_focused"] = gem.get("india_focused")
-        filters["india_international"] = "IN" if gem.get("india_focused") is True else "INTL"
+        ind_val = gem.get("india_focused")
+        if ind_val is False:
+            explicit_intl_ask = bool(re.search(r"\b(international|global|world|foreign|non-?indian|outside\s+india)\b", p_norm))
+            if explicit_intl_ask:
+                filters["india_focused"] = False
+                filters["india_international"] = "INTL"
+        elif ind_val is True:
+            filters["india_focused"] = True
+            explicit_india_ask = bool(re.search(r"\b(india|indian|bharat|hindustan|desh|indian\s+focus|focus\s+on\s+india)\b", p_norm))
+            universal_stem_ask = bool(re.search(
+                r"\b(science|scientific|experiment|experiments|physics|chemistry|biology|math|mathematics|astronomy|space|technology|coding)\b",
+                p_norm,
+            ))
+            if explicit_india_ask or not universal_stem_ask:
+                filters["india_international"] = "IN"
+            else:
+                filters.pop("india_international", None)
     if gem.get("evergreen") is not None:
         val = bool(gem.get("evergreen"))
         filters["evergreen"] = val
@@ -119,8 +144,13 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
         filters["no_images"] = val
         if val:
             filters["exclude_image"] = True
+            filters.pop("require_images", None)
         else:
             filters.pop("exclude_image", None)
+    if re.search(r"\b(?:only|with)\s+(?:questions?\s+with\s+)?(?:images?|pics?|visuals?|photos?)\b", p_norm) and not gem.get("no_images"):
+        filters.pop("no_images", None)
+        filters.pop("exclude_image", None)
+        filters["require_images"] = True
     if gem.get("school_safe") is not None:
         filters["school_safe"] = bool(gem.get("school_safe"))
     if gem.get("audience"):
@@ -132,7 +162,15 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
     if not raw_bias:
         raw_bias = _bias_from_text(prompt)
     raw_bias = (raw_bias or "").lower()
-    bias = "hard" if raw_bias in ("hard", "spicy") else "easy" if raw_bias == "easy" else ("medium" if raw_bias == "medium" else None)
+    bias = (
+        "hard"
+        if raw_bias in ("hard", "spicy")
+        else "easy"
+        if raw_bias == "easy"
+        else ("medium" if raw_bias in ("medium", "balanced") else None)
+    )
+    if bias is None and not previous_brief:
+        bias = _bias_from_text(prompt)
 
     framing = (gem.get("framing") or "").strip() or (previous_brief or {}).get("framing") or None
     fmt = gem.get("format_filter") or (previous_brief or {}).get("format_filter")
@@ -146,7 +184,10 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
     tone = list(gem.get("tone") or (previous_brief or {}).get("tone") or [])
     cross_topic_padding = bool(gem.get("cross_topic_padding") if gem.get("cross_topic_padding") is not None else (previous_brief or {}).get("cross_topic_padding", False))
 
+    prev_b = previous_brief or {}
     return Brief(
+        include_reserve=bool(prev_b.get('include_reserve', False)),
+        include_example=bool(prev_b.get('include_example', False)),
         prompt=prompt,
         query=query,
         count=n,
@@ -169,7 +210,7 @@ def _brief_from_regex(prompt: str, count: Optional[int],
                       previous_brief: Optional[Dict[str, Any]],
                       current_questions: Optional[List[Dict[str, Any]]] = None) -> Brief:
     query, raw_filters, n = parse_prompt(prompt or "")
-    p = (prompt or "").lower()
+    p = normalize_compound_typos(prompt or "").lower()
 
     # Partial replacement check: e.g. "change 3 questions to tech", "replace 2 with sports"
     partial_m = re.search(
@@ -219,6 +260,11 @@ def _brief_from_regex(prompt: str, count: Optional[int],
     if "exclude_image" in raw_filters:
         filters["exclude_image"] = True
         filters["no_images"] = True
+        filters.pop("require_images", None)
+    elif re.search(r"\b(?:only|with)\s+(?:questions?\s+with\s+)?(?:images?|pics?|visuals?|photos?)\b", p):
+        filters.pop("exclude_image", None)
+        filters.pop("no_images", None)
+        filters["require_images"] = True
     if "evergreen_only" in raw_filters:
         filters["evergreen_only"] = True
         filters["evergreen"] = True
@@ -288,20 +334,30 @@ def _brief_from_regex(prompt: str, count: Optional[int],
         search_terms = list((previous_brief or {}).get("search_terms") or [])
 
         # If this is a modifier-only refinement on an existing quiz, preserve the previous topic
+        _q_mod = query.strip().lower()
         is_modifier_prompt = previous_brief and (
             bool(re.search(r"^(?:make\s+it\s+|more\s+)?(?:harder|easier|tougher|spicier|tough|spicy|easy|warmup|balanced)$", p.strip()))
-            or bool(re.search(r"^(?:for\s+)?(?:school|kids|children|college|corporate)$", p.strip()))
-            or bool(re.search(r"^(?:no\s+images?|text\s+only|without\s+images?|with\s+images?|images?\s+only)$", p.strip()))
+            or bool(re.search(r"^(?:make\s+it\s+)?(?:for\s+)?(?:middle\s+school\s+|high\s+school\s+|primary\s+school\s+)?(?:school(?:\s+friendly)?|kids|children|college|corporate)$", p.strip()))
+            or bool(re.search(r"^(?:focus\s+on\s+india|india\s+focus|focus\s+india|global(?:\s+perspective)?|international)$", p.strip()))
+            or bool(re.search(r"^(?:no\s+images?|text\s+only(?:,?\s*no\s+images?)?|without\s+images?|only\s+(?:questions?\s+)?with\s+images?|with\s+images?|images?\s+only)$", p.strip()))
             or bool(re.search(r"^(?:evergreen\s+only|evergreen)$", p.strip()))
             or bool(more_m)
-            or query.strip().lower() in ("make it harder", "harder", "easier", "school", "kids", "no images", "text only", "evergreen", "5 more", "more")
+            or _q_mod in (
+                "", "make it harder", "harder", "easier", "school", "kids", "middle school",
+                "school friendly", "no images", "text only", "only images", "with images",
+                "evergreen", "5 more", "more", "india", "india focus", "focus india",
+                "international", "global", "world",
+            )
         )
-        if is_modifier_prompt and previous_brief.get("query"):
-            query = previous_brief.get("query")
+        if is_modifier_prompt and previous_brief.get("query") is not None:
+            query = previous_brief.get("query") or ""
 
     framing = (previous_brief or {}).get("framing")
 
+    prev_b = previous_brief or {}
     return Brief(
+        include_reserve=bool(prev_b.get('include_reserve', False)),
+        include_example=bool(prev_b.get('include_example', False)),
         prompt=prompt,
         query=query,
         count=final_n,
@@ -329,6 +385,8 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
     brief: Optional[Brief] = None
 
     # Stage 1: Try Dynamic Intent Engine with Live Vault Taxonomy
+    from backend.app.services.prompt_quiz import llm_breaker
+    failures_before = llm_breaker.failure_mark()
     if db is not None and os.getenv("ENABLE_INTENT_ENGINE", "true").lower() in ("1", "true", "yes"):
         try:
             from backend.app.services.prompt_quiz.intent_engine import deconstruct_prompt
@@ -338,7 +396,12 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
 
     if brief is None:
         gem: Optional[Dict[str, Any]] = None
+        # If the intent engine's call just failed at the service level (timeout, 429, 5xx), a second call to the same
+        # service would wait out another timeout for nothing; go straight to the regex parser.
+        skip_llm = llm_breaker.failure_mark() > failures_before
         try:
+            if skip_llm:
+                raise RuntimeError("skipping interpreter: Gemini just failed")
             from backend.app.services.prompt_quiz.interpreter_llm import interpret_with_gemini
             gem = interpret_with_gemini(prompt or "", previous_brief, current_questions=current_questions)
         except Exception:
@@ -352,6 +415,10 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
     brief.filters = f
     brief.hard_bias = hb
 
+    pb = previous_brief or {}
+    brief.include_reserve = bool(pb.get('include_reserve', brief.include_reserve))
+    brief.include_example = bool(pb.get('include_example', brief.include_example))
+
     # Explicit UI options override whatever either interpreter decided.
     for k, v in (options or {}).items():
         if k == "format_filter":
@@ -360,7 +427,11 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
             brief.cross_topic_padding = bool(v)
         elif k == "hard_bias":
             brief.hard_bias = v or None
-        elif v in (None, False, ""):
+        elif k == "include_reserve":
+            brief.include_reserve = bool(v)
+        elif k == "include_example":
+            brief.include_example = bool(v)
+        elif v in (None, False, "") or (isinstance(v, list) and len(v) == 0):
             brief.filters.pop(k, None)
             if k == "exclude_image":
                 brief.filters.pop("no_images", None)
@@ -370,8 +441,12 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
                 brief.filters.pop("evergreen", None)
             elif k == "evergreen":
                 brief.filters.pop("evergreen_only", None)
+            elif k == "document_ids":
+                brief.filters.pop("source_labels", None)
         else:
             brief.filters[k] = v
+            if k == "document_ids" and "deck_filter" not in (options or {}):
+                brief.filters.pop("deck_filter", None)
             if k == "exclude_image":
                 brief.filters["no_images"] = True
             elif k == "no_images":
@@ -387,6 +462,9 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
 # The bank is rebuilt from the database on every request (2-3 times per request in places). A short cache lets those
 # share one load. PROMPT_QUIZ_BANK_TTL_S=0 turns it off; questions added or edited show up within that many seconds.
 _BANK_CACHE: Dict[str, Any] = {"at": 0.0, "key": None, "bank": None, "index": None}
+_CACHE_LOCK = threading.Lock()          # guards every read/write of _BANK_CACHE so a refresh can never be seen half-done
+_REFRESH_LOCK = threading.Lock()        # held while one background refresh runs (single-flight)
+_REFRESH_FAILED_AT = 0.0
 
 
 class _BankList(list):
@@ -401,24 +479,109 @@ def _bank_ttl() -> float:
         return 10.0
 
 
+def _bank_stale_window() -> float:
+    """Seconds past the TTL during which an expired bank is still served while one background thread refreshes it, so no
+    request has to wait for a reload. 0 turns this off (an expired bank is then reloaded inside the request, as before)."""
+    try:
+        return max(0.0, float(os.getenv("PROMPT_QUIZ_BANK_STALE_S", "300")))
+    except ValueError:
+        return 300.0
+
+
 def invalidate_bank_cache() -> None:
-    _BANK_CACHE.update({"at": 0.0, "key": None, "bank": None, "index": None})
+    with _CACHE_LOCK:
+        _BANK_CACHE.update({"at": 0.0, "key": None, "bank": None, "index": None})
 
 
-def _load_bank(db: Session) -> List[Dict[str, Any]]:
+def _cache_snapshot():
+    with _CACHE_LOCK:
+        return _BANK_CACHE["at"], _BANK_CACHE["key"], _BANK_CACHE["bank"]
+
+
+def _store_bank(at: float, key: Any, bank: List[Dict[str, Any]]) -> None:
+    with _CACHE_LOCK:
+        _BANK_CACHE.update({"at": at, "key": key, "bank": bank, "index": None})
+
+
+def _copy_of(bank: List[Dict[str, Any]], token: float) -> "_BankList":
+    copy = _BankList(dict(r) for r in bank)      # callers may add fields (e.g. score) to what they get
+    copy.token = token
+    return copy
+
+
+def _refresh_bank_in_background(key: Any, slots: Optional[tuple] = None) -> None:
+    global _REFRESH_FAILED_AT
+    if time.monotonic() - _REFRESH_FAILED_AT < 10.0 or not _REFRESH_LOCK.acquire(blocking=False):
+        return
+
+    def run() -> None:
+        global _REFRESH_FAILED_AT
+        try:
+            from backend.app.database import SessionLocal
+            sess = SessionLocal()
+            try:
+                bank = _load_bank_uncached(sess, slots) if slots else _load_bank_uncached(sess)
+            finally:
+                sess.close()
+            _store_bank(time.monotonic(), key, bank)
+        except Exception as e:
+            _REFRESH_FAILED_AT = time.monotonic()
+            logger.warning("Background bank refresh failed (%s); still serving the previous bank", e)
+        finally:
+            _REFRESH_LOCK.release()
+
+    try:
+        threading.Thread(target=run, name="bank-refresh", daemon=True).start()
+    except Exception:
+        _REFRESH_LOCK.release()
+
+
+LIVE_ONLY = ("LIVE",)
+ALL_SLOTS = ("LIVE", "RESERVE", "EXAMPLE")
+
+
+def slots_for(brief: "Brief") -> tuple:
+    """Slots a quiz may draw from: LIVE questions always; RESERVE / EXAMPLE only when the brief asks for them."""
+    slots = ["LIVE"]
+    if getattr(brief, "include_reserve", False):
+        slots.append("RESERVE")
+    if getattr(brief, "include_example", False):
+        slots.append("EXAMPLE")
+    return tuple(slots)
+
+
+_FORMAT_ALIASES = {"CONNECT_4": "CONNECT", "THREE_CLUE": "STEPPED_CLUE", "QA": "STANDARD_QA", "SLIDE_QA": "STANDARD_QA",
+                   "MULTIPLE_CHOICE": "MCQ"}
+
+
+def format_counts(bank: List[Dict[str, Any]]) -> Dict[str, int]:
+    """How many questions of each format a bank holds (old names folded into the new ones)."""
+    out: Dict[str, int] = {}
+    for q in bank:
+        f = (q.get("question_format") or "STANDARD_QA").upper()
+        f = _FORMAT_ALIASES.get(f, f)
+        out[f] = out.get(f, 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def _load_bank(db: Session, slots: Optional[tuple] = None) -> List[Dict[str, Any]]:
+    slots = tuple(slots) if slots else LIVE_ONLY          # default: live questions only
     ttl = _bank_ttl()
-    key = str(db.get_bind().url) if ttl > 0 else None
+    key = (str(db.get_bind().url), slots) if ttl > 0 else None
     now = time.monotonic()
-    if ttl > 0 and _BANK_CACHE["bank"] is not None and _BANK_CACHE["key"] == key and now - _BANK_CACHE["at"] < ttl:
-        copy = _BankList(dict(r) for r in _BANK_CACHE["bank"])      # callers may add fields (e.g. score) to what they get
-        copy.token = _BANK_CACHE["at"]
-        return copy
-    bank = _load_bank_uncached(db)
     if ttl > 0:
-        _BANK_CACHE.update({"at": now, "key": key, "bank": bank, "index": None})
-        copy = _BankList(dict(r) for r in bank)
-        copy.token = now
-        return copy
+        at, cached_key, cached = _cache_snapshot()
+        if cached is not None and cached_key == key:
+            age = now - at
+            if age < ttl:
+                return _copy_of(cached, at)
+            if age < ttl + _bank_stale_window():
+                _refresh_bank_in_background(key, slots)
+                return _copy_of(cached, at)
+    bank = _load_bank_uncached(db, slots)
+    if ttl > 0:
+        _store_bank(now, key, bank)
+        return _copy_of(bank, now)
     return bank
 
 
@@ -426,17 +589,38 @@ def _index_for(bank: List[Dict[str, Any]]) -> Index:
     """The search index for a bank. A bank straight from _load_bank shares one index per cache load (built from the
     untouched cached rows, never from a caller's copy); anything else gets a fresh index, as before."""
     tok = getattr(bank, "token", None)
-    if tok is not None and _BANK_CACHE["bank"] is not None and _BANK_CACHE["at"] == tok:
-        idx = _BANK_CACHE["index"]
-        if idx is None:
-            idx = _BANK_CACHE["index"] = Index(_BANK_CACHE["bank"])
-        return idx
+    if tok is not None:
+        with _CACHE_LOCK:
+            if _BANK_CACHE["bank"] is not None and _BANK_CACHE["at"] == tok:
+                idx, source = _BANK_CACHE["index"], _BANK_CACHE["bank"]
+            else:
+                idx = source = None
+        if source is not None:
+            if idx is None:
+                idx = Index(source)
+                with _CACHE_LOCK:
+                    if _BANK_CACHE["at"] == tok:
+                        _BANK_CACHE["index"] = idx
+            return idx
     return Index(bank)
+
+
+def _latest_tags_distinct_on(db: Session) -> Dict[str, Any]:
+    """Same rule as _latest_tags (newest confirmed, else newest draft, ties by id) written as Postgres DISTINCT ON, which
+    can walk ix_qshala_tags_current instead of numbering every tag row. Off unless PROMPT_QUIZ_TAGS_QUERY=distinct_on;
+    run backend/scripts/compare_latest_tags.py against the real database before turning it on."""
+    rows = (db.query(QshalaTag).filter(QshalaTag.status.in_(["confirmed", "draft"]))
+            .distinct(QshalaTag.question_id)
+            .order_by(QshalaTag.question_id, case((QshalaTag.status == "confirmed", 1), else_=0).desc(),
+                      QshalaTag.created_at.desc(), QshalaTag.id.desc()).all())
+    return {r.question_id: r for r in rows}
 
 
 def _latest_tags(db: Session) -> Dict[str, Any]:
     """Per question, the tag the bank uses: the newest confirmed one, else the newest draft. Chosen in SQL so only
     one row per question is loaded (it used to read every tag row, superseded ones included, and sort in Python)."""
+    if os.getenv("PROMPT_QUIZ_TAGS_QUERY", "").strip().lower() == "distinct_on" and db.get_bind().dialect.name == "postgresql":
+        return _latest_tags_distinct_on(db)
     rank = func.row_number().over(
         partition_by=QshalaTag.question_id,
         order_by=(case((QshalaTag.status == "confirmed", 1), else_=0).desc(),
@@ -447,10 +631,19 @@ def _latest_tags(db: Session) -> Dict[str, Any]:
     return {r.question_id: r for r in rows}
 
 
-def _load_bank_uncached(db: Session) -> List[Dict[str, Any]]:
+_BANK_UNUSED_COLUMNS = ("options", "explanation", "audio_transcript", "video_transcript", "raw_media_refs",
+                        "visual_clues", "provenance_decks")
+
+
+def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str, Any]]:
     # The 768-number embedding vector is never read here; leaving it out roughly halves what is fetched per row.
-    qs = (db.query(Question).options(defer(Question.embedding), defer(Question.embedding_model))
-          .filter((Question.duplicate_status != "CONFIRMED_DUPLICATE") | (Question.duplicate_status.is_(None))).all())
+    # Nor are the long text/JSON columns below: the bank dict built further down reads none of them. If you start
+    # reading one, take it out of this list, otherwise it is fetched row by row (one query per question).
+    qs = (db.query(Question).options(
+              defer(Question.embedding), defer(Question.embedding_model),
+              *(defer(getattr(Question, c)) for c in _BANK_UNUSED_COLUMNS))
+          .filter((Question.duplicate_status != "CONFIRMED_DUPLICATE") | (Question.duplicate_status.is_(None)))
+          .filter(Question.slot.in_(list(slots)) | Question.slot.is_(None)).all())
     tags: Dict[str, Any] = {}
     try:
         if QshalaTag is None:
@@ -474,11 +667,15 @@ def _load_bank_uncached(db: Session) -> List[Dict[str, Any]]:
             meta = {}
 
     docs_map = {}
+    docs_filename_map = {}
     try:
         from backend.app.models.document import Document
-        docs_map = {d.id: (d.title or d.filename or "") for d in db.query(Document.id, Document.title, Document.filename).all()}
+        for d in db.query(Document.id, Document.title, Document.filename).all():
+            docs_map[d.id] = (d.title or d.filename or "")
+            docs_filename_map[d.id] = (d.filename or "")
     except Exception:
         docs_map = {}
+        docs_filename_map = {}
 
     bank = []
     for q in qs:
@@ -507,11 +704,18 @@ def _load_bank_uncached(db: Session) -> List[Dict[str, Any]]:
             "search_summary": getattr(t, 'search_summary', None) if t else None,
             "difficulty": (q.difficulty or "Medium"),
             "difficulty_score": q.difficulty_score if q.difficulty_score is not None else 0.5,
+            "grade_min": getattr(q, "grade_min", 3),
+            "grade_max": getattr(q, "grade_max", 12),
+            "audience_suitability": list(getattr(q, "audience_suitability", []) or []),
             "document_id": q.document_id,
             "document_title": docs_map.get(q.document_id, ""),
+            "document_filename": docs_filename_map.get(q.document_id, ""),
             "tagged": bool(t),
             "question_format": getattr(q, 'question_format', None) or getattr(q, 'question_type', 'STANDARD_QA'),
             "format_payload": getattr(q, 'format_payload', None) or getattr(q, 'format_data', None),
+            "slot": getattr(q, 'slot', None) or "LIVE",
+            "play_mode": getattr(q, 'play_mode', None),
+            "topic_label": getattr(q, 'topic_label', None),
             "city_name": (getattr(t, 'city_name', None) if t else None) or (getattr(m, 'city_name', None) if m else None),
             "geo_region": (getattr(t, 'geo_region', None) if t else None) or (getattr(m, 'geo_region', None) if m else None),
             "primary_audience": getattr(m, 'primary_audience', None) if m else None,
@@ -526,7 +730,9 @@ MIN_RELEVANCE_SCORE = 0.4
 
 def librarian(bank: List[Dict[str, Any]], brief: Brief, pool: int = 80) -> List[Dict[str, Any]]:
     if brief.format_filter:
-        bank = [q for q in bank if q.get("question_format") == brief.format_filter]
+        from backend.app.services.prompt_quiz.audience import canon_format
+        want = canon_format(brief.format_filter)
+        bank = [q for q in bank if canon_format(q.get("question_format")) == want]
     idx = Index(bank)
 
     # Gemini search_terms broaden retrieval without changing the Brief the user sees
@@ -603,22 +809,39 @@ def _fp(text: str) -> frozenset:
     return frozenset(tokenize(text)[:14])
 
 
+_PLACEHOLDER_ANS_ENTITIES = {
+    "", "answer", "answers", "ans", "solution", "solutions",
+    "see image", "see video", "see audio", "see explanation",
+    "answer indicated on slide", "ಉತ್ತರ",
+}
+
+
 @lru_cache(maxsize=65536)
 def _normalize_answer_entity(ans: str) -> str:
-    """Extracts a normalized core entity token set from an answer string for robust deduplication."""
+    """Extracts a normalized core entity token set from an answer string for robust deduplication.
+    Returns '' for placeholder, URL, data-URI, or punctuation-only answers so distinct questions
+    with non-entity answers never collapse onto one survivor.
+    """
     if not ans:
+        return ""
+    raw_low = ans.strip().lower()
+    if raw_low.startswith(("http://", "https://", "data:")):
         return ""
     # Strip common brackets, slashes, parentheticals: e.g. "Srinivasa Ramanujan / Ramanujan" -> "srinivasa ramanujan"
     primary = re.split(r"[/,;(]", ans)[0].strip().lower()
     primary = re.sub(r"^(word|clue|answer|question|letter|name)\s*:\s*", "", primary).strip()
     # Strip common honorifics/prefixes: Dr., Shri, Sir, Smt, The, A, An
     primary = re.sub(r"\b(dr\.?|shri|sir|smt\.?|mr\.?|mrs\.?|ms\.?|the|a|an)\b", "", primary).strip()
-    cleaned = re.sub(r"[^\w\s]", "", primary)
+    cleaned = re.sub(r"[^\w\s\u0900-\u0FFF]", "", primary)
+    norm_check = re.sub(r"\s+", " ", cleaned).strip()
+    if norm_check in _PLACEHOLDER_ANS_ENTITIES:
+        return ""
     # Transliteration compression: oo -> u, ee -> i (e.g. Sooryavanshi -> Suryavanshi)
     cleaned = re.sub(r"oo+", "u", cleaned)
     cleaned = re.sub(r"ee+", "i", cleaned)
     tokens = [t for t in cleaned.split() if t]
-    return " ".join(tokens)
+    joined = " ".join(tokens)
+    return "" if joined in _PLACEHOLDER_ANS_ENTITIES else joined
 
 
 def guardian(hits: List[Dict[str, Any]], brief: Brief, exclude_ids: Optional[Set[str]] = None) -> List[Dict[str, Any]]:
@@ -656,22 +879,26 @@ def guardian(hits: List[Dict[str, Any]], brief: Brief, exclude_ids: Optional[Set
 
 
 # ---------- Editor ----------
-def editor(cands: List[Dict[str, Any]], brief: Brief) -> List[Dict[str, Any]]:
+def editor(cands: List[Dict[str, Any]], brief: Brief, preserve_slot1_id: Optional[str] = None) -> List[Dict[str, Any]]:
     n = brief.count
     ordered_cands = list(cands)
 
-    # Primary: relevance score (BM25). Secondary: difficulty bias if requested.
+    def _rel(c: Dict[str, Any]) -> float:
+        rv = c.get("_rank_score")
+        return float(rv) if rv is not None else float(c.get("score") or 0.0)
+
+    # Primary: ranked relevance score (_rank_score if computed by build_draft, else BM25 score).
     has_specific_topic = bool(brief.topics_l1 or brief.subtopics_l2 or brief.locality or (brief.query and brief.query.lower() not in ("general knowledge", "trivia", "")))
     if not has_specific_topic and brief.hard_bias == "hard":
-        ordered_cands.sort(key=lambda c: (-(c.get("difficulty_score") or 0.5), -(c.get("score") or 0)))
+        ordered_cands.sort(key=lambda c: (-(c.get("difficulty_score") or 0.5), -_rel(c)))
     elif not has_specific_topic and brief.hard_bias == "easy":
-        ordered_cands.sort(key=lambda c: ((c.get("difficulty_score") or 0.5), -(c.get("score") or 0)))
+        ordered_cands.sort(key=lambda c: ((c.get("difficulty_score") or 0.5), -_rel(c)))
     elif brief.hard_bias == "hard":
-        ordered_cands.sort(key=lambda c: (-(c.get("score") or 0), -(c.get("difficulty_score") or 0.5)))
+        ordered_cands.sort(key=lambda c: (-_rel(c), -(c.get("difficulty_score") or 0.5)))
     elif brief.hard_bias == "easy":
-        ordered_cands.sort(key=lambda c: (-(c.get("score") or 0), (c.get("difficulty_score") or 0.5)))
+        ordered_cands.sort(key=lambda c: (-_rel(c), (c.get("difficulty_score") or 0.5)))
     else:
-        ordered_cands.sort(key=lambda c: -(c.get("score") or 0))
+        ordered_cands.sort(key=lambda c: -_rel(c))
 
     # Only filter by subtopics when the brief carries bank-validated L2 names,
     # or when a non-geographic query explicitly names a full subtopic (e.g. query 'cricket' -> subtopic 'Cricket').
@@ -686,7 +913,18 @@ def editor(cands: List[Dict[str, Any]], brief: Brief) -> List[Dict[str, Any]]:
                 target_subs.add(sub)
 
     if target_subs and not brief.cross_topic_padding and getattr(brief, "source", None) != "gemini_dynamic_intent":
-        ordered_cands = [c for c in ordered_cands if c.get("subtopic_l2") in target_subs or not c.get("subtopic_l2")]
+        sub_matched = [c for c in ordered_cands if c.get("subtopic_l2") in target_subs or not c.get("subtopic_l2")]
+        prompt_low = (brief.prompt or "").lower()
+        matched_in_prompt = {
+            s for s in target_subs
+            if s and s.lower() in prompt_low and any(c.get("subtopic_l2") == s for c in ordered_cands)
+        }
+        if (
+            len(sub_matched) >= n
+            or (matched_in_prompt and sub_matched and getattr(brief, "source", None) != "gemini")
+            or (len(target_subs) == 1 and matched_in_prompt and sub_matched)
+        ):
+            ordered_cands = sub_matched
 
     chosen: List[Dict[str, Any]] = []
     chosen_entities: Set[str] = set()
@@ -721,6 +959,11 @@ def editor(cands: List[Dict[str, Any]], brief: Brief) -> List[Dict[str, Any]]:
         chosen.sort(key=lambda c: c.get("difficulty_score") or 0.5)
         if brief.hard_bias == "hard":
             chosen.sort(key=lambda c: -(c.get("difficulty_score") or 0.5))
+    if preserve_slot1_id:
+        for idx_s, c in enumerate(chosen):
+            if c.get("id") == preserve_slot1_id and idx_s != 0:
+                chosen.insert(0, chosen.pop(idx_s))
+                break
     return chosen
 
 
@@ -745,8 +988,50 @@ def host(brief: Brief, picked: List[Dict[str, Any]], bank_size: int) -> str:
 def _view(c: Dict[str, Any]) -> Dict[str, Any]:
     return {k: c.get(k) for k in ("id", "question_text", "answer", "topic_l1", "subtopic_l2", "difficulty_score",
                                   "difficulty", "image_dependent", "shelf_life", "tagged", "score", "document_id",
-                                  "question_images", "answer_images", "image_refs",
-                                  "question_format", "format_payload")}
+                                  "document_title", "question_images", "answer_images", "image_refs",
+                                  "question_format", "format_payload", "slot", "play_mode", "topic_label")}
+
+
+_TOPICAL_NOISE_WORDS = {
+    "india", "indian", "bharat", "karnataka", "bengaluru", "bangalore",
+    "mumbai", "bombay", "delhi", "chennai", "madras", "kolkata", "calcutta",
+    "hyderabad", "pune", "mysore", "mysuru", "state", "board", "grade",
+    "students", "student", "relevant", "around", "one", "middle", "primary",
+    "high", "school", "kids", "children", "friendly", "focus", "focused",
+    "based", "syllabus", "curriculum", "cbse", "icse", "ncert", "class",
+}
+
+def _detect_deck_scope(prompt_lower: str, bank: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Detect distinctive deck-series names and typos (e.g. 'agastya', 'aghtya', 'set 2 prelims') in the prompt."""
+    from backend.app.services.source_grouping import resolve_deck_query
+
+    docs_by_id: Dict[str, Dict[str, str]] = {}
+    subtopic_words: Set[str] = set()
+    for b in bank:
+        did = str(b.get("document_id") or "").strip()
+        if did and did not in docs_by_id:
+            docs_by_id[did] = {
+                "id": did,
+                "title": str(b.get("document_title") or "").strip(),
+                "filename": str(b.get("document_filename") or "").strip(),
+            }
+        subtopic_words.update(tokenize(b.get("subtopic_l2") or ""))
+
+    if not docs_by_id:
+        return {"doc_ids": [], "tokens": [], "matched_input_tokens": [], "labels": [], "remaining_query": ""}
+
+    v6_words = {w for t in V6_THEMES for w in tokenize(t)}
+    return resolve_deck_query(
+        prompt_lower,
+        list(docs_by_id.values()),
+        extra_excluded=(v6_words | subtopic_words),
+        is_prompt=True,
+    )
+
+
+def _detect_deck_filter_tokens(prompt_lower: str, bank: List[Dict[str, Any]]) -> List[str]:
+    """Detect distinctive deck-series names (e.g. 'agastya') present in both prompt and bank document titles."""
+    return _detect_deck_scope(prompt_lower, bank)["tokens"]
 
 
 def build_draft(db: Session, prompt: str, count: Optional[int] = None,
@@ -754,7 +1039,10 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                 previous_brief: Optional[Dict[str, Any]] = None,
                 exclude_ids: Optional[Set[str]] = None,
                 current_questions: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    from backend.app.services.prompt_quiz import metrics as _metrics
+    _timer = _metrics.StageTimer()
     brief = interpret(prompt, count, options, previous_brief, current_questions=current_questions, db=db)
+    _timer.mark("interpret")
 
     # Geographic/locality queries: ONLY when the user's prompt is strictly asking for geographic trivia,
     # NOT when geography is just a qualifier for a subject (e.g. "people in india", "food in delhi", "startups in bangalore").
@@ -765,7 +1053,10 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     # Detect if the prompt has an actual topical subject beyond geography
     non_geo_signals = (
         "people", "person", "personality", "personalities", "figure", "figures", "leader", "leaders",
-        "scientist", "scientists", "inventor", "inventors", "author", "authors", "food", "dish", "cuisine",
+        "scientist", "scientists", "science", "scientific", "experiment", "experiments",
+        "physics", "chemistry", "biology", "space", "astronomy", "agastya", "environment",
+        "nature", "health", "mathematics", "math",
+        "inventor", "inventors", "author", "authors", "food", "dish", "cuisine",
         "startup", "startups", "company", "companies", "brand", "brands", "tech", "technology", "ai",
         "finance", "bank", "banking", "cricket", "sport", "sports", "movie", "movies", "film", "music",
         "history", "heritage", "art", "law", "court", "women", "symbol", "symbols", "freedom", "education"
@@ -789,30 +1080,153 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         brief.search_terms = []
 
     # Broad / vague prompts: "10 questions", "give me 5 questions", "quiz for tonight", "surprise me with 5 questions"
-    # When no topic, locality, or subtopic was requested, do a broad randomized search so every run gives a fresh, varied quiz.
-    p_lower = (brief.prompt or "").lower().strip()
-    is_vague = not (brief.topics_l1 or brief.subtopics_l2 or brief.locality) and (
+    p_lower = normalize_compound_typos(brief.prompt or "").lower().strip()
+    if re.search(r"\b(?:all|any)\s+(?:sources?|decks?|presentations?)\b", p_lower):
+        brief.filters.pop("deck_filter", None)
+        brief.filters.pop("document_ids", None)
+        brief.filters.pop("source_labels", None)
+
+    is_vague = not (
+        brief.topics_l1 or brief.subtopics_l2 or brief.locality
+        or brief.filters.get("deck_filter") or brief.filters.get("document_ids")
+    ) and (
         bool(re.search(r"^(?:give\s+me\s+)?(?:\d+|[a-z]+)?\s*questions?$", p_lower))
         or bool(re.search(r"\b(surprise(?:\s+me)?|tonight|random|quick|standard)\b", p_lower))
         or (brief.query or "").lower() in ("general knowledge", "trivia", "general", "surprise", "tonight", "", "evergreen", "evergreen only")
-    ) and not any(k in p_lower for k in ("on ", "about ", "finance", "bank", "sport", "cricket", "tech", "food", "ai", "brand", "startup", "delhi", "mumbai", "karnataka", "india", "tata", "paytm", "jalebi"))
+    ) and not any(k in p_lower for k in (
+        "on ", "about ", "finance", "bank", "sport", "cricket", "tech", "food", "ai",
+        "brand", "startup", "delhi", "mumbai", "karnataka", "india", "tata", "paytm",
+        "jalebi", "science", "experiment", "experiments", "agastya", "physics", "chemistry", "biology",
+    ))
     if is_vague:
         brief.query = ""
         brief.search_terms = []
 
-    bank = _load_bank(db)
+    bank = _load_bank(db, slots_for(brief))
+    _timer.mark("load_bank")
+
+    # Data-driven deck/series filter: when prompt names a distinctive deck series from the bank
+    # (e.g. "Agastya", "aghtya", or "Agastya Set 2 Prelims"), restrict retrieval to matching decks.
+    matched_source_input_tokens: Set[str] = set()
+    if not brief.filters.get("deck_filter") and not brief.filters.get("document_ids"):
+        detected_scope = _detect_deck_scope(p_lower, bank)
+        if detected_scope.get("tokens"):
+            brief.filters["deck_filter"] = detected_scope["tokens"]
+        if detected_scope.get("doc_ids"):
+            brief.filters["document_ids"] = detected_scope["doc_ids"]
+        if detected_scope.get("labels"):
+            brief.filters["source_labels"] = detected_scope["labels"]
+        matched_source_input_tokens = set(detected_scope.get("matched_input_tokens") or [])
+    elif brief.filters.get("document_ids") and not brief.filters.get("source_labels"):
+        from backend.app.services.source_grouping import derive_source_series
+        sel_ids = {str(x) for x in (brief.filters.get("document_ids") or [])}
+        sel_docs = {}
+        for b in bank:
+            bid = str(b.get("document_id") or "")
+            if bid in sel_ids and bid not in sel_docs:
+                sel_docs[bid] = (b.get("document_title") or "", b.get("document_filename") or "")
+        if len(sel_docs) == 1:
+            t_only, f_only = next(iter(sel_docs.values()))
+            brief.filters["source_labels"] = [t_only or f_only]
+        elif sel_docs:
+            ser_counts: Dict[str, int] = {}
+            for t_d, f_d in sel_docs.values():
+                ser = derive_source_series(t_d, f_d)
+                ser_counts[ser] = ser_counts.get(ser, 0) + 1
+            brief.filters["source_labels"] = [
+                f"{ser} ({cnt} decks)" if cnt > 1 else ser
+                for ser, cnt in sorted(ser_counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+            ]
+
+    deck_filter_tokens = {str(t).strip().lower() for t in (brief.filters.get("deck_filter") or []) if str(t).strip()}
+    source_drop_tokens = deck_filter_tokens | matched_source_input_tokens
+    has_source_filter = bool(deck_filter_tokens or brief.filters.get("document_ids"))
+    _timer.mark("deck_scope")
 
     # 3. Librarian: search broadly across the entire bank
     idx = _index_for(bank)
-    search_query = brief.query
+    raw_search_query = brief.query or ""
     if getattr(brief, 'search_terms', None):
-        search_query = brief.query + " " + " ".join(brief.search_terms)
+        raw_search_query = (raw_search_query + " " + " ".join(brief.search_terms)).strip()
+
+    # Check if the brief's own query has genuine topical words left after removing source/deck names & noise words
+    query_topical_tokens = [
+        w for w in tokenize(brief.query or "")
+        if w not in (_TOPICAL_NOISE_WORDS | source_drop_tokens)
+    ]
+    has_non_source_topic = bool(query_topical_tokens) and not is_pure_geo and not is_vague
+
+    # Strip geo/meta wrapper tokens and deck-filter names from topical search_query when topical words exist,
+    # so "karnataka", "india", "state", "board", or deck name/typo alone doesn't distort relevance scoring.
+    has_non_geo_topic = has_topical_subject and not is_pure_geo and not is_vague and (not has_source_filter or has_non_source_topic)
+    if has_source_filter and not has_non_source_topic:
+        # User only asked for a source/deck (e.g. "10 questions from aghtya") -> broad search inside those decks
+        search_query = ""
+        effective_query_for_floor = ""
+        brief.query = ""
+        brief.search_terms = []
+        brief.topics_l1 = []
+        brief.subtopics_l2 = []
+    elif (has_non_geo_topic or source_drop_tokens) and raw_search_query:
+        drop_from_topical = _TOPICAL_NOISE_WORDS | source_drop_tokens
+        filtered_words = [
+            w for w in tokenize(raw_search_query)
+            if w not in drop_from_topical
+        ]
+        search_query = " ".join(filtered_words) if filtered_words else raw_search_query
+        effective_query_for_floor = " ".join(query_topical_tokens) if (has_source_filter and query_topical_tokens) else brief.query
+    else:
+        search_query = raw_search_query
+        effective_query_for_floor = "" if (has_source_filter and not has_non_geo_topic) else brief.query
+
     pool_cap = max(300, len(bank))
     hits = idx.search(search_query, filters=None, top_k=pool_cap)
 
     # Drop hits below the relevance floor from on-topic retrieval
-    if brief.query:
+    if effective_query_for_floor:
         hits = [h for h in hits if float(h.get("score") or 0.0) >= MIN_RELEVANCE_SCORE]
+
+    # Domain-coherence guard for pure STEM / Science queries: prevent commercial banking,
+    # constitutional/political, or pure sports/entertainment items with stray incidental keyword
+    # matches from leaking into Science/Experiments quizzes (e.g. on "Focus on India").
+    _stem_query_words = (
+        "science", "scientific", "experiment", "experiments",
+        "physics", "chemistry", "biology", "astronomy",
+    )
+    _non_stem_prompt_hints = (
+        "business", "finance", "banking", "bank", "company", "startup", "corporate",
+        "politics", "political", "constitution", "government", "election", "law",
+        "sport", "sports", "cricket", "movie", "cinema", "bollywood", "music", "logo",
+    )
+    _query_plus_prompt = f"{(brief.query or '').lower()} {p_lower}"
+    _is_pure_stem_ask = any(w in _query_plus_prompt for w in _stem_query_words) and not any(
+        w in _query_plus_prompt for w in _non_stem_prompt_hints
+    )
+    if _is_pure_stem_ask and not deck_filter_tokens:
+        _NON_STEM_L1 = {"finance", "politics", "business", "economy", "sports", "entertainment"}
+        _CORE_STEM_TERMS = {
+            "science", "scientific", "experiment", "experiments", "physics", "chemistry",
+            "biology", "astronomy", "laboratory", "gravity", "magnet", "magnetism", "acid",
+            "base", "refraction", "reflection", "friction", "irrigation", "photosynthesis",
+            "microscope", "telescope", "lens", "mirror", "molecule", "atom", "cell",
+            "potassium", "plaster", "thermometer", "stethoscope", "circuit", "electricity",
+            "isro", "chandrayaan", "mangalyaan", "gaganyaan", "scientist", "rocket",
+        }
+        coherent_hits = []
+        for h in hits:
+            l1_low = (h.get("topic_l1") or "").strip().lower()
+            if l1_low in _NON_STEM_L1:
+                h_blob = " ".join([
+                    str(h.get("question_text") or ""),
+                    str(h.get("answer") or ""),
+                    str(h.get("subtopic_l2") or ""),
+                    " ".join(str(k) for k in (h.get("keywords") or [])),
+                ]).lower()
+                h_toks = set(tokenize(h_blob))
+                if not (h_toks & _CORE_STEM_TERMS):
+                    continue
+            coherent_hits.append(h)
+        hits = coherent_hits
 
     # Broad hits for adjacent pool only (tagged with score capped below real matches)
     if len(hits) < pool_cap:
@@ -823,9 +1237,10 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         for b in broad:
             if b["id"] not in seen:
                 b_adj = dict(b)
-                b_adj["score"] = round(min(pad_cap * 0.5, 0.2), 3)
+                b_adj["score"] = round(min(pad_cap * 0.5, 0.2), 3) if effective_query_for_floor else 1.0
                 hits.append(b_adj)
 
+    _timer.mark("retrieve")
     # Split into on-topic vs adjacent
     on_ok, adjacent, on_all, effective_l2s = split_pools(
         hits,
@@ -838,7 +1253,24 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     # Gemini-invented names that don't exist in the bank
     brief.subtopics_l2 = effective_l2s
 
+    # Preserve top-matching currently displayed questions on constraint refinements (e.g. "School friendly")
+    has_topic_swap = bool(re.search(
+        r"\b(?:replace|swap|change|switch)\b.*\b(?:to|with|for|into)\b|\binstead\s+of\b",
+        p_lower,
+    ))
+    is_continuity_refinement = bool(previous_brief and current_questions and not has_topic_swap)
+    current_slot_bonus: Dict[str, float] = {}
+    preserve_slot1_id: Optional[str] = None
+    if is_continuity_refinement:
+        for slot_idx, cq in enumerate(current_questions):
+            cq_id = cq.get("id")
+            if cq_id:
+                current_slot_bonus[cq_id] = max(0.15, 0.85 - 0.08 * slot_idx)
+        preserve_slot1_id = current_questions[0].get("id") if current_questions else None
+
     # 4. Score each pool item
+    has_topical_query = bool((brief.query or "").strip()) and not is_pure_geo and not is_vague
+
     def _rank_cand(c: Dict[str, Any]) -> float:
         base = float(c.get("score") or 0.0)
         aud = audience_score(
@@ -848,15 +1280,23 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
             audience=brief.filters.get("audience"),
             tone=brief.tone,
         )
+        if has_topical_query and aud > 0:
+            aud = min(aud, max(0.5, 0.5 * base))
         diff_pen = difficulty_penalty(c, brief.hard_bias)
-        return base + aud - 0.35 * diff_pen
+        cont = current_slot_bonus.get(c.get("id"), 0.0) if diff_pen < 0.7 else 0.0
+        return base + aud - 0.35 * diff_pen + cont
 
-    on_ok.sort(key=_rank_cand, reverse=True)
-    adjacent.sort(key=_rank_cand, reverse=True)
+    for c in on_ok:
+        c["_rank_score"] = _rank_cand(c)
+    for c in adjacent:
+        c["_rank_score"] = _rank_cand(c)
+    on_ok.sort(key=lambda c: c["_rank_score"], reverse=True)
+    adjacent.sort(key=lambda c: c["_rank_score"], reverse=True)
 
     # 5. Guardian + Editor on ranked on-topic list
     effective_exclude = set(exclude_ids or set())
     cands = guardian(on_ok, brief, exclude_ids=effective_exclude)
+    _timer.mark("rank_guard")
 
     narrative_arc: Optional[str] = None
     picked: List[Dict[str, Any]] = []
@@ -873,30 +1313,53 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                 target_count=brief.count,
                 candidates=curator_pool,
                 current_questions=current_questions,
-                previous_brief=previous_brief,
+                previous_brief=brief.public(),
             )
             if cur_res is not None and "selected_ids" in cur_res:
                 cands_by_id = {c["id"]: c for c in curator_pool if c.get("id")}
                 seen_cur_ents: Set[str] = set()
+                seen_picked_ids: Set[str] = set()
                 deduped_cur_picked = []
+                matched_before_dedup = 0
                 common_geo = {"bengaluru", "bangalore", "mumbai", "delhi", "india", "chennai", "kolkata", "hyderabad", "pune"}
                 for qid in cur_res["selected_ids"]:
                     if qid in cands_by_id:
+                        matched_before_dedup += 1
                         c = cands_by_id[qid]
                         ent = _normalize_answer_entity(c.get("answer") or "")
                         if ent and ent not in common_geo and ent in seen_cur_ents:
                             continue
                         if ent:
                             seen_cur_ents.add(ent)
+                        seen_picked_ids.add(qid)
                         deduped_cur_picked.append(c)
+                # Replenish only slots lost to duplicate-entity filtering (preserves honest 0/partial counts).
+                target_after_dedup = min(brief.count, matched_before_dedup)
+                if len(deduped_cur_picked) < target_after_dedup:
+                    for c in cands:
+                        cid = c.get("id")
+                        if not cid or cid in seen_picked_ids:
+                            continue
+                        ent = _normalize_answer_entity(c.get("answer") or "")
+                        if ent and ent not in common_geo and ent in seen_cur_ents:
+                            continue
+                        if ent:
+                            seen_cur_ents.add(ent)
+                        seen_picked_ids.add(cid)
+                        deduped_cur_picked.append(c)
+                        if len(deduped_cur_picked) >= target_after_dedup:
+                            break
                 picked = deduped_cur_picked
                 narrative_arc = cur_res.get("narrative_arc")
         except Exception as e:
             logger.warning(f"AI Curator invocation failed ({e}), falling back to deterministic editor")
 
-    if not picked and cur_res is None:
-        picked = editor(cands, brief)
+    if not picked and (cur_res is None or not has_topical_query):
+        picked = editor(cands, brief, preserve_slot1_id=preserve_slot1_id)
+        if picked and cur_res is not None:
+            narrative_arc = None
 
+    _timer.mark("select")
     # 6. Padding if requested and short
     padded = 0
     if brief.cross_topic_padding and len(picked) < brief.count:
@@ -932,6 +1395,18 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     brief.narrative_arc = narrative_arc
 
+    _timer.mark("finish")
+    timings = {**_timer.stages, "total": _timer.total_ms()}
+    try:
+        _metrics.record({
+            "at": time.time(), "total_ms": timings["total"], "stages": _timer.stages, "bank_size": len(bank),
+            "interpreter": brief.source, "short": bool(fulfillment.get("short")),
+            "curator": "none" if cur_res is None and not narrative_arc and not os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes")
+                       else ("used" if narrative_arc else ("fallback" if cur_res is None else "empty")),
+        })
+    except Exception:
+        pass
+
     return {
         "brief": brief.public(),
         "questions": [_view(p) for p in picked],
@@ -940,20 +1415,35 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         "stages": stages,
         "fulfillment": fulfillment,
         "narrative_arc": narrative_arc,
+        "timings_ms": timings,
     }
 
 
 def swap_one(db: Session, prompt: str, question_id: str, keep_ids: List[str],
              options: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     brief = interpret(prompt, 1, options)
-    bank = _load_bank(db)
+    bank = _load_bank(db, slots_for(brief))
+    p_lower = normalize_compound_typos(prompt or "").lower().strip()
+    matched_source_toks: Set[str] = set()
+    if not brief.filters.get("deck_filter") and not brief.filters.get("document_ids"):
+        detected_scope = _detect_deck_scope(p_lower, bank)
+        if detected_scope.get("tokens"):
+            brief.filters["deck_filter"] = detected_scope["tokens"]
+        if detected_scope.get("doc_ids"):
+            brief.filters["document_ids"] = detected_scope["doc_ids"]
+        matched_source_toks = set(detected_scope.get("matched_input_tokens") or [])
+    source_drop = matched_source_toks | {str(t).strip().lower() for t in (brief.filters.get("deck_filter") or []) if str(t).strip()}
+    if source_drop and brief.query:
+        brief.query = " ".join(w for w in tokenize(brief.query) if w not in source_drop).strip()
     target = next((b for b in bank if b["id"] == question_id), None)
     if target and target.get("subtopic_l2"):  # prefer a neighbour of the swapped question
-        brief.query = f"{brief.query} {target['subtopic_l2']}"
+        brief.query = f"{brief.query} {target['subtopic_l2']}".strip()
     idx = _index_for(bank)
     search_query = brief.query
     if getattr(brief, 'search_terms', None):
-        search_query = brief.query + " " + " ".join(brief.search_terms)
+        cleaned_terms = [w for w in tokenize(" ".join(brief.search_terms)) if w not in source_drop]
+        if cleaned_terms:
+            search_query = (brief.query + " " + " ".join(cleaned_terms)).strip()
     hits = idx.search(search_query, filters=None, top_k=max(300, len(bank)))
     if brief.query:
         hits = [h for h in hits if float(h.get("score") or 0.0) >= MIN_RELEVANCE_SCORE]

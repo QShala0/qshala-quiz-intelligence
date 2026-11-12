@@ -62,7 +62,7 @@ if os.getenv("BENCH"):
     import time
     ps=["10 questions on banking","school quiz on important people in India","fintech in bangalore","5 questions","15 hard questions on cricket and IPL"]
     def run():
-        with patch.object(engine, LOADER, lambda db: [dict(r) for r in bank]), patch("backend.app.config.settings.GEMINI_API_KEY",""):
+        with patch.object(engine, LOADER, lambda db, *a, **k: [dict(r) for r in bank]), patch("backend.app.config.settings.GEMINI_API_KEY",""):
             for q in ps: engine.build_draft(DB, q)
     run()  # warm cache
     t=time.perf_counter(); [run() for _ in range(3)]
@@ -70,7 +70,7 @@ if os.getenv("BENCH"):
 
 def snap_draft(prompt, **kw):
     random.seed(1234)
-    with patch.object(engine, LOADER, lambda db: [dict(r) for r in bank]), \
+    with patch.object(engine, LOADER, lambda db, *a, **k: [dict(r) for r in bank]), \
          patch("backend.app.config.settings.GEMINI_API_KEY", ""):
         d = engine.build_draft(DB, prompt, **kw)
     return {"ids": [q["id"] for q in d["questions"]], "scores": [q.get("score") for q in d["questions"]],
@@ -85,7 +85,7 @@ out["drafts"]["__exclude__"] = snap_draft("10 questions on banking", exclude_ids
 for p in ["10 questions on banking", "cricket", "school quiz on important people in India"]:
     ids = snap_draft(p)["ids"]
     random.seed(99)
-    with patch.object(engine, LOADER, lambda db: [dict(r) for r in bank]), patch("backend.app.config.settings.GEMINI_API_KEY", ""):
+    with patch.object(engine, LOADER, lambda db, *a, **k: [dict(r) for r in bank]), patch("backend.app.config.settings.GEMINI_API_KEY", ""):
         s = engine.swap_one(MagicMock(), p, ids[0], ids[1:])
     out["swaps"][p] = s and {"id": s["id"], "score": s.get("score")}
 
@@ -100,7 +100,7 @@ blob = json.dumps(out, sort_keys=True, default=str)
 if mode == "record":
     open(path, "w").write(blob); print("recorded", len(blob), hashlib.md5(blob.encode()).hexdigest())
 else:
-    gold = open(path).read()
+    gold = open(path, newline="").read().replace("\r\n", "\n")      # tolerate a Windows checkout
     if gold == blob: print("IDENTICAL", hashlib.md5(blob.encode()).hexdigest())
     else:
         g, n = json.loads(gold), json.loads(blob)

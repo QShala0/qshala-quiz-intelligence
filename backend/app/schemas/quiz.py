@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, computed_field
 
 class QuizGenerateRequest(BaseModel):
     topic: str = Field(..., example="Australian History")
@@ -49,6 +49,7 @@ class GeneratedQuestionResponse(BaseModel):
     grade_max: Optional[int] = None
     topic: Optional[str] = None
     question_type: Optional[str] = "MULTIPLE_CHOICE"
+    format_payload: Optional[Dict[str, Any]] = None
     image_refs: List[str] = []
     question_images: List[str] = []
     answer_images: List[str] = []
@@ -66,6 +67,13 @@ class GeneratedQuestionResponse(BaseModel):
     created_at: datetime
     retrieval_sources: List[RetrievalSourceResponse] = []
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def question_format(self) -> Optional[str]:
+        """The format the question was read as (from its payload), else the older question_type."""
+        p = self.format_payload
+        return (p.get("type") if isinstance(p, dict) else None) or self.question_type
 
 class GeneratedQuestionUpdate(BaseModel):
     question_text: Optional[str] = None

@@ -1,9 +1,11 @@
 import json
 import logging
 import os
+import threading
 from typing import List, Optional
 from sqlalchemy import create_engine, TypeDecorator, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.pool import NullPool
 from backend.app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -68,43 +70,61 @@ def _ensure_vector_index(engine) -> None:
     extension unavailable, etc.) dense search simply falls back to scoring
     candidates in Python, same as it always has.
     """
-    if not (is_postgres and PG_VECTOR_AVAILABLE):
+    if not (engine is not None and engine.dialect.name == "postgresql" and PG_VECTOR_AVAILABLE):
         return
 
     try:
         with engine.connect() as conn:
+            existing_idx = conn.exec_driver_sql(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE schemaname = current_schema() "
+                "AND tablename = 'questions' "
+                "AND indexname IN ('ix_questions_embedding_hnsw', 'ix_questions_embedding_ivfflat') "
+                "LIMIT 1;"
+            ).fetchone()
+            if existing_idx:
+                return
+    except Exception as e:
+        logger.debug(f"Vector index existence check skipped ({e})")
+
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("SET LOCAL lock_timeout = '2s';")
+            conn.exec_driver_sql("SET LOCAL statement_timeout = '5s';")
             conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector;")
-            conn.commit()
     except Exception as e:
         logger.warning(f"Could not enable the pgvector extension ({e}); dense search will fall back to in-app scoring.")
         return
 
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("SET LOCAL lock_timeout = '2s';")
+            conn.exec_driver_sql("SET LOCAL statement_timeout = '10s';")
             conn.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ix_questions_embedding_hnsw "
                 "ON questions USING hnsw (embedding vector_cosine_ops) "
                 "WITH (m = 16, ef_construction = 64);"
             )
-            conn.commit()
         logger.info("pgvector HNSW index ready on questions.embedding")
         return
     except Exception as e:
         logger.debug(f"HNSW index creation failed ({e}), trying IVFFlat instead.")
 
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("SET LOCAL lock_timeout = '2s';")
+            conn.exec_driver_sql("SET LOCAL statement_timeout = '10s';")
             conn.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ix_questions_embedding_ivfflat "
                 "ON questions USING ivfflat (embedding vector_cosine_ops) "
                 "WITH (lists = 100);"
             )
-            conn.commit()
         logger.info("pgvector IVFFlat index ready on questions.embedding")
     except Exception as e:
         logger.warning(f"Could not create a vector index on questions.embedding ({e}); dense search will fall back to in-app scoring.")
 
 # Database engine with automatic fallback
+_is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
 engine = None
 if is_postgres:
     # Disable Postgres' idle-in-transaction killer for this app's connections. It is a backstop only:
@@ -118,17 +138,30 @@ if is_postgres:
     # and causing Cloud Run startup TCP probes to fail with DEADLINE_EXCEEDED.
     # Therefore, skip startup options if connecting through a pooler.
     is_pooled = "-pooler" in raw_db_url or "neon.tech" in raw_db_url
-    _pg_base = dict(
-        echo=False,
-        pool_pre_ping=True,
-        pool_recycle=280,
-        pool_size=5,
-        max_overflow=10,
-        pool_timeout=30,
+    _pg_base = (
+        dict(echo=False, poolclass=NullPool)
+        if _is_serverless
+        else dict(
+            echo=False,
+            pool_pre_ping=True,
+            pool_recycle=280,
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30,
+        )
     )
-    _pg_connect_args = None if is_pooled else {"options": "-c idle_in_transaction_session_timeout=0"}
-    _attempts = (_pg_connect_args, None) if _pg_connect_args else (None,)
-    for _attempt_args in _attempts:
+    _pg_connect_args = (
+        {"connect_timeout": 10}
+        if is_pooled
+        else {"connect_timeout": 10, "options": "-c idle_in_transaction_session_timeout=0"}
+    )
+    _attempts = (
+        (_pg_connect_args,)
+        if is_pooled
+        else (_pg_connect_args, {"connect_timeout": 10})
+    )
+    for _idx, _attempt_args in enumerate(_attempts):
+        _has_fallback = (_idx + 1) < len(_attempts)
         try:
             _kwargs = dict(_pg_base)
             if _attempt_args:
@@ -136,14 +169,19 @@ if is_postgres:
             engine = create_engine(raw_db_url, **_kwargs)
             with engine.connect() as conn:
                 pass
-            if _attempt_args:
+            if _attempt_args and "options" in _attempt_args:
                 logger.info("PostgreSQL engine ready (idle-in-transaction timeout disabled)")
             else:
                 logger.info("PostgreSQL engine ready (plain; startup option skipped or not accepted by endpoint)")
             break
         except Exception as exc:
+            if engine is not None:
+                try:
+                    engine.dispose()
+                except Exception:
+                    pass
             engine = None
-            if _attempt_args:
+            if _has_fallback:
                 logger.warning(f"PostgreSQL connect with idle-timeout option failed ({exc}); retrying without it")
                 continue
             logger.warning(f"PostgreSQL connection failed ({exc}), falling back to SQLite")
@@ -202,295 +240,353 @@ def short_session():
     finally:
         db.close()
 
-def ensure_schema_columns():
-    """Safely adds newly introduced columns to existing database tables."""
-    if engine is None:
-        return
-    try:
-        # Create all tables that do not exist yet (including sharepoint and job tables)
-        import backend.app.models  # noqa: F401
-        Base.metadata.create_all(bind=engine)
-        _ensure_vector_index(engine)
+_schema_lock = threading.RLock()
+_ensured_schema_keys: set[tuple[int, str]] = set()
 
-        with engine.connect() as conn:
-            if is_postgres:
-                try:
-                    conn.exec_driver_sql("SET lock_timeout = '2s';")
-                except Exception:
-                    pass
-            # Check if questions table exists
-            table_check = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='questions';").fetchone() if not is_postgres else True
-            if table_check:
-                new_q_cols = [
-                    ("content_hash", "VARCHAR(64)"),
-                    ("topics", "TEXT"),
-                    ("tags", "TEXT"),
-                    ("difficulty_score", "FLOAT DEFAULT 0.50"),
-                    ("cognitive_level", "VARCHAR(50) DEFAULT 'Recall / Remember'"),
-                    ("audience_suitability", "TEXT"),
-                    ("question_hook", "VARCHAR(50) DEFAULT 'DIRECT_TRIVIA'"),
-                    ("curiosity_score", "INTEGER DEFAULT 7"),
-                    ("temporal_nature", "VARCHAR(20) DEFAULT 'EVERGREEN'"),
-                    ("provenance_decks", "TEXT"),
-                    ("occurrence_count", "INTEGER DEFAULT 1"),
-                    ("round_number", "INTEGER"),
-                    ("image_refs", "TEXT DEFAULT '[]'"),
-                    ("question_images", "TEXT DEFAULT '[]'"),
-                    ("answer_images", "TEXT DEFAULT '[]'"),
-                    ("audio_refs", "TEXT DEFAULT '[]'"),
-                    ("question_audio", "TEXT DEFAULT '[]'"),
-                    ("answer_audio", "TEXT DEFAULT '[]'"),
-                    ("video_refs", "TEXT DEFAULT '[]'"),
-                    ("question_videos", "TEXT DEFAULT '[]'"),
-                    ("answer_videos", "TEXT DEFAULT '[]'"),
-                    ("visual_clues", "TEXT"),
-                    ("audio_transcript", "TEXT"),
-                    ("video_transcript", "TEXT"),
-                    ("raw_media_refs", "TEXT DEFAULT '[]'"),
-                    ("source_slide_range", "VARCHAR(50)"),
-                    ("duplicate_status", "VARCHAR(50) DEFAULT 'UNIQUE'"),
-                    ("duplicate_similarity", "FLOAT"),
-                    ("duplicate_of_id", "VARCHAR(36)"),
-                    ("format_payload", "JSON"),
-                    ("question_format", "VARCHAR(20) DEFAULT 'STANDARD_QA'"),
-                    ("format_data", "JSON"),
-                    ("embedding_model", "VARCHAR(64)")
-                ]
-                for col_name, col_type in new_q_cols:
-                    try:
-                        if is_postgres:
-                            conn.exec_driver_sql(f"ALTER TABLE questions ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
-                        else:
-                            conn.exec_driver_sql(f"ALTER TABLE questions ADD COLUMN {col_name} {col_type};")
-                    except Exception:
-                        pass # Column already exists
 
-            # Check if ingestion_jobs table exists
-            job_table_check = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='ingestion_jobs';").fetchone() if not is_postgres else True
-            if job_table_check:
-                job_cols = [
-                    ("batch_id", "VARCHAR(36)"),
-                    ("client_item_id", "VARCHAR(64)"),
-                    ("execution_name", "VARCHAR(255)")
-                ]
-                for col_name, col_type in job_cols:
-                    try:
-                        if is_postgres:
-                            conn.exec_driver_sql(f"ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
-                        else:
-                            conn.exec_driver_sql(f"ALTER TABLE ingestion_jobs ADD COLUMN {col_name} {col_type};")
-                    except Exception:
-                        pass
+def _expected_extra_columns(eng_is_postgres: bool) -> dict[str, list[tuple[str, str]]]:
+    """Column additions introduced after initial table creation."""
+    return {
+        "questions": [
+            ("content_hash", "VARCHAR(64)"),
+            ("topics", "TEXT"),
+            ("tags", "TEXT"),
+            ("difficulty_score", "FLOAT DEFAULT 0.50"),
+            ("cognitive_level", "VARCHAR(50) DEFAULT 'Recall / Remember'"),
+            ("audience_suitability", "TEXT"),
+            ("question_hook", "VARCHAR(50) DEFAULT 'DIRECT_TRIVIA'"),
+            ("curiosity_score", "INTEGER DEFAULT 7"),
+            ("temporal_nature", "VARCHAR(20) DEFAULT 'EVERGREEN'"),
+            ("provenance_decks", "TEXT"),
+            ("occurrence_count", "INTEGER DEFAULT 1"),
+            ("round_number", "INTEGER"),
+            ("image_refs", "TEXT DEFAULT '[]'"),
+            ("question_images", "TEXT DEFAULT '[]'"),
+            ("answer_images", "TEXT DEFAULT '[]'"),
+            ("audio_refs", "TEXT DEFAULT '[]'"),
+            ("question_audio", "TEXT DEFAULT '[]'"),
+            ("answer_audio", "TEXT DEFAULT '[]'"),
+            ("video_refs", "TEXT DEFAULT '[]'"),
+            ("question_videos", "TEXT DEFAULT '[]'"),
+            ("answer_videos", "TEXT DEFAULT '[]'"),
+            ("visual_clues", "TEXT"),
+            ("audio_transcript", "TEXT"),
+            ("video_transcript", "TEXT"),
+            ("raw_media_refs", "TEXT DEFAULT '[]'"),
+            ("source_slide_range", "VARCHAR(50)"),
+            ("duplicate_status", "VARCHAR(50) DEFAULT 'UNIQUE'"),
+            ("duplicate_similarity", "FLOAT"),
+            ("duplicate_of_id", "VARCHAR(36)"),
+            ("format_payload", "JSON"),
+            ("question_format", "VARCHAR(20) DEFAULT 'STANDARD_QA'"),
+            ("format_data", "JSON"),
+            ("embedding_model", "VARCHAR(64)"),
+            ("play_mode", "VARCHAR(16)"),
+            ("slot", "VARCHAR(10) NOT NULL DEFAULT 'LIVE'"),
+            ("topic_label", "VARCHAR(100)"),
+            ("format_needs_review", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ],
+        "ingestion_jobs": [
+            ("batch_id", "VARCHAR(36)"),
+            ("client_item_id", "VARCHAR(64)"),
+            ("execution_name", "VARCHAR(255)"),
+        ],
+        "generated_questions": [
+            ("image_refs", "TEXT DEFAULT '[]'"),
+            ("question_images", "TEXT DEFAULT '[]'"),
+            ("answer_images", "TEXT DEFAULT '[]'"),
+            ("audio_refs", "TEXT DEFAULT '[]'"),
+            ("question_audio", "TEXT DEFAULT '[]'"),
+            ("answer_audio", "TEXT DEFAULT '[]'"),
+            ("visual_clues", "TEXT"),
+            ("format_payload", "JSON"),
+        ],
+        "quizzes": [
+            ("quiz_format", "VARCHAR(50) DEFAULT 'TOURNAMENT_PRELIMS'"),
+            ("audience_type", "VARCHAR(50) DEFAULT NULL"),
+            ("grades", "TEXT DEFAULT '[]'"),
+            ("age_range", "VARCHAR(50) DEFAULT NULL"),
+            ("grade_min", "INTEGER DEFAULT NULL"),
+            ("grade_max", "INTEGER DEFAULT NULL"),
+            ("tags", "TEXT"),
+            ("personality", "VARCHAR(50) DEFAULT NULL"),
+        ],
+        "upload_batches": [
+            ("last_seen_at", "TIMESTAMP WITH TIME ZONE" if eng_is_postgres else "DATETIME"),
+        ],
+        "documents": [
+            ("blob_url", "TEXT"),
+            ("source", "VARCHAR(50) DEFAULT 'MANUAL'"),
+            ("sharepoint_file_id", "VARCHAR(255)"),
+            ("cancel_requested", "BOOLEAN DEFAULT FALSE"),
+            ("progress_detail", "JSON"),
+            ("file_sha256", "VARCHAR(64)"),
+        ],
+        "qshala_question_metadata": [
+            ("round_number", "INTEGER"),
+            ("question_in_round", "INTEGER"),
+            ("city_name", "VARCHAR(100)"),
+            ("deck_year", "INTEGER"),
+            ("is_varsity", "BOOLEAN DEFAULT FALSE" if eng_is_postgres else "BOOLEAN DEFAULT 0"),
+            ("relevant_year", "INTEGER"),
+            ("geo_region", "VARCHAR(100)"),
+            ("india_international", "VARCHAR(8)"),
+            ("manual_fields", "TEXT"),
+        ],
+        "qshala_tags": [
+            ("relevant_year", "INTEGER"),
+            ("cached_tokens", "INTEGER"),
+        ],
+    }
 
-            # Check if generated_questions table exists
-            gen_q_table_check = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='generated_questions';").fetchone() if not is_postgres else True
-            if gen_q_table_check:
-                gen_q_cols = [
-                    ("image_refs", "TEXT DEFAULT '[]'"),
-                    ("question_images", "TEXT DEFAULT '[]'"),
-                    ("answer_images", "TEXT DEFAULT '[]'"),
-                    ("audio_refs", "TEXT DEFAULT '[]'"),
-                    ("question_audio", "TEXT DEFAULT '[]'"),
-                    ("answer_audio", "TEXT DEFAULT '[]'"),
-                    ("visual_clues", "TEXT"),
-                    ("format_payload", "JSON")
-                ]
-                for col_name, col_type in gen_q_cols:
-                    try:
-                        if is_postgres:
-                            conn.exec_driver_sql(f"ALTER TABLE generated_questions ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
-                        else:
-                            conn.exec_driver_sql(f"ALTER TABLE generated_questions ADD COLUMN {col_name} {col_type};")
-                    except Exception:
-                        pass
 
-            # Check if quizzes table exists
-            quiz_table_check = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='quizzes';").fetchone() if not is_postgres else True
-            if quiz_table_check:
-                quiz_cols = [
-                    ("quiz_format", "VARCHAR(50) DEFAULT 'TOURNAMENT_PRELIMS'"),
-                    ("audience_type", "VARCHAR(50) DEFAULT NULL"),
-                    ("grades", "TEXT DEFAULT '[]'"),
-                    ("age_range", "VARCHAR(50) DEFAULT NULL"),
-                    ("grade_min", "INTEGER DEFAULT NULL"),
-                    ("grade_max", "INTEGER DEFAULT NULL"),
-                    ("tags", "TEXT"),
-                    ("personality", "VARCHAR(50) DEFAULT NULL")
-                ]
-                for col_name, col_type in quiz_cols:
-                    try:
-                        if is_postgres:
-                            conn.exec_driver_sql(f"ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
-                        else:
-                            conn.exec_driver_sql(f"ALTER TABLE quizzes ADD COLUMN {col_name} {col_type};")
-                    except Exception:
-                        pass
-
-            # Check if upload_batches table exists
-            batch_table_check = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='upload_batches';").fetchone() if not is_postgres else True
-            if batch_table_check:
-                try:
-                    if is_postgres:
-                        conn.exec_driver_sql("ALTER TABLE upload_batches ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP WITH TIME ZONE;")
-                    else:
-                        conn.exec_driver_sql("ALTER TABLE upload_batches ADD COLUMN last_seen_at DATETIME;")
-                except Exception:
-                    pass
-
-            # Ensure upload_sessions table exists
-            try:
-                if is_postgres:
-                    conn.exec_driver_sql("""
-                        CREATE TABLE IF NOT EXISTS upload_sessions (
-                            upload_id VARCHAR(64) PRIMARY KEY,
-                            doc_id VARCHAR(64) NOT NULL,
-                            raw_key TEXT NOT NULL,
-                            r2_upload_id TEXT NOT NULL,
-                            parts JSON,
-                            total_bytes BIGINT DEFAULT 0,
-                            filename VARCHAR(255) NOT NULL,
-                            title VARCHAR(255),
-                            year INTEGER,
-                            batch_id VARCHAR(64),
-                            client_item_id VARCHAR(64),
-                            status VARCHAR(32) DEFAULT 'OPEN',
-                            document_id VARCHAR(64),
-                            created_at TIMESTAMP WITH TIME ZONE,
-                            updated_at TIMESTAMP WITH TIME ZONE
-                        );
-                        CREATE INDEX IF NOT EXISTS ix_upload_sessions_batch_id ON upload_sessions (batch_id);
-                        CREATE INDEX IF NOT EXISTS ix_upload_sessions_status ON upload_sessions (status);
-                    """)
-                    try:
-                        conn.exec_driver_sql('ALTER TABLE upload_sessions ALTER COLUMN r2_upload_id TYPE TEXT;')
-                        conn.exec_driver_sql('ALTER TABLE upload_sessions ALTER COLUMN raw_key TYPE TEXT;')
-                    except Exception:
-                        pass
-                else:
-                    conn.exec_driver_sql("""
-                        CREATE TABLE IF NOT EXISTS upload_sessions (
-                            upload_id VARCHAR(64) PRIMARY KEY,
-                            doc_id VARCHAR(64) NOT NULL,
-                            raw_key TEXT NOT NULL,
-                            r2_upload_id TEXT NOT NULL,
-                            parts JSON,
-                            total_bytes BIGINT DEFAULT 0,
-                            filename VARCHAR(255) NOT NULL,
-                            title VARCHAR(255),
-                            year INTEGER,
-                            batch_id VARCHAR(64),
-                            client_item_id VARCHAR(64),
-                            status VARCHAR(32) DEFAULT 'OPEN',
-                            document_id VARCHAR(64),
-                            created_at DATETIME,
-                            updated_at DATETIME
-                        );
-                        CREATE INDEX IF NOT EXISTS ix_upload_sessions_batch_id ON upload_sessions (batch_id);
-                        CREATE INDEX IF NOT EXISTS ix_upload_sessions_status ON upload_sessions (status);
-                    """)
-            except Exception as e:
-                logger.debug(f"upload_sessions table creation notice: {e}")
-
-            # Check if documents table exists
-            doc_table_check = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='documents';").fetchone() if not is_postgres else True
-            if doc_table_check:
-                new_doc_cols = [
-                    ("blob_url", "TEXT"),
-                    ("source", "VARCHAR(50) DEFAULT 'MANUAL'"),
-                    ("sharepoint_file_id", "VARCHAR(255)"),
-                    ("cancel_requested", "BOOLEAN DEFAULT FALSE"),
-                    ("progress_detail", "JSON"),
-                    ("file_sha256", "VARCHAR(64)"),
-                ]
-                for col_name, col_type in new_doc_cols:
-                    try:
-                        if is_postgres:
-                            conn.exec_driver_sql(f"ALTER TABLE documents ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
-                        else:
-                            conn.exec_driver_sql(f"ALTER TABLE documents ADD COLUMN {col_name} {col_type};")
-                    except Exception:
-                        pass
-            # v6 tag system: columns added to the QShala tag tables after they first shipped.
-            _v6_cols = {
-                "qshala_question_metadata": [
-                    ("round_number", "INTEGER"),
-                    ("question_in_round", "INTEGER"),
-                    ("city_name", "VARCHAR(100)"),
-                    ("deck_year", "INTEGER"),
-                    ("is_varsity", "BOOLEAN DEFAULT FALSE" if is_postgres else "BOOLEAN DEFAULT 0"),
-                    ("relevant_year", "INTEGER"),
-                    ("geo_region", "VARCHAR(100)"),
-                    ("india_international", "VARCHAR(8)"),
-                    ("manual_fields", "TEXT"),
-                ],
-                "qshala_tags": [
-                    ("relevant_year", "INTEGER"),
-                    ("cached_tokens", "INTEGER"),
-                ],
+def _inspect_existing_schema(eng, eng_is_postgres: bool) -> tuple[set[str], dict[str, set[str]], dict[str, str]]:
+    """Inspect existing tables and columns with read-only queries before issuing any DDL."""
+    cols_by_table: dict[str, set[str]] = {}
+    upload_session_types: dict[str, str] = {}
+    with eng.connect() as conn:
+        if eng_is_postgres:
+            rows = conn.exec_driver_sql(
+                "SELECT table_name, column_name, data_type "
+                "FROM information_schema.columns "
+                "WHERE table_schema = current_schema();"
+            ).fetchall()
+            for tbl_name, col_name, data_type in rows:
+                cols_by_table.setdefault(tbl_name, set()).add(col_name)
+                if tbl_name == "upload_sessions" and col_name in ("r2_upload_id", "raw_key"):
+                    upload_session_types[col_name] = (data_type or "").lower()
+            existing_tables = set(cols_by_table.keys())
+        else:
+            existing_tables = {
+                row[0]
+                for row in conn.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='table';"
+                ).fetchall()
             }
-            for _tbl, _cols in _v6_cols.items():
-                for col_name, col_type in _cols:
-                    try:
-                        if is_postgres:
-                            conn.exec_driver_sql(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
-                        else:
-                            conn.exec_driver_sql(f"ALTER TABLE {_tbl} ADD COLUMN {col_name} {col_type};")
-                    except Exception:
-                        pass  # table not created yet, or column already exists
-            conn.commit()
+            for tbl_name in existing_tables:
+                safe_tbl = tbl_name.replace('"', '""')
+                cols = conn.exec_driver_sql(f'PRAGMA table_info("{safe_tbl}");').fetchall()
+                cols_by_table[tbl_name] = {col[1] for col in cols}
+    return existing_tables, cols_by_table, upload_session_types
 
-        # One-time backfill of content_hash and topics for legacy questions
+
+def _run_ddl_isolated(eng, sql_stmt: str, eng_is_postgres: bool, pg_statement_timeout: str = "5s") -> None:
+    """Execute one DDL statement inside an isolated transaction so failures cannot poison later statements."""
+    with eng.begin() as conn:
+        if eng_is_postgres:
+            conn.exec_driver_sql("SET LOCAL lock_timeout = '2s';")
+            conn.exec_driver_sql(f"SET LOCAL statement_timeout = '{pg_statement_timeout}';")
+        conn.exec_driver_sql(sql_stmt)
+
+
+def inspect_schema_status(target_engine=None) -> dict:
+    """Return read-only counts/lists of missing ORM tables and extra columns."""
+    eng = target_engine or engine
+    if eng is None:
+        return {"missing_tables": [], "missing_columns": {}}
+    import backend.app.models  # noqa: F401
+    eng_is_postgres = eng.dialect.name == "postgresql"
+    existing_tables, cols_by_table, _ = _inspect_existing_schema(eng, eng_is_postgres)
+    expected_tables = set(Base.metadata.tables.keys()) | {"upload_sessions"}
+    missing_tables = sorted(expected_tables - existing_tables)
+    expected_cols = _expected_extra_columns(eng_is_postgres)
+    missing_columns = {}
+    for table_name, col_defs in expected_cols.items():
+        if table_name not in existing_tables:
+            continue
+        existing_cols = cols_by_table.get(table_name, set())
+        missing = [col_name for col_name, _ in col_defs if col_name not in existing_cols]
+        if missing:
+            missing_columns[table_name] = missing
+    return {"missing_tables": missing_tables, "missing_columns": missing_columns}
+
+
+def ensure_schema_columns(
+    force: bool = False,
+    target_engine=None,
+    run_repairs: Optional[bool] = None,
+) -> bool:
+    """Safely ensures tables, vector index, extra columns, and startup repairs exist."""
+    eng = target_engine or engine
+    if eng is None:
+        return True
+
+    if run_repairs is None:
+        run_repairs = not _is_serverless
+
+    eng_is_postgres = eng.dialect.name == "postgresql"
+    cache_key = (id(eng), str(eng.url))
+
+    with _schema_lock:
+        if not force and cache_key in _ensured_schema_keys:
+            return True
+
         try:
-            from backend.app.services.deduplication.deduplicator import Deduplicator
-            from backend.app.services.tagging.auto_tagger import AutoTagger
-            from backend.app.services.tagging.difficulty_engine import DifficultyEngine
-            from backend.app.models.question import Question
+            # Create all tables that do not exist yet (including sharepoint and job tables)
+            import backend.app.models  # noqa: F401
 
-            _BACKFILL_BATCH = 200
-            sess = SessionLocal()
-            try:
-                total = sess.query(Question).filter(Question.content_hash.is_(None)).count()
-                if total:
-                    tagger = AutoTagger()
-                    diff_eng = DifficultyEngine()
-                    offset = 0
-                    while offset < total:
-                        batch = (sess.query(Question)
-                                 .filter(Question.content_hash.is_(None))
-                                 .limit(_BACKFILL_BATCH).all())
-                        if not batch:
-                            break
-                        for q in batch:
-                            q.content_hash = Deduplicator.compute_hash(q.question_text, q.answer)
-                            t_data = tagger.tag_question(q.question_text, q.answer, q.explanation or "")
-                            d_data = diff_eng.evaluate(q.question_text, q.answer, q.explanation or "")
-                            q.topics = t_data["topics"]
-                            q.tags = t_data["tags"]
-                            q.question_hook = t_data["question_hook"]
-                            q.curiosity_score = t_data["curiosity_score"]
-                            q.temporal_nature = t_data["temporal_nature"]
-                            q.difficulty = d_data["difficulty"]
-                            q.difficulty_score = d_data["difficulty_score"]
-                            q.cognitive_level = d_data["cognitive_level"]
-                            q.audience_suitability = d_data["audience_suitability"]
-                            q.provenance_decks = [{"document_id": q.document_id, "slide_id": q.slide_id}]
-                            q.occurrence_count = 1
-                        sess.commit()
-                        offset += len(batch)
-            finally:
-                sess.close()
-        except Exception as be:
-            logger.debug(f"Legacy backfill notice: {be}")
+            existing_tables, cols_by_table, upload_session_types = _inspect_existing_schema(eng, eng_is_postgres)
+            missing_orm_tables = set(Base.metadata.tables.keys()) - existing_tables
+            if missing_orm_tables:
+                Base.metadata.create_all(bind=eng)
+                existing_tables, cols_by_table, upload_session_types = _inspect_existing_schema(eng, eng_is_postgres)
 
+            if not _is_serverless and eng_is_postgres and PG_VECTOR_AVAILABLE:
+                _ensure_vector_index(eng)
+
+            # Ensure upload_sessions table exists only when absent (avoid unconditional DDL locks)
+            if "upload_sessions" not in existing_tables:
+                try:
+                    ts_type = "TIMESTAMP WITH TIME ZONE" if eng_is_postgres else "DATETIME"
+                    _run_ddl_isolated(
+                        eng,
+                        f"""
+                        CREATE TABLE IF NOT EXISTS upload_sessions (
+                            upload_id VARCHAR(64) PRIMARY KEY,
+                            doc_id VARCHAR(64) NOT NULL,
+                            raw_key TEXT NOT NULL,
+                            r2_upload_id TEXT NOT NULL,
+                            parts JSON,
+                            total_bytes BIGINT DEFAULT 0,
+                            filename VARCHAR(255) NOT NULL,
+                            title VARCHAR(255),
+                            year INTEGER,
+                            batch_id VARCHAR(64),
+                            client_item_id VARCHAR(64),
+                            status VARCHAR(32) DEFAULT 'OPEN',
+                            document_id VARCHAR(64),
+                            created_at {ts_type},
+                            updated_at {ts_type}
+                        );
+                        """,
+                        eng_is_postgres,
+                    )
+                    _run_ddl_isolated(
+                        eng,
+                        "CREATE INDEX IF NOT EXISTS ix_upload_sessions_batch_id ON upload_sessions (batch_id);",
+                        eng_is_postgres,
+                    )
+                    _run_ddl_isolated(
+                        eng,
+                        "CREATE INDEX IF NOT EXISTS ix_upload_sessions_status ON upload_sessions (status);",
+                        eng_is_postgres,
+                    )
+                    existing_tables.add("upload_sessions")
+                except Exception as e:
+                    logger.debug(f"upload_sessions table creation notice: {e}")
+            elif eng_is_postgres:
+                for col_name in ("r2_upload_id", "raw_key"):
+                    if upload_session_types.get(col_name) not in (None, "text"):
+                        try:
+                            _run_ddl_isolated(
+                                eng,
+                                f"ALTER TABLE upload_sessions ALTER COLUMN {col_name} TYPE TEXT;",
+                                eng_is_postgres,
+                            )
+                        except Exception:
+                            pass
+
+            expected_cols = _expected_extra_columns(eng_is_postgres)
+            for table_name, col_defs in expected_cols.items():
+                if table_name not in existing_tables:
+                    continue
+                existing_cols = cols_by_table.get(table_name, set())
+                for col_name, col_type in col_defs:
+                    if col_name in existing_cols:
+                        continue
+                    try:
+                        if eng_is_postgres:
+                            stmt = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type};"
+                        else:
+                            stmt = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type};"
+                        _run_ddl_isolated(eng, stmt, eng_is_postgres)
+                    except Exception:
+                        pass  # column added concurrently or table altered concurrently
+
+            # Run one-time backfill and deck auto-repair only when enabled
+            # (skipped on serverless HTTP request paths so cold starts stay fast).
+            if run_repairs and "questions" in existing_tables:
+                session_factory = (
+                    SessionLocal
+                    if eng is engine
+                    else sessionmaker(autocommit=False, autoflush=False, bind=eng)
+                )
+                try:
+                    from backend.app.services.deduplication.deduplicator import Deduplicator
+                    from backend.app.services.tagging.auto_tagger import AutoTagger
+                    from backend.app.services.tagging.difficulty_engine import DifficultyEngine
+                    from backend.app.models.question import Question
+
+                    _BACKFILL_BATCH = 200
+                    sess = session_factory()
+                    try:
+                        has_legacy = (
+                            sess.query(Question.id)
+                            .filter(Question.content_hash.is_(None))
+                            .limit(1)
+                            .first()
+                            is not None
+                        )
+                        if has_legacy:
+                            tagger = AutoTagger()
+                            diff_eng = DifficultyEngine()
+                            for _ in range(1000):
+                                batch = (
+                                    sess.query(Question)
+                                    .filter(Question.content_hash.is_(None))
+                                    .limit(_BACKFILL_BATCH)
+                                    .all()
+                                )
+                                if not batch:
+                                    break
+                                for q in batch:
+                                    q.content_hash = Deduplicator.compute_hash(q.question_text, q.answer)
+                                    t_data = tagger.tag_question(q.question_text, q.answer, q.explanation or "")
+                                    d_data = diff_eng.evaluate(q.question_text, q.answer, q.explanation or "")
+                                    q.topics = t_data["topics"]
+                                    q.tags = t_data["tags"]
+                                    q.question_hook = t_data["question_hook"]
+                                    q.curiosity_score = t_data["curiosity_score"]
+                                    q.temporal_nature = t_data["temporal_nature"]
+                                    q.difficulty = d_data["difficulty"]
+                                    q.difficulty_score = d_data["difficulty_score"]
+                                    q.cognitive_level = d_data["cognitive_level"]
+                                    q.audience_suitability = d_data["audience_suitability"]
+                                    q.provenance_decks = [{"document_id": q.document_id, "slide_id": q.slide_id}]
+                                    q.occurrence_count = 1
+                                sess.commit()
+                    finally:
+                        sess.close()
+                except Exception as be:
+                    logger.debug(f"Legacy backfill notice: {be}")
+
+                # Idempotent repair pass for broken bilingual / Agastya-style deck extractions
+                try:
+                    from backend.app.services.ingestion.repair_bilingual import repair_broken_deck_extractions
+                    sess = session_factory()
+                    try:
+                        rep_summary = repair_broken_deck_extractions(sess)
+                        if rep_summary.get("repaired_docs") or (rep_summary.get("kannada_fallback") or {}).get("repaired"):
+                            logger.info(f"Bilingual/extraction auto-repair summary: {rep_summary}")
+                    finally:
+                        sess.close()
+                except Exception as re_err:
+                    logger.debug(f"Bilingual repair notice: {re_err}")
+
+            _ensured_schema_keys.add(cache_key)
+            return True
+        except Exception as e:
+            logger.debug(f"Schema auto-check notice: {e}")
+            return False
+
+
+# Ensure schema columns are initialized immediately on non-Vercel runtimes
+# (local, tests, Cloud Run); Vercel initializes lazily on first non-diagnostic request.
+if not _is_serverless:
+    try:
+        ensure_schema_columns()
     except Exception as e:
-        logger.debug(f"Schema auto-check notice: {e}")
-
-# Ensure schema columns are initialized immediately across all database types
-# (SQLite, PostgreSQL/Neon, Cloud SQL) so local and serverless workers never fail on missing columns.
-try:
-    ensure_schema_columns()
-except Exception as e:
-    logger.warning(f"Database auto-migration notice: {e}")
+        logger.warning(f"Database auto-migration notice: {e}")
 
 def get_db():
     db = SessionLocal()

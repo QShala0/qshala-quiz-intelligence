@@ -100,6 +100,54 @@ def parse_add_intent(prompt: str) -> Optional[Dict[str, Any]]:
     return {'count': cnt, 'topic': topic}
 
 
+def _inherit_brief_options(req: DraftReq) -> Dict[str, Any]:
+    """Preserve prior hard/source constraints during single-slot swaps, partial swaps, and add-ons
+    unless the caller explicitly overrides them in req.options."""
+    opts = dict(req.options or {})
+    prev_b = req.previous_brief or {}
+    prev_filters = prev_b.get("filters") or {}
+
+    if prev_b.get("hard_bias") and "hard_bias" not in opts:
+        opts["hard_bias"] = prev_b.get("hard_bias")
+    if prev_b.get("format_filter") and "format_filter" not in opts:
+        opts["format_filter"] = prev_b.get("format_filter")
+    for k in (
+        "audience", "school_safe", "evergreen", "no_images",
+        "india_focused", "document_ids", "deck_filter", "source_labels",
+    ):
+        if k in prev_filters and k not in opts:
+            opts[k] = prev_filters[k]
+    return opts
+
+
+@router.get("/format-counts")
+def format_counts(include_reserve: bool = False, include_example: bool = False, db: Session = Depends(get_db)):
+    """How many questions of each format the quiz builder can draw from, and how many questions sit in each slot.
+    RESERVE (hidden spares) and EXAMPLE slides are excluded unless asked for."""
+    from sqlalchemy import func as _f
+    slots = ["LIVE"] + (["RESERVE"] if include_reserve else []) + (["EXAMPLE"] if include_example else [])
+    bank = engine._load_bank(db, tuple(slots))
+    by_slot = {s or "LIVE": int(n) for s, n in db.query(Question.slot, _f.count(Question.id)).group_by(Question.slot).all()}
+    return {
+        "counts": engine.format_counts(bank),
+        "total": len(bank),
+        "slots": {s: by_slot.get(s, 0) for s in engine.ALL_SLOTS},
+        "included_slots": slots,
+    }
+
+
+@router.get("/metrics")
+def metrics():
+    """Live view of recent drafts on this instance: stage timings, fallback rates, Gemini breaker and model status."""
+    from backend.app.services.prompt_quiz import metrics as m, llm_breaker
+    try:
+        from backend.app.services.ai.model_check import get_status
+        models = get_status()
+    except Exception:
+        models = None
+    return {**m.summary(), "gemini_breaker_open": not llm_breaker.allow(), "gemini_models": models}
+
+
 @router.get("/starters")
 def starters():
     return {"starters": STARTERS}
@@ -142,16 +190,17 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
             )
             effective_exclude = set(other_ids) | {target_id} | set(req.exclude_ids or [])
 
-            new_q = engine.swap_one(db, swap_prompt, target_id, keep_ids=other_ids, options=req.options)
+            swap_opts = _inherit_brief_options(req)
+            new_q = engine.swap_one(db, swap_prompt, target_id, keep_ids=other_ids, options=swap_opts)
             if not new_q:
                 sub_res = engine.build_draft(
-                    db, swap_prompt, count=1, options=req.options, exclude_ids=effective_exclude
+                    db, swap_prompt, count=1, options=swap_opts, exclude_ids=effective_exclude
                 )
                 if sub_res.get("questions"):
                     new_q = sub_res["questions"][0]
 
             if new_q:
-                bank = engine._load_bank(db)
+                bank = engine._load_bank(db, engine.ALL_SLOTS)
                 bank_by_id = {b["id"]: engine._view(b) for b in bank}
                 updated_questions = []
                 for i, q in enumerate(req.current_questions):
@@ -230,12 +279,13 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
         effective_exclude = kept_qids | excluded_set
 
         # Fetch new candidate questions for the replacement slots on new_topic
+        partial_opts = _inherit_brief_options(req)
         sub_res = engine.build_draft(
-            db, new_topic, count=len(replace_indices), options=req.options, exclude_ids=effective_exclude
+            db, new_topic, count=len(replace_indices), options=partial_opts, exclude_ids=effective_exclude
         )
         fresh_questions = sub_res.get("questions") or []
 
-        bank = engine._load_bank(db)
+        bank = engine._load_bank(db, engine.ALL_SLOTS)
         bank_by_id = {b["id"]: engine._view(b) for b in bank}
 
         updated_questions = [None] * total_len
@@ -281,7 +331,7 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
     if del_match and req.current_questions and len(req.current_questions) > 1:
         slot_num = int(del_match.group(1) or del_match.group(2))
         if 1 <= slot_num <= len(req.current_questions):
-            bank = engine._load_bank(db)
+            bank = engine._load_bank(db, engine.ALL_SLOTS)
             bank_by_id = {b["id"]: engine._view(b) for b in bank}
             updated_questions = [
                 bank_by_id.get(q["id"], q)
@@ -313,14 +363,8 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
         curr_ids = {q["id"] for q in req.current_questions if "id" in q}
         effective_exclude = curr_ids | set(req.exclude_ids or [])
 
-        add_options = dict(req.options or {})
+        add_options = _inherit_brief_options(req)
         prev_b = req.previous_brief or {}
-        if prev_b.get("hard_bias") and "hard_bias" not in add_options:
-            add_options["hard_bias"] = prev_b.get("hard_bias")
-        prev_filters = prev_b.get("filters") or {}
-        for k in ("audience", "school_safe", "evergreen", "no_images", "india_focused"):
-            if k in prev_filters and k not in add_options:
-                add_options[k] = prev_filters[k]
 
         search_prompt = add_topic if add_topic else (prev_b.get("query") or "general knowledge")
         brief_to_pass = None if add_topic else req.previous_brief
@@ -335,7 +379,7 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
         )
 
         fresh_questions = sub_res.get("questions") or []
-        bank = engine._load_bank(db)
+        bank = engine._load_bank(db, engine.ALL_SLOTS)
         bank_by_id = {b["id"]: engine._view(b) for b in bank}
         existing_qs = [bank_by_id.get(q["id"], q) for q in req.current_questions if "id" in q]
 
@@ -384,7 +428,7 @@ def draft(req: DraftReq, db: Session = Depends(get_db)):
 
     # 3. Merging logic:
     target_count = res["brief"]["count"]
-    bank = engine._load_bank(db)
+    bank = engine._load_bank(db, engine.ALL_SLOTS)
     bank_by_id = {b["id"]: engine._view(b) for b in bank}
     new_candidates = res["questions"]
 
@@ -441,7 +485,7 @@ def swap(req: SwapReq, db: Session = Depends(get_db)):
 def save(req: SaveReq, db: Session = Depends(get_db)):
     if not req.question_ids:
         raise HTTPException(status_code=400, detail="Must select at least 1 question")
-    bank = engine._load_bank(db)
+    bank = engine._load_bank(db, engine.ALL_SLOTS)
     bank_by_id = {b["id"]: b for b in bank}
     ordered = [bank_by_id[qid] for qid in req.question_ids if qid in bank_by_id]
     if not ordered:

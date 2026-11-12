@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, isAbortError } from '../lib/api';
-import { HistoricalQuestion, TopicItem, DocumentItem } from '../lib/types';
+import { HistoricalQuestion, TopicItem, DocumentItem, SourceCatalog } from '../lib/types';
 import { isPlaceholderIcon } from '../lib/placeholderIcons';
 
 // Data-fetching + list-mutation logic for the Knowledge Base page (QShala priority plan P3-1).
@@ -28,16 +28,19 @@ export function useVaultQuestions(
   const [tagFilter, setTagFilter] = useState('');
   const [difficulty, setDifficulty] = useState('');
   const [formatFilter, setFormatFilter] = useState('');
-  const [selectedDeckId, setSelectedDeckId] = useState<string>('');
+  const [slotFilter, setSlotFilter] = useState('');
+  const [selectedDeckIds, setSelectedDeckIds] = useState<string[]>([]);
   const [gradeMin, setGradeMin] = useState<number | ''>('');
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   const [topicsList, setTopicsList] = useState<TopicItem[]>([]);
   const [documentsList, setDocumentsList] = useState<DocumentItem[]>([]);
+  const [sourceCatalog, setSourceCatalog] = useState<SourceCatalog | null>(null);
   const [availableSubtopics, setAvailableSubtopics] = useState<string[]>([]);
   const [questions, setQuestions] = useState<HistoricalQuestion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   // Performance backlog item 4 (QSHALA_PERFORMANCE_IDEAS.md): every filter change fired a full
@@ -46,25 +49,52 @@ export function useVaultQuestions(
   // (not the last filter set) would win, occasionally flashing stale results after the real
   // answer. Track the in-flight request so a new one can cancel it first.
   const inFlightRequest = useRef<AbortController | null>(null);
+  const prevQueryRef = useRef<string>('');
 
-  // Fetch topics list, documents list, and duplicate count on mount
+  // Fetch topics list, documents list, duplicate count, and review count in parallel on mount (P0-4)
+  const loadMetadata = async () => {
+    const [topicsResult, docsResult, sourcesResult, dupsResult, reviewResult] = await Promise.allSettled([
+      api.getTopics(),
+      api.listDocuments(),
+      api.getDocumentSources(),
+      api.getDuplicateCount(),
+      api.getReviewCount(),
+    ]);
+
+    if (topicsResult.status === 'fulfilled') {
+      setTopicsList(topicsResult.value);
+    } else {
+      console.error('Failed to load topics:', topicsResult.reason);
+    }
+
+    if (docsResult.status === 'fulfilled') {
+      setDocumentsList(docsResult.value);
+    } else {
+      console.error('Failed to load documents:', docsResult.reason);
+    }
+
+    if (sourcesResult.status === 'fulfilled') {
+      setSourceCatalog(sourcesResult.value);
+    } else {
+      console.warn('Failed to load document sources:', sourcesResult.reason);
+    }
+
+    if (dupsResult.status === 'fulfilled') {
+      setDuplicateCount(dupsResult.value.count);
+    } else {
+      console.error('Failed to load duplicate count:', dupsResult.reason);
+    }
+
+    if (reviewResult.status === 'fulfilled') {
+      setReviewCount(reviewResult.value);
+    } else {
+      // review count is best-effort
+      console.warn('Failed to load review count:', reviewResult.reason);
+    }
+  };
+
   useEffect(() => {
-    const loadMetadata = async () => {
-      try {
-        const list = await api.getTopics();
-        setTopicsList(list);
-        const docs = await api.listDocuments();
-        setDocumentsList(docs);
-        const dups = await api.getDuplicateCandidates();
-        setDuplicateCount(dups.length);
-        try {
-          setReviewCount(await api.getReviewCount());
-        } catch { /* review count is best-effort */ }
-      } catch (err) {
-        console.error('Failed to load initial metadata:', err);
-      }
-    };
-    loadMetadata();
+    void Promise.resolve().then(loadMetadata);
   }, []);
 
   // When topic changes, load topic summary for subtopics
@@ -87,6 +117,7 @@ export function useVaultQuestions(
     inFlightRequest.current = controller;
 
     setLoading(true);
+    setLoadError(null);
     try {
       if (activeTab === 'review') {
         const data = await api.getReviewCandidates(controller.signal);
@@ -101,7 +132,8 @@ export function useVaultQuestions(
         tag: tagFilter.trim() || undefined,
         difficulty: difficulty || undefined,
         question_format: formatFilter || undefined,
-        document_id: selectedDeckId || undefined,
+        slot: slotFilter || undefined,
+        document_ids: selectedDeckIds.length > 0 ? selectedDeckIds : undefined,
         grade_min: gradeMin !== '' ? Number(gradeMin) : undefined,
         duplicate_status: activeTab === 'duplicates' ? 'POSSIBLE_DUPLICATE' : undefined,
         sort_by: sortBy,
@@ -115,11 +147,23 @@ export function useVaultQuestions(
       // or flip off the loading state on behalf of the request that replaced it.
       if (isAbortError(err)) return;
       console.error(err);
+      if (inFlightRequest.current === controller) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : 'Unable to reach the question bank API.';
+        setLoadError(message);
+      }
     } finally {
       if (inFlightRequest.current === controller) {
         setLoading(false);
       }
     }
+  };
+
+  const retryLoad = () => {
+    loadMetadata();
+    fetchQuestions();
   };
 
   useEffect(() => {
@@ -128,7 +172,15 @@ export function useVaultQuestions(
     // state on an unmounted component.
     return () => inFlightRequest.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, topic, subtopic, tagFilter, difficulty, formatFilter, selectedDeckId, gradeMin, sortBy, sortOrder]);
+  }, [activeTab, topic, subtopic, tagFilter, difficulty, formatFilter, slotFilter, selectedDeckIds, gradeMin, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (prevQueryRef.current !== '' && query === '') {
+      fetchQuestions();
+    }
+    prevQueryRef.current = query;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,6 +197,29 @@ export function useVaultQuestions(
     setQuestions((prev) =>
       prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))
     );
+  };
+
+  // A question was changed in place (e.g. its Arrange order was entered by hand): show the saved version, and in the
+  // Needs Review tab refetch so it leaves the queue if nothing else is outstanding.
+  const handleQuestionUpdated = (updated: HistoricalQuestion) => {
+    setQuestions((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
+    if (activeTab === 'review') {
+      fetchQuestions();
+    }
+  };
+
+  // "Confirm reading": a person checked the flagged format reading.
+  const handleConfirmFormat = async (questionId: string) => {
+    setResolvingId(questionId);
+    try {
+      await api.acceptFormatReview(questionId);
+      await fetchQuestions();
+      try { setReviewCount(await api.getReviewCount()); } catch { /* best-effort */ }
+    } catch (err) {
+      console.error('Failed to confirm the format reading:', err);
+    } finally {
+      setResolvingId(null);
+    }
   };
 
   const handleAcceptReview = async (questionId: string) => {
@@ -184,14 +259,16 @@ export function useVaultQuestions(
     tagFilter, setTagFilter,
     difficulty, setDifficulty,
     formatFilter, setFormatFilter,
-    selectedDeckId, setSelectedDeckId,
+    slotFilter, setSlotFilter,
+    selectedDeckIds, setSelectedDeckIds,
     gradeMin, setGradeMin,
     sortBy, setSortBy,
     sortOrder, setSortOrder,
-    topicsList, documentsList, availableSubtopics,
-    questions, loading, resolvingId,
-    fetchQuestions, handleSearch,
+    topicsList, documentsList, sourceCatalog, availableSubtopics,
+    questions, loading, loadError, resolvingId,
+    fetchQuestions, retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
+    handleQuestionUpdated, handleConfirmFormat,
   };
 }
 

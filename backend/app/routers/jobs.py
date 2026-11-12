@@ -25,7 +25,7 @@ async def process_upload_next():
         dispatched = await upload_queue.dispatch_available()
         return {"status": "SUCCESS" if dispatched else "IDLE", "processed": dispatched, "dispatched": dispatched}
     except Exception as e:
-        logger.exception("process-upload-next failed: %s", e)
+        logger.warning("process-upload-next failed: %s", e)
         return {"status": "ERROR", "error": str(e)[:300]}
 
 

@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 
 Candidate = Dict[str, Any]
 
-HARD_FLAGS = ("format", "no_images", "school_safe", "evergreen", "india_international")
+HARD_FLAGS = ("format", "no_images", "school_safe", "evergreen", "india_international", "source")
 _BANDS = {"easy": (0.0, 0.35), "medium": (0.35, 0.65), "hard": (0.65, 1.01)}
 _IN_MARKERS = (
     "india", "indian", "bharat", "bharatiya", "hindustan", "hindustani",
@@ -29,15 +29,37 @@ def _lc(v: Any) -> str:
 
 
 # ------------------------------------------------------------------ hard filters
+_FORMAT_ALIASES = {"CONNECT_4": "CONNECT", "THREE_CLUE": "STEPPED_CLUE", "QA": "STANDARD_QA", "SLIDE_QA": "STANDARD_QA",
+                   "MULTIPLE_CHOICE": "MCQ"}
+
+
+def canon_format(f: Optional[str]) -> str:
+    """One name per format: CONNECT_4 and CONNECT, THREE_CLUE and STEPPED_CLUE, QA and STANDARD_QA are the same thing."""
+    f = (f or "STANDARD_QA").upper()
+    return _FORMAT_ALIASES.get(f, f)
+
+
 def passes_hard(c: Candidate, filters: Dict[str, Any], format_filter: Optional[str] = None,
                 skip: Optional[str] = None) -> bool:
     """True if the candidate satisfies every hard rule. `skip` ignores one rule (used to count what a rule blocks)."""
     f = filters or {}
-    if skip != "format" and format_filter and (c.get("question_format") or "STANDARD_QA") != format_filter:
+    if skip != "format" and format_filter and canon_format(c.get("question_format")) != canon_format(format_filter):
         return False
     if skip != "no_images" and f.get("no_images"):
         # Real image lists only. `image_dependent` is a loose "short question" heuristic, so it is NOT used here.
         if c.get("question_images") or c.get("answer_images") or c.get("image_refs"):
+            return False
+    if skip != "require_images" and f.get("require_images"):
+        if not (c.get("question_images") or c.get("answer_images") or c.get("image_refs") or c.get("image_dependent")):
+            return False
+    if skip not in ("document_ids", "source") and f.get("document_ids"):
+        allowed_ids = {str(x).strip() for x in (f.get("document_ids") or []) if str(x).strip()}
+        if allowed_ids and str(c.get("document_id") or "") not in allowed_ids:
+            return False
+    if skip not in ("deck_filter", "source") and f.get("deck_filter"):
+        doc_blob = f"{_lc(c.get('document_title'))} {_lc(c.get('document_filename'))}".strip()
+        tokens = [str(t).strip().lower() for t in (f.get("deck_filter") or []) if str(t).strip()]
+        if tokens and not any(tok in doc_blob for tok in tokens):
             return False
     if skip != "school_safe" and f.get("school_safe"):
         if not c.get("tagged"):

@@ -100,6 +100,13 @@ SYNONYMS: Dict[str, List[str]] = {
     # Misc
     "politics": ["politics", "political", "government", "minister", "parliament", "election"],
     "culture": ["culture", "cultural", "heritage", "tradition", "art", "festival"],
+    "science": ["science", "experiment", "physics", "chemistry", "biology", "scientific", "phenomenon", "laboratory", "gravity", "light", "sound", "heat", "matter", "force", "magnet", "electricity"],
+    "experiment": ["experiment", "experiments", "science", "demonstration", "observation", "phenomenon", "apparatus", "reaction"],
+    "experiments": ["experiment", "experiments", "science", "demonstration", "observation", "phenomenon"],
+    "everyday": ["everyday", "daily", "kitchen", "household", "common", "routine", "science"],
+    "physics": ["physics", "force", "motion", "light", "sound", "electricity", "magnet", "gravity", "lens", "mirror"],
+    "chemistry": ["chemistry", "acid", "base", "chemical", "reaction", "element", "molecule", "salt", "metal"],
+    "biology": ["biology", "plant", "cell", "human", "body", "organ", "photosynthesis", "blood", "bacteria"],
     "quiz": ["quiz", "trivia", "question"],
     "world cup": ["world cup", "icc", "fifa", "cricket", "tournament"],
 }
@@ -117,9 +124,20 @@ WORD_NUMS: Dict[str, int] = {
 }
 
 _word = re.compile(r"[a-z0-9]+")
+_GLUED_QUIZ_BOUNDARY = re.compile(
+    r"\bquiz(karnataka|india|bengaluru|bangalore|mumbai|bombay|delhi|chennai|madras|kolkata|calcutta|hyderabad|pune|science|sports|cricket|finance|history)\b",
+    re.I,
+)
+
+def normalize_compound_typos(s: str) -> str:
+    """Split accidental missing spaces around 'quiz<location/topic>' (e.g. 'quizkarnataka' -> 'quiz karnataka')."""
+    if not s:
+        return ""
+    return _GLUED_QUIZ_BOUNDARY.sub(r"quiz \1", s)
 
 def tokenize(s: str) -> List[str]:
-    return [w for w in _word.findall((s or "").lower()) if w not in STOP and len(w) > 1]
+    norm = normalize_compound_typos(s or "").lower()
+    return [w for w in _word.findall(norm) if w not in STOP and len(w) > 1]
 
 def _kw(q: Dict[str, Any]) -> List[str]:
     return q.get("keywords") or q.get("keywords_l3") or []
@@ -329,7 +347,7 @@ _FORMAT_PATTERNS = {
 }
 
 def parse_prompt(prompt: str):
-    p = prompt.lower()
+    p = normalize_compound_typos(prompt or "").lower()
     filters: Dict[str, Any] = {}
     for fmt, pattern in _FORMAT_PATTERNS.items():
         if pattern.search(p):
@@ -346,6 +364,8 @@ def parse_prompt(prompt: str):
         filters["india_international"] = "IN"
     elif re.search(r"\binternational|global|world\b", p):
         filters["india_international"] = "INTL"
+    # Remove explicit grade/class ranges before extracting requested question count
+    p = re.sub(r"\b(?:grade|class|std|standard)\s*\d{1,2}(?:\s*(?:&|and|to|-)\s*\d{1,2})?\b", " ", p)
     m = re.search(r"\b(\d{1,3})\b", p)
     count = None
     if m:
@@ -356,13 +376,16 @@ def parse_prompt(prompt: str):
                 count = num
                 break
     final_count = count if count is not None else 20
-    # strip filter words so they don't dominate the text match
+    # Strip meta/wrapper words so phrases like 'state board', 'students', 'relevant', 'around'
+    # don't match corporate boards or state banks in BM25 retrieval.
+    q = re.sub(r"\b(?:state\s+board|cbse|icse|ncert|state\s+syllabus|syllabus|middle\s+school|high\s+school|primary\s+school|focus\s+on)\b", " ", p)
     word_num_pattern = "|".join(WORD_NUMS.keys())
     q = re.sub(r"\b(\d{1,3}|" + word_num_pattern + r"|questions?|quiz|round|rounds?|evergreen|international|global|"
-               r"school|safe|family|kids|children|without images?|without image|no images?|no image|text only|non-?image|"
-               r"easy|warm-?ups?|beginner|gentle|hard|tough|difficult|finals?|"
+               r"school|safe|family|kids|children|students?|relevant|around|friendly|focus|focused|perspective|"
+               r"without images?|without image|no images?|no image|text only|non-?image|"
+               r"easy|warm-?ups?|beginner|gentle|hard|tough|difficult|finals?|balanced|"
                r"standard|qa|trivia|night|tonight|quick|surprise|some|good|best|great|nice|cool|fun|"
-               r"on|about|a|an|the|of|for|with|give me|pull|me|show me|create|generate|want)\b",
-               " ", p)
+               r"on|about|a|an|the|of|for|with|give me|pull|me|show me|create|generate|want|make it)\b",
+               " ", q)
     q = re.sub(r"[^a-z0-9 ]", " ", q)
     return re.sub(r"\s+", " ", q).strip(), filters, final_count

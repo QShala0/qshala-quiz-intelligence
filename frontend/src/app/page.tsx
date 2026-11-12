@@ -11,6 +11,8 @@ import {
   Lightbulb,
   CheckCircle2,
   BookOpen,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import StatsOverview from '../components/StatsOverview';
 import { api } from '../lib/api';
@@ -19,20 +21,28 @@ import { DashboardStats } from '../lib/types';
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchStats = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const data = await api.getStats();
       setStats(data);
     } catch (err) {
       console.error('Error fetching dashboard stats:', err);
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Unable to reach the backend database.';
+      setError(message);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchStats();
+    void Promise.resolve().then(fetchStats);
   }, []);
 
   return (
@@ -64,6 +74,27 @@ export default function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* Error Alert Banner if live backend stats failed */}
+      {error && !loading && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-[13.5px] text-amber-900">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+            <div>
+              <span className="font-semibold">Unable to load live repository stats:</span>{' '}
+              <span className="text-amber-800">{error}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={fetchStats}
+            className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[12.5px] font-medium text-amber-900 hover:bg-amber-100/70 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* 4 Primary Statistics Cards */}
       <StatsOverview stats={stats} loading={loading} />
