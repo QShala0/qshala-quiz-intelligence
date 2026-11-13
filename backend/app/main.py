@@ -18,6 +18,8 @@ if "backend" not in sys.modules:
     backend_pkg.__path__ = [str(_backend_dir)]
     sys.modules["backend"] = backend_pkg
 
+import time as _boot_time
+_BOOT_T0 = _boot_time.monotonic()   # for the '[startup]' timing logs
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,11 +64,47 @@ if settings.SENTRY_DSN:
 
 # Initialize DB tables at import time outside Vercel serverless cold starts
 # (Vercel initializes schema lazily via _ensure_runtime_ready on first non-diagnostic request).
+# ensure_schema_columns() (run when backend.app.database was imported) already creates any missing table, in one
+# inspection; a second create_all would re-check every table one query at a time, which is slow over a remote database.
 if not (os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV")):
+    from backend.app.database import schema_is_ensured
+    if not schema_is_ensured():
+        try:
+            Base.metadata.create_all(bind=engine)
+        except Exception as e:
+            logger.warning(f"DB table creation notice: {e}")
+
+# State of the whole-vault maintenance passes (repair + heal), shown in /health.
+STARTUP_MAINTENANCE = {"mode": None, "state": "not_started", "seconds": None, "error": None}
+
+
+def _run_startup_maintenance(include_repairs: bool) -> None:
+    """The slow, whole-vault, idempotent passes. They scan every question, so on a remote database they take a while;
+    on Cloud Run they run in a background thread so the app answers requests straight away."""
+    import time as _time
+    t0 = _time.monotonic()
+    STARTUP_MAINTENANCE["state"] = "running"
     try:
-        Base.metadata.create_all(bind=engine)
+        if include_repairs:
+            from backend.app.database import run_startup_repairs
+            run_startup_repairs()
+        try:
+            from backend.app.services.ingestion.heal_specialized import heal_specialized_questions
+            _db_heal = SessionLocal()
+            try:
+                heal_specialized_questions(_db_heal)
+            finally:
+                _db_heal.close()
+        except Exception as e_heal:
+            logger.warning(f"Specialized questions startup heal skipped: {e_heal}")
+        STARTUP_MAINTENANCE["state"] = "done"
     except Exception as e:
-        logger.warning(f"DB table creation notice: {e}")
+        STARTUP_MAINTENANCE["state"] = "failed"
+        STARTUP_MAINTENANCE["error"] = type(e).__name__
+        logger.warning(f"Startup maintenance failed (the app keeps serving): {e}")
+    finally:
+        STARTUP_MAINTENANCE["seconds"] = round(_time.monotonic() - t0, 1)
+        logger.info(f"Startup maintenance {STARTUP_MAINTENANCE['state']} in {STARTUP_MAINTENANCE['seconds']}s")
 
 from contextlib import asynccontextmanager
 from backend.app.database import SessionLocal
@@ -104,17 +142,19 @@ async def lifespan(app: FastAPI):
             await seed(force=False)
             logger.info("Auto-seeding completed.")
 
-        try:
-            from backend.app.services.ingestion.heal_specialized import heal_specialized_questions
-            _db_heal = SessionLocal()
-            try:
-                heal_specialized_questions(_db_heal)
-            finally:
-                _db_heal.close()
-        except Exception as e_heal:
-            logger.warning(f"Specialized questions startup heal skipped: {e_heal}")
+        from backend.app.database import startup_maintenance_mode
+        mode = startup_maintenance_mode()
+        STARTUP_MAINTENANCE["mode"] = mode
+        if mode == "background":
+            import threading
+            threading.Thread(target=_run_startup_maintenance, args=(True,), name="startup-maintenance", daemon=True).start()
+        else:
+            _run_startup_maintenance(False)   # repairs already ran when the database module was imported
     except Exception as e:
         logger.warning(f"Lifespan seed check exception: {e}")
+
+    logger.info("[startup] ready to serve %.1fs after the process started (maintenance mode: %s)",
+                _boot_time.monotonic() - _BOOT_T0, STARTUP_MAINTENANCE.get("mode"))
 
     # Upload queue: reconcile jobs interrupted by a restart, then start the single serial worker.
     try:
@@ -364,6 +404,7 @@ def health():
         },
         "problems": problems or None,
         "gemini_models": _gemini_models_status(),
+        "startup_maintenance": dict(STARTUP_MAINTENANCE),
         "warning": None if DB_PERSISTENT else
                    "Data is NOT persistent (SQLite on ephemeral disk). Set DATABASE_URL to Neon.",
     }
