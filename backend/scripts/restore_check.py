@@ -34,8 +34,8 @@ def main(argv) -> int:
     if "scratch" not in name and "restore" not in name:
         print(f"refusing: target database {name!r} must contain 'scratch' or 'restore'")
         return 2
-    from backup_vault import pg_env
-    r = subprocess.run(["pg_restore", "--no-owner", "--clean", "--if-exists", "--dbname", name, dump],
+    from backup_vault import pg_env, pg_tool
+    r = subprocess.run([pg_tool("pg_restore"), "--no-owner", "--clean", "--if-exists", "--dbname", name, dump],
                        env=pg_env(target), capture_output=True, text=True)
     if r.returncode not in (0, 1):                       # 1 = warnings such as 'does not exist' on --clean
         print(r.stderr[-800:])

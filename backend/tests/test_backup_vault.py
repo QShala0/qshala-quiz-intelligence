@@ -53,3 +53,42 @@ def test_version_mismatch_gives_a_clear_hint(monkeypatch, tmp_path):
         raise AssertionError("expected a failure")
     except RuntimeError as e:
         assert "server version mismatch" in str(e) and "HINT" in str(e) and "postgresql-client" in str(e)
+
+
+def test_newest_installed_postgres_tools_are_chosen_for_dump_and_restore(monkeypatch, tmp_path):
+    m = _mod()
+    for v in ("16", "17", "18"):
+        d = tmp_path / "postgresql" / v / "bin"
+        d.mkdir(parents=True)
+        (d / "pg_dump").write_text("")
+        (d / "pg_restore").write_text("")
+    (tmp_path / "postgresql" / "notaversion" / "bin").mkdir(parents=True)
+    monkeypatch.delenv("PG_BIN_DIR", raising=False)
+    monkeypatch.setattr(m.glob, "glob", lambda pattern: [str(p) for p in (tmp_path / "postgresql").glob("*/bin")])
+    assert m.pg_tool("pg_dump").endswith("/18/bin/pg_dump")
+    assert m.pg_tool("pg_restore").endswith("/18/bin/pg_restore")      # same version for both, always
+    monkeypatch.setenv("PG_BIN_DIR", "/opt/pg/bin")
+    assert m.pg_tool("pg_restore") == "/opt/pg/bin/pg_restore"
+    monkeypatch.delenv("PG_BIN_DIR")
+    monkeypatch.setattr(m.glob, "glob", lambda pattern: [])
+    assert m.pg_tool("pg_restore") == "pg_restore"                    # nothing installed under /usr/lib: fall back to PATH
+
+
+def test_unreadable_dump_gives_a_clear_error(monkeypatch, tmp_path):
+    import subprocess
+    m = _mod()
+    calls = []
+
+    def fake_run(cmd, **k):
+        calls.append(cmd[0])
+        if "pg_dump" in cmd[0]:
+            (tmp_path / "x.dump").write_bytes(b"data")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, 1, "", "pg_restore: error: unsupported version (1.16) in file header")
+
+    monkeypatch.setattr(m.subprocess, "run", fake_run)
+    try:
+        m.dump_to(tmp_path / "x.dump", "postgresql://u:p@h/db")
+        raise AssertionError("expected a failure")
+    except RuntimeError as e:
+        assert "could not be read back" in str(e) and "unsupported version" in str(e) and "HINT" in str(e)
