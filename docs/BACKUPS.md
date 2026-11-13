@@ -16,6 +16,12 @@ for that bucket in Cloudflare (or replicate it) separately.
 4. Actions -> **Nightly vault backup** -> Run workflow, and confirm it finishes green and an object appears under `backups/daily/...`.
 5. Watch the workflow: GitHub emails people watching the repo when a scheduled run fails. Make sure a team inbox is among them.
 
+## Postgres version note
+
+`pg_dump` and `pg_restore` must be the same major version as the database server or newer (Neon currently runs 18.x, and the
+workflow installs client 18). A dump made by version N can only be restored with version N or newer. If Neon upgrades the
+server, change the number in `.github/workflows/backup.yml` and use that version for restore drills.
+
 ## Restore drill (do it once now, then after any big schema change)
 
 A backup that has never been restored is only a hope. Restore into a scratch database, never the live one:

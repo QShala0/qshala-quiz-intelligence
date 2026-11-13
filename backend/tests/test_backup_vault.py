@@ -39,3 +39,17 @@ def test_refuses_the_public_media_bucket(monkeypatch, capsys):
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@h/db")
     monkeypatch.setenv("BACKUP_R2_BUCKET", "qshala-media")
     assert m.main(["--dry-run"]) == 2 and "public media bucket" in capsys.readouterr().out
+
+
+def test_version_mismatch_gives_a_clear_hint(monkeypatch, tmp_path):
+    import subprocess
+    m = _mod()
+    fake = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=(
+        "pg_dump: error: aborting because of server version mismatch\n"
+        "pg_dump: detail: server version: 18.7; pg_dump version: 17.12"))
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: fake)
+    try:
+        m.dump_to(tmp_path / "x.dump", "postgresql://u:p@h/db")
+        raise AssertionError("expected a failure")
+    except RuntimeError as e:
+        assert "server version mismatch" in str(e) and "HINT" in str(e) and "postgresql-client" in str(e)

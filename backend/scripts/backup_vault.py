@@ -56,7 +56,11 @@ def dump_to(path: Path, database_url: str) -> str:
     r = subprocess.run(["pg_dump", "--format=custom", "--no-owner", "--file", str(path)], env=pg_env(database_url),
                        capture_output=True, text=True)
     if r.returncode != 0:
-        raise RuntimeError("pg_dump failed: " + r.stderr.strip()[-400:])      # stderr never contains the password
+        err = r.stderr.strip()[-400:]                 # stderr never contains the password
+        if "server version mismatch" in err:
+            err += ("\nHINT: the database server is newer than this pg_dump. Install a matching or newer postgresql-client "
+                    "(see the 'Install a pg_dump' step in .github/workflows/backup.yml) and keep the same version for restores.")
+        raise RuntimeError("pg_dump failed: " + err)
     listing = subprocess.run(["pg_restore", "--list", str(path)], check=True, capture_output=True, text=True).stdout
     if "TABLE DATA" not in listing:
         raise RuntimeError("dump has no table data; refusing to keep it")
