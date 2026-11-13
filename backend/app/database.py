@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 import os
 import threading
 from typing import List, Optional
@@ -402,6 +403,95 @@ def inspect_schema_status(target_engine=None) -> dict:
     return {"missing_tables": missing_tables, "missing_columns": missing_columns}
 
 
+def startup_maintenance_mode() -> str:
+    """'background' (default on Cloud Run): whole-vault repair passes run in a thread after the app is already serving.
+    'sync' (default everywhere else, so local dev and tests behave exactly as before): they run before the app starts.
+    Override with STARTUP_MAINTENANCE_MODE=sync|background."""
+    v = (os.environ.get("STARTUP_MAINTENANCE_MODE") or "").strip().lower()
+    if v in ("sync", "background"):
+        return v
+    return "background" if os.environ.get("K_SERVICE") else "sync"
+
+
+def schema_is_ensured(target_engine=None) -> bool:
+    eng = target_engine or engine
+    return eng is not None and (id(eng), str(eng.url)) in _ensured_schema_keys
+
+
+def run_startup_repairs(target_engine=None) -> None:
+    """Legacy-row backfill and the idempotent bilingual/extraction repair. Both scan the whole vault, so on a database
+    reached over a slow link they take a long time; callers decide whether to wait for them (see startup_maintenance_mode)."""
+    eng = target_engine or engine
+    if eng is None:
+        return
+    session_factory = (
+        SessionLocal
+        if eng is engine
+        else sessionmaker(autocommit=False, autoflush=False, bind=eng)
+    )
+    try:
+        from backend.app.services.deduplication.deduplicator import Deduplicator
+        from backend.app.services.tagging.auto_tagger import AutoTagger
+        from backend.app.services.tagging.difficulty_engine import DifficultyEngine
+        from backend.app.models.question import Question
+
+        _BACKFILL_BATCH = 200
+        sess = session_factory()
+        try:
+            has_legacy = (
+                sess.query(Question.id)
+                .filter(Question.content_hash.is_(None))
+                .limit(1)
+                .first()
+                is not None
+            )
+            if has_legacy:
+                tagger = AutoTagger()
+                diff_eng = DifficultyEngine()
+                for _ in range(1000):
+                    batch = (
+                        sess.query(Question)
+                        .filter(Question.content_hash.is_(None))
+                        .limit(_BACKFILL_BATCH)
+                        .all()
+                    )
+                    if not batch:
+                        break
+                    for q in batch:
+                        q.content_hash = Deduplicator.compute_hash(q.question_text, q.answer)
+                        t_data = tagger.tag_question(q.question_text, q.answer, q.explanation or "")
+                        d_data = diff_eng.evaluate(q.question_text, q.answer, q.explanation or "")
+                        q.topics = t_data["topics"]
+                        q.tags = t_data["tags"]
+                        q.question_hook = t_data["question_hook"]
+                        q.curiosity_score = t_data["curiosity_score"]
+                        q.temporal_nature = t_data["temporal_nature"]
+                        q.difficulty = d_data["difficulty"]
+                        q.difficulty_score = d_data["difficulty_score"]
+                        q.cognitive_level = d_data["cognitive_level"]
+                        q.audience_suitability = d_data["audience_suitability"]
+                        q.provenance_decks = [{"document_id": q.document_id, "slide_id": q.slide_id}]
+                        q.occurrence_count = 1
+                    sess.commit()
+        finally:
+            sess.close()
+    except Exception as be:
+        logger.debug(f"Legacy backfill notice: {be}")
+
+    # Idempotent repair pass for broken bilingual / Agastya-style deck extractions
+    try:
+        from backend.app.services.ingestion.repair_bilingual import repair_broken_deck_extractions
+        sess = session_factory()
+        try:
+            rep_summary = repair_broken_deck_extractions(sess)
+            if rep_summary.get("repaired_docs") or (rep_summary.get("kannada_fallback") or {}).get("repaired"):
+                logger.info(f"Bilingual/extraction auto-repair summary: {rep_summary}")
+        finally:
+            sess.close()
+    except Exception as re_err:
+        logger.debug(f"Bilingual repair notice: {re_err}")
+
+
 def ensure_schema_columns(
     force: bool = False,
     target_engine=None,
@@ -422,6 +512,7 @@ def ensure_schema_columns(
         if not force and cache_key in _ensured_schema_keys:
             return True
 
+        _t_schema = time.monotonic()
         try:
             # Create all tables that do not exist yet (including sharepoint and job tables)
             import backend.app.models  # noqa: F401
@@ -504,77 +595,13 @@ def ensure_schema_columns(
                     except Exception:
                         pass  # column added concurrently or table altered concurrently
 
-            # Run one-time backfill and deck auto-repair only when enabled
-            # (skipped on serverless HTTP request paths so cold starts stay fast).
+            # One-time backfill and deck auto-repair (whole-vault scans). Skipped on serverless request paths, and
+            # deferred to a background thread on Cloud Run (see startup_maintenance_mode), so they never block startup.
             if run_repairs and "questions" in existing_tables:
-                session_factory = (
-                    SessionLocal
-                    if eng is engine
-                    else sessionmaker(autocommit=False, autoflush=False, bind=eng)
-                )
-                try:
-                    from backend.app.services.deduplication.deduplicator import Deduplicator
-                    from backend.app.services.tagging.auto_tagger import AutoTagger
-                    from backend.app.services.tagging.difficulty_engine import DifficultyEngine
-                    from backend.app.models.question import Question
-
-                    _BACKFILL_BATCH = 200
-                    sess = session_factory()
-                    try:
-                        has_legacy = (
-                            sess.query(Question.id)
-                            .filter(Question.content_hash.is_(None))
-                            .limit(1)
-                            .first()
-                            is not None
-                        )
-                        if has_legacy:
-                            tagger = AutoTagger()
-                            diff_eng = DifficultyEngine()
-                            for _ in range(1000):
-                                batch = (
-                                    sess.query(Question)
-                                    .filter(Question.content_hash.is_(None))
-                                    .limit(_BACKFILL_BATCH)
-                                    .all()
-                                )
-                                if not batch:
-                                    break
-                                for q in batch:
-                                    q.content_hash = Deduplicator.compute_hash(q.question_text, q.answer)
-                                    t_data = tagger.tag_question(q.question_text, q.answer, q.explanation or "")
-                                    d_data = diff_eng.evaluate(q.question_text, q.answer, q.explanation or "")
-                                    q.topics = t_data["topics"]
-                                    q.tags = t_data["tags"]
-                                    q.question_hook = t_data["question_hook"]
-                                    q.curiosity_score = t_data["curiosity_score"]
-                                    q.temporal_nature = t_data["temporal_nature"]
-                                    q.difficulty = d_data["difficulty"]
-                                    q.difficulty_score = d_data["difficulty_score"]
-                                    q.cognitive_level = d_data["cognitive_level"]
-                                    q.audience_suitability = d_data["audience_suitability"]
-                                    q.provenance_decks = [{"document_id": q.document_id, "slide_id": q.slide_id}]
-                                    q.occurrence_count = 1
-                                sess.commit()
-                    finally:
-                        sess.close()
-                except Exception as be:
-                    logger.debug(f"Legacy backfill notice: {be}")
-
-                # Idempotent repair pass for broken bilingual / Agastya-style deck extractions
-                try:
-                    from backend.app.services.ingestion.repair_bilingual import repair_broken_deck_extractions
-                    sess = session_factory()
-                    try:
-                        rep_summary = repair_broken_deck_extractions(sess)
-                        if rep_summary.get("repaired_docs") or (rep_summary.get("kannada_fallback") or {}).get("repaired"):
-                            logger.info(f"Bilingual/extraction auto-repair summary: {rep_summary}")
-                    finally:
-                        sess.close()
-                except Exception as re_err:
-                    logger.debug(f"Bilingual repair notice: {re_err}")
+                run_startup_repairs(eng)
 
             _ensured_schema_keys.add(cache_key)
+            logger.info("[startup] schema check finished in %.1fs (repairs inline: %s)", time.monotonic() - _t_schema, bool(run_repairs))
             return True
         except Exception as e:
             logger.debug(f"Schema auto-check notice: {e}")
@@ -585,7 +612,7 @@ def ensure_schema_columns(
 # (local, tests, Cloud Run); Vercel initializes lazily on first non-diagnostic request.
 if not _is_serverless:
     try:
-        ensure_schema_columns()
+        ensure_schema_columns(run_repairs=startup_maintenance_mode() == "sync")
     except Exception as e:
         logger.warning(f"Database auto-migration notice: {e}")
 
