@@ -23,9 +23,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements-dev.lock.txt
       - name: Install backend dependencies
-        run: pip install -r backend/requirements.txt pytest ruff
+        run: pip install -r backend/requirements-dev.lock.txt
       - name: Lint (ruff)
         run: ruff check backend --output-format=github
         continue-on-error: true

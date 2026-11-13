@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import LoadErrorBanner from '../../components/LoadErrorBanner';
 import { DocumentItem, Slide } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
 import { useUpload } from '../../context/UploadContext';
@@ -20,6 +21,8 @@ import { useUpload } from '../../context/UploadContext';
 export default function UploadPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [selectedSlide, setSelectedSlide] = useState<Slide | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -64,9 +67,13 @@ export default function UploadPage() {
     async function loadDocs() {
       try {
         const data = await api.listDocuments();
-        if (!ignore) setDocuments(data);
+        if (!ignore) {
+          setDocuments(data);
+          setLoadError(null);
+        }
       } catch (err) {
         console.error(err);
+        if (!ignore) setLoadError(err instanceof Error && err.message ? err.message : 'The server could not be reached.');
       } finally {
         if (!ignore) setLoading(false);
       }
@@ -95,14 +102,28 @@ export default function UploadPage() {
     };
   }, [version, items]);
 
+  const retryLoadDocs = async () => {
+    setLoading(true);
+    try {
+      setDocuments(await api.listDocuments());
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error && err.message ? err.message : 'The server could not be reached.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this historical document?')) return;
+    if (!confirm('Delete this deck AND all of its questions and slides from the vault? This cannot be undone from the app.')) return;
+    setDeleteError(null);
     try {
       await api.deleteDocument(id);
       // P1-2: Update local state immediately instead of refetching the entire list
       setDocuments((prev) => prev.filter((d) => d.id !== id));
     } catch (err) {
       console.error(err);
+      setDeleteError(`The deck was not deleted: ${err instanceof Error && err.message ? err.message : 'the server could not be reached.'}`);
     }
   };
 
@@ -701,7 +722,17 @@ export default function UploadPage() {
             </div>
           ))}
 
-          {documents.length === 0 && !loading && (
+          {loadError && !loading && (
+            <div className="p-4">
+              <LoadErrorBanner title="Could not load your decks." message={loadError} onRetry={retryLoadDocs} />
+            </div>
+          )}
+          {deleteError && (
+            <div className="p-4">
+              <LoadErrorBanner title="Something went wrong." message={deleteError} />
+            </div>
+          )}
+          {documents.length === 0 && !loading && !loadError && (
             <div className="py-12 text-center text-[13px] text-slate-400 font-normal">
               No documents uploaded yet.
             </div>

@@ -57,6 +57,7 @@ function KnowledgeBaseContent() {
     sortOrder, setSortOrder,
     topicsList, documentsList, sourceCatalog, availableSubtopics,
     questions, loading, loadError, resolvingId,
+    total, hasMore, loadingMore, loadMoreError, loadMore,
     retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
     handleQuestionUpdated, handleConfirmFormat,
@@ -267,6 +268,32 @@ function KnowledgeBaseContent() {
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Paging footer: how much is shown, and a way to reach the rest */}
+        {!loading && !loadError && questions.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-3 text-[13px] text-slate-600">
+            <span aria-live="polite">
+              {total !== null
+                ? `Showing ${questions.length.toLocaleString()} of ${total.toLocaleString()} questions`
+                : `Showing ${questions.length.toLocaleString()} questions${hasMore ? ' (more available)' : ''}`}
+            </span>
+            {loadMoreError && (
+              <span role="alert" className="text-amber-800">
+                {loadMoreError}
+              </span>
+            )}
+            {hasMore && (
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-[13px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60 transition-colors cursor-pointer"
+              >
+                {loadingMore ? 'Loading…' : loadMoreError ? 'Try again' : 'Load more'}
+              </button>
+            )}
           </div>
         )}
       </div>

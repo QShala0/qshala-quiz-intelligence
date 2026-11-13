@@ -213,9 +213,10 @@ class Settings(BaseSettings):
     # Data safety: when True (the default), the app refuses to start on a non-persistent SQLite
     # database. A missing or unreachable DATABASE_URL then fails loudly at boot instead of silently
     # writing to a disk that gets wiped on restart/redeploy -- this is exactly the failure mode that
-    # lost the question vault once already. Set REQUIRE_POSTGRES=False explicitly for local dev,
-    # where running on SQLite is intentional (see .env.example).
-    REQUIRE_POSTGRES: bool = False
+    # lost the question vault once already. On Cloud Run (K_SERVICE set) this is ON unless ALLOW_EPHEMERAL_DB=1
+    # (a throwaway demo). Everywhere else it is off by default, so local dev on SQLite keeps working (see .env.example).
+    # An explicit REQUIRE_POSTGRES=0/1 always wins.
+    REQUIRE_POSTGRES: bool = bool(is_cloud_run) and os.environ.get("ALLOW_EPHEMERAL_DB", "").strip().lower() not in {"1", "true", "yes", "on"}
 
     # A shared secret clients must send as the X-API-Key header. Optional and off by default (empty
     # = no auth enforced, matching current behavior) so this can be deployed without breaking anything,
@@ -274,7 +275,8 @@ class Settings(BaseSettings):
             if not os.environ.get("DATABASE_URL"):
                 return False
         if v == "" or v is None:
-            return False          # default off; set REQUIRE_POSTGRES=1 on host with Neon
+            # blank means "use the default": on for Cloud Run unless ALLOW_EPHEMERAL_DB=1, off elsewhere
+            return bool(os.environ.get("K_SERVICE")) and os.environ.get("ALLOW_EPHEMERAL_DB", "").strip().lower() not in {"1", "true", "yes", "on"}
         if isinstance(v, bool):
             return v
         return str(v).strip().lower() in {"1", "true", "yes", "on"}

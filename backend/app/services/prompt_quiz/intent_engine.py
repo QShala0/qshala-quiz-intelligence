@@ -209,7 +209,8 @@ def deconstruct_prompt(
 
     user_text = json.dumps(user_payload)
 
-    model = getattr(settings, "GEMINI_MODEL", None) or "gemini-3.8-flash"
+    from backend.app.services.ai.model_config import intent_model
+    model = intent_model()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
     payload = {
@@ -224,10 +225,9 @@ def deconstruct_prompt(
     }
 
     try:
-        import httpx
-        with httpx.Client(timeout=INTENT_TIMEOUT_S) as client:
-            headers = {"x-goog-api-key": api_key}
-            res = client.post(url, json=payload, headers=headers)
+        from backend.app.services.prompt_quiz._http import guarded_post
+        headers = {"x-goog-api-key": api_key}
+        res = guarded_post(url, json=payload, headers=headers, timeout=INTENT_TIMEOUT_S)
         if res.status_code != 200:
             logger.warning(f"Intent engine HTTP {res.status_code} on {model}: {res.text[:120]}")
             return None

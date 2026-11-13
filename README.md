@@ -79,7 +79,7 @@ FastAPI Backend
 # or: source venv/bin/activate (Linux/Mac)
 
 # Install dependencies (already pre-installed in this repository)
-pip install -r backend/requirements.txt
+pip install -r backend/requirements.lock.txt   # exact tested versions (Python 3.12); requirements.txt lists the loose top-level ones
 
 # Start FastAPI server
 python backend/run.py

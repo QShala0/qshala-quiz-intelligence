@@ -164,6 +164,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count"],
 )
 
 # Performance backlog item 1 (QSHALA_PERFORMANCE_IDEAS.md): gzip JSON responses over 500 bytes.
@@ -278,6 +279,8 @@ app.mount("/slides", MultiDirStaticFiles(directory=str(settings.SLIDES_DIR), fal
 app.include_router(stats.router, prefix=settings.API_V1_STR)
 app.include_router(documents.router, prefix=settings.API_V1_STR)
 app.include_router(questions.router, prefix=settings.API_V1_STR)
+from backend.app.routers import trash as _trash_router
+app.include_router(_trash_router.router, prefix=settings.API_V1_STR)
 app.include_router(question_meta.router, prefix=settings.API_V1_STR)
 app.include_router(quizzes.router, prefix=settings.API_V1_STR)
 app.include_router(jobs.router, prefix=settings.API_V1_STR)
@@ -295,6 +298,15 @@ def root():
         "status": "online",
         "docs": f"{settings.API_V1_STR}/docs"
     }
+
+def _gemini_models_status():
+    """Informational only: never affects the healthy/unhealthy verdict and never blocks the health check."""
+    try:
+        from backend.app.services.ai.model_check import get_status
+        return get_status()
+    except Exception:
+        return None
+
 
 @app.get("/health")
 @app.get("/api/health")
@@ -351,6 +363,7 @@ def health():
             "r2_configured": r2_complete if r2_touched else None,
         },
         "problems": problems or None,
+        "gemini_models": _gemini_models_status(),
         "warning": None if DB_PERSISTENT else
                    "Data is NOT persistent (SQLite on ephemeral disk). Set DATABASE_URL to Neon.",
     }

@@ -1,0 +1,49 @@
+name: Nightly vault backup
+
+# Dumps the production database to a PRIVATE R2 bucket every night (30 daily + 12 monthly kept) and fails loudly if
+# anything goes wrong. Setup: docs/BACKUPS.md. It needs these repository secrets:
+#   DATABASE_URL, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, BACKUP_R2_BUCKET
+on:
+  schedule:
+    - cron: "30 21 * * *"          # 03:00 IST
+  workflow_dispatch: {}
+
+concurrency:
+  group: vault-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install a pg_dump at least as new as the database
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+      - name: Install backup dependencies
+        run: pip install -r backend/requirements.lock.txt
+      - name: Check the backup plan
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          BACKUP_R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
+        run: python backend/scripts/backup_vault.py --dry-run
+      - name: Back up
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          BACKUP_R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
+        run: python backend/scripts/backup_vault.py

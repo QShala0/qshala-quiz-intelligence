@@ -1,0 +1,50 @@
+# Test-gated deploy for the API. Replaces the console's "Continuously deploy from source repository" trigger:
+# the backend tests run first, and the image is built and deployed only if they pass. Images are tagged with the
+# commit, so rolling back is one command (see docs/DEPLOY.md).
+#
+# Point a Cloud Build trigger (push to main) at THIS file, then disable the old source-deploy trigger.
+# [verify] the substitution defaults below against your project before the first run.
+substitutions:
+  _SERVICE: qshala-quiz-intelligence
+  _JOB: qshala-ingestion-worker
+  _REGION: asia-south1
+  _REPO: cloud-run-source-deploy        # Artifact Registry repository the console source-deploy used
+
+steps:
+  - id: tests
+    name: 'python:3.12-slim'
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        pip install --quiet -r backend/requirements-dev.lock.txt
+        python -m pytest backend/tests -q -p no:cacheprovider
+
+  - id: build
+    name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA', '.']
+
+  - id: push
+    name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA']
+
+  # Only the image changes; every other setting (env vars, secrets, memory, instances) stays as configured on the service.
+  - id: deploy-service
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+    entrypoint: gcloud
+    args: ['run', 'deploy', '${_SERVICE}', '--region=${_REGION}',
+           '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA', '--quiet']
+
+  - id: update-worker-job
+    name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+    entrypoint: gcloud
+    args: ['run', 'jobs', 'update', '${_JOB}', '--region=${_REGION}',
+           '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA', '--quiet']
+
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA'
+
+timeout: 1800s
+options:
+  logging: CLOUD_LOGGING_ONLY

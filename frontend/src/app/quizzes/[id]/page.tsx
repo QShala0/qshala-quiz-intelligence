@@ -23,6 +23,7 @@ import { Quiz, GeneratedQuestion, RetrievalSource } from '../../../lib/types';
 import { getLocalQuiz, saveLocalQuiz } from '../../../lib/quizStorage';
 import QuestionCard from '../../../components/QuestionCard';
 import SlideViewerModal from '../../../components/SlideViewerModal';
+import LoadErrorBanner from '../../../components/LoadErrorBanner';
 
 export default function QuizReviewStudioPage() {
   const params = useParams();
@@ -31,6 +32,9 @@ export default function QuizReviewStudioPage() {
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedSlide, setSelectedSlide] = useState<any>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [fromBrowserCopy, setFromBrowserCopy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Live Slide Deck Presentation Mode
   const [isPresenting, setIsPresenting] = useState(false);
@@ -56,17 +60,20 @@ export default function QuizReviewStudioPage() {
   };
 
   const fetchQuiz = async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       const data = await api.getQuiz(quizId);
       setQuiz(data);
+      setFromBrowserCopy(false);
       saveLocalQuiz(data);
     } catch (err) {
-      console.warn('Backend getQuiz notice, falling back to local storage:', err);
+      console.warn('Backend getQuiz failed, falling back to this browser\'s copy:', err);
+      setLoadError(err instanceof Error && err.message ? err.message : 'The server could not be reached.');
       const local = getLocalQuiz(quizId);
       if (local) {
         setQuiz(local);
-      } else {
-        console.error('Quiz not found in backend or local storage:', err);
+        setFromBrowserCopy(true);
       }
     } finally {
       setLoading(false);
@@ -77,7 +84,10 @@ export default function QuizReviewStudioPage() {
     if (quizId) fetchQuiz();
   }, [quizId]);
 
+  // A change counts as saved only when the server confirms it. On failure nothing is changed on screen or in this
+  // browser, the reason is shown, and the error is rethrown so the editor stays open and nothing typed is lost.
   const handleUpdateQuestion = async (qId: string, updated: Partial<GeneratedQuestion>) => {
+    setSaveError(null);
     try {
       const saved = await api.updateQuestion(qId, updated);
       if (quiz) {
@@ -90,15 +100,8 @@ export default function QuizReviewStudioPage() {
       }
     } catch (e) {
       console.error(e);
-      // Fallback: update in state and local storage even if backend fails
-      if (quiz) {
-        const updatedQuiz = {
-          ...quiz,
-          questions: quiz.questions.map((q) => (q.id === qId ? { ...q, ...updated } : q)),
-        };
-        setQuiz(updatedQuiz);
-        saveLocalQuiz(updatedQuiz);
-      }
+      setSaveError(`Your change was not saved: ${e instanceof Error && e.message ? e.message : 'the server could not be reached.'}`);
+      throw e;
     }
   };
 
@@ -123,23 +126,22 @@ export default function QuizReviewStudioPage() {
   };
 
   const handleDeleteQuestion = async (qId: string) => {
-    if (!confirm('Are you sure you want to remove this question from the quiz?')) return;
+    if (!confirm('Remove this question from the quiz for everyone?')) return;
+    setSaveError(null);
     try {
-      try {
-        await api.deleteQuestion(qId);
-      } catch (err) {
-        console.warn('Backend question delete notice:', err);
-      }
-      if (quiz) {
-        const updatedQuiz = {
-          ...quiz,
-          questions: quiz.questions.filter((q) => q.id !== qId),
-        };
-        setQuiz(updatedQuiz);
-        saveLocalQuiz(updatedQuiz);
-      }
+      await api.deleteQuestion(qId);
     } catch (e) {
       console.error(e);
+      setSaveError(`The question was not removed: ${e instanceof Error && e.message ? e.message : 'the server could not be reached.'}`);
+      return;
+    }
+    if (quiz) {
+      const updatedQuiz = {
+        ...quiz,
+        questions: quiz.questions.filter((q) => q.id !== qId),
+      };
+      setQuiz(updatedQuiz);
+      saveLocalQuiz(updatedQuiz);
     }
   };
 
@@ -187,7 +189,12 @@ export default function QuizReviewStudioPage() {
   if (!quiz) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center">
-        <p className="text-slate-600">Quiz not found.</p>
+        <p className="text-slate-600">{loadError ? 'This quiz could not be loaded from the server.' : 'Quiz not found.'}</p>
+        {loadError && (
+          <div className="mt-3 max-w-md">
+            <LoadErrorBanner title="The server did not answer." message={loadError} onRetry={fetchQuiz} />
+          </div>
+        )}
         <Link href="/quizzes" className="mt-2 text-xs font-semibold text-blue-600 underline">
           Back to Library
         </Link>
@@ -324,6 +331,16 @@ export default function QuizReviewStudioPage() {
           </div>
         )}
       </div>
+
+      {fromBrowserCopy && (
+        <LoadErrorBanner
+          title="The server could not be reached."
+          message={loadError}
+          note="Showing the copy saved in this browser. It may be out of date, and edits cannot be saved until the server is back."
+          onRetry={fetchQuiz}
+        />
+      )}
+      {saveError && <LoadErrorBanner title="Not saved." message={saveError} />}
 
       {/* Questions Stream */}
       <div className="space-y-4">

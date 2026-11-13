@@ -67,13 +67,17 @@ export default function QuestionCard({
   };
 
   const handleSave = async () => {
-    await onUpdate(question.id, {
-      question_text: qText,
-      options,
-      answer,
-      explanation,
-    });
-    setIsEditing(false);
+    try {
+      await onUpdate(question.id, {
+        question_text: qText,
+        options,
+        answer,
+        explanation,
+      });
+      setIsEditing(false);
+    } catch {
+      // The page shows why it failed; keep the editor open so nothing typed is lost.
+    }
   };
 
   const handleAction = async (action: 'regenerate' | 'make_easier' | 'make_harder' | 'generate_similar') => {
@@ -159,7 +163,7 @@ export default function QuestionCard({
           </div>
 
           <button
-            onClick={() => onUpdate(question.id, { is_approved: !question.is_approved })}
+            onClick={() => onUpdate(question.id, { is_approved: !question.is_approved }).catch(() => {})}
             className={`rounded-md px-2.5 py-1 text-[12px] font-semibold transition-colors ${
               question.is_approved
                 ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
@@ -561,7 +565,7 @@ export default function QuestionCard({
         </div>
 
         <button
-          onClick={() => onDelete(question.id)}
+          onClick={() => onDelete(question.id).catch(() => {})}
           className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
           title="Delete Question"
         >

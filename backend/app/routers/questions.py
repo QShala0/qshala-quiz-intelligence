@@ -1,6 +1,6 @@
 import asyncio
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Response
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_, and_, func, desc, asc, String
 from backend.app.database import get_db
@@ -370,6 +370,7 @@ async def search_questions(
     sort_order: Optional[str] = Query("desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    response: Response = None,
     db: Session = Depends(get_db)
 ):
     # Normalize inputs in case of direct Python function calls
@@ -402,6 +403,14 @@ async def search_questions(
     limit_int = limit if isinstance(limit, int) else 50
     offset_int = offset if isinstance(offset, int) else 0
 
+    page_info: Dict[str, Any] = {}
+
+    def _send_total() -> None:
+        """Expose how many rows match the filters (not just this page) so the UI can page and show a total. The body
+        stays a plain list. Only the filtered path knows the exact total; the semantic-search path sends none."""
+        if response is not None and page_info.get("total") is not None:
+            response.headers["X-Total-Count"] = str(page_info["total"])
+
     def _filtered_search(override_doc_ids: Optional[List[str]] = None):
         target_doc_ids = override_doc_ids if override_doc_ids is not None else doc_ids_list
         q_builder = db.query(Question, Document, Slide).\
@@ -433,12 +442,14 @@ async def search_questions(
         if grade_max_val is not None:
             q_builder = q_builder.filter(Question.grade_max <= grade_max_val)
 
-        # Sorting
+        page_info["total"] = int(q_builder.with_entities(func.count(Question.id)).order_by(None).scalar() or 0)
+
+        # Sorting (id breaks ties so a row can never appear on two pages or be skipped between them)
         sort_col = getattr(Question, sort_by_str, Question.created_at)
         if sort_order_str == "asc":
-            q_builder = q_builder.order_by(asc(sort_col))
+            q_builder = q_builder.order_by(asc(sort_col), asc(Question.id))
         else:
-            q_builder = q_builder.order_by(desc(sort_col))
+            q_builder = q_builder.order_by(desc(sort_col), asc(Question.id))
 
         items = q_builder.offset(offset_int).limit(limit_int).all()
 
@@ -489,7 +500,9 @@ async def search_questions(
             effective_query = resolved_scope["remaining_query"]
             # Pure source/deck lookup (e.g. "Agastya" or "aghtya" or "Agastya Set 2 Prelims") -> strict SQL listing
             if not effective_query:
-                return await asyncio.to_thread(lambda: _filtered_search(override_doc_ids=effective_doc_ids))
+                _res = await asyncio.to_thread(lambda: _filtered_search(override_doc_ids=effective_doc_ids))
+                _send_total()
+                return _res
 
         # 2. Perform semantic/hybrid search strictly scoped to active deck/source and vault filters
         retriever = HybridRetriever(db)
@@ -528,7 +541,9 @@ async def search_questions(
 
         return await asyncio.to_thread(_assemble)
 
-    return await asyncio.to_thread(_filtered_search)
+    _res = await asyncio.to_thread(_filtered_search)
+    _send_total()
+    return _res
 
 @router.get("/duplicates", response_model=List[QuestionResponse])
 def list_duplicate_candidates(
@@ -1021,6 +1036,11 @@ def delete_all_questions_endpoint(
     if not question_ids:
         return {"status": "ok", "deleted_count": 0, "message": "No matching questions found"}
 
+    # Keep a recoverable copy first (same transaction: if the delete fails, the copy is rolled back with it).
+    from backend.app.services import trash as _trash
+    trash_id = _trash.snapshot(db, "deck" if document_id else "all_questions",
+                               f"questions of deck {document_id}" if document_id else "entire question bank", document_id)
+
     # Cascade deletions
     db.query(QshalaQuestionMetadata).filter(QshalaQuestionMetadata.question_id.in_(question_ids)).delete(synchronize_session=False)
     db.query(QuestionTopicPath).filter(QuestionTopicPath.question_id.in_(question_ids)).delete(synchronize_session=False)
@@ -1031,11 +1051,18 @@ def delete_all_questions_endpoint(
     
     deleted_n = db.query(Question).filter(Question.id.in_(question_ids)).delete(synchronize_session=False)
     db.commit()
+    try:
+        _trash.purge_expired(db)
+        db.commit()
+    except Exception:
+        db.rollback()
 
     return {
         "status": "ok",
         "deleted_count": deleted_n,
-        "message": f"Successfully removed {deleted_n} questions from the question bank"
+        "trash_id": trash_id,
+        "message": f"Successfully removed {deleted_n} questions from the question bank. "
+                   f"Undo within {_trash.retention_days()} days with POST /trash/{trash_id}/restore"
     }
 
 

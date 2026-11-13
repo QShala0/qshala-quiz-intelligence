@@ -591,6 +591,7 @@ export interface BatchFileRegisterItem {
 
 export interface BatchRegisterPayload {
   files: BatchFileRegisterItem[];
+  client_id?: string;
 }
 
 export interface BatchRegisterResponse {

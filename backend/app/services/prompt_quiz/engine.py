@@ -19,7 +19,9 @@ import logging
 logger = logging.getLogger(__name__)
 import os
 import re
+import threading
 import time
+from functools import lru_cache
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Sequence, Set
 
@@ -383,6 +385,8 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
     brief: Optional[Brief] = None
 
     # Stage 1: Try Dynamic Intent Engine with Live Vault Taxonomy
+    from backend.app.services.prompt_quiz import llm_breaker
+    failures_before = llm_breaker.failure_mark()
     if db is not None and os.getenv("ENABLE_INTENT_ENGINE", "true").lower() in ("1", "true", "yes"):
         try:
             from backend.app.services.prompt_quiz.intent_engine import deconstruct_prompt
@@ -392,7 +396,12 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
 
     if brief is None:
         gem: Optional[Dict[str, Any]] = None
+        # If the intent engine's call just failed at the service level (timeout, 429, 5xx), a second call to the same
+        # service would wait out another timeout for nothing; go straight to the regex parser.
+        skip_llm = llm_breaker.failure_mark() > failures_before
         try:
+            if skip_llm:
+                raise RuntimeError("skipping interpreter: Gemini just failed")
             from backend.app.services.prompt_quiz.interpreter_llm import interpret_with_gemini
             gem = interpret_with_gemini(prompt or "", previous_brief, current_questions=current_questions)
         except Exception:
@@ -452,7 +461,15 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
 # ---------- Librarian ----------
 # The bank is rebuilt from the database on every request (2-3 times per request in places). A short cache lets those
 # share one load. PROMPT_QUIZ_BANK_TTL_S=0 turns it off; questions added or edited show up within that many seconds.
-_BANK_CACHE: Dict[str, Any] = {"at": 0.0, "key": None, "bank": None}
+_BANK_CACHE: Dict[str, Any] = {"at": 0.0, "key": None, "bank": None, "index": None}
+_CACHE_LOCK = threading.Lock()          # guards every read/write of _BANK_CACHE so a refresh can never be seen half-done
+_REFRESH_LOCK = threading.Lock()        # held while one background refresh runs (single-flight)
+_REFRESH_FAILED_AT = 0.0
+
+
+class _BankList(list):
+    """A bank copy tagged with the cache load it came from, so the search index built once for that load can be shared."""
+    token: Optional[float] = None
 
 
 def _bank_ttl() -> float:
@@ -462,8 +479,61 @@ def _bank_ttl() -> float:
         return 10.0
 
 
+def _bank_stale_window() -> float:
+    """Seconds past the TTL during which an expired bank is still served while one background thread refreshes it, so no
+    request has to wait for a reload. 0 turns this off (an expired bank is then reloaded inside the request, as before)."""
+    try:
+        return max(0.0, float(os.getenv("PROMPT_QUIZ_BANK_STALE_S", "300")))
+    except ValueError:
+        return 300.0
+
+
 def invalidate_bank_cache() -> None:
-    _BANK_CACHE.update({"at": 0.0, "key": None, "bank": None})
+    with _CACHE_LOCK:
+        _BANK_CACHE.update({"at": 0.0, "key": None, "bank": None, "index": None})
+
+
+def _cache_snapshot():
+    with _CACHE_LOCK:
+        return _BANK_CACHE["at"], _BANK_CACHE["key"], _BANK_CACHE["bank"]
+
+
+def _store_bank(at: float, key: Any, bank: List[Dict[str, Any]]) -> None:
+    with _CACHE_LOCK:
+        _BANK_CACHE.update({"at": at, "key": key, "bank": bank, "index": None})
+
+
+def _copy_of(bank: List[Dict[str, Any]], token: float) -> "_BankList":
+    copy = _BankList(dict(r) for r in bank)      # callers may add fields (e.g. score) to what they get
+    copy.token = token
+    return copy
+
+
+def _refresh_bank_in_background(key: Any, slots: Optional[tuple] = None) -> None:
+    global _REFRESH_FAILED_AT
+    if time.monotonic() - _REFRESH_FAILED_AT < 10.0 or not _REFRESH_LOCK.acquire(blocking=False):
+        return
+
+    def run() -> None:
+        global _REFRESH_FAILED_AT
+        try:
+            from backend.app.database import SessionLocal
+            sess = SessionLocal()
+            try:
+                bank = _load_bank_uncached(sess, slots) if slots else _load_bank_uncached(sess)
+            finally:
+                sess.close()
+            _store_bank(time.monotonic(), key, bank)
+        except Exception as e:
+            _REFRESH_FAILED_AT = time.monotonic()
+            logger.warning("Background bank refresh failed (%s); still serving the previous bank", e)
+        finally:
+            _REFRESH_LOCK.release()
+
+    try:
+        threading.Thread(target=run, name="bank-refresh", daemon=True).start()
+    except Exception:
+        _REFRESH_LOCK.release()
 
 
 LIVE_ONLY = ("LIVE",)
@@ -499,18 +569,58 @@ def _load_bank(db: Session, slots: Optional[tuple] = None) -> List[Dict[str, Any
     ttl = _bank_ttl()
     key = (str(db.get_bind().url), slots) if ttl > 0 else None
     now = time.monotonic()
-    if ttl > 0 and _BANK_CACHE["bank"] is not None and _BANK_CACHE["key"] == key and now - _BANK_CACHE["at"] < ttl:
-        return [dict(r) for r in _BANK_CACHE["bank"]]      # callers may add fields (e.g. score) to what they get
+    if ttl > 0:
+        at, cached_key, cached = _cache_snapshot()
+        if cached is not None and cached_key == key:
+            age = now - at
+            if age < ttl:
+                return _copy_of(cached, at)
+            if age < ttl + _bank_stale_window():
+                _refresh_bank_in_background(key, slots)
+                return _copy_of(cached, at)
     bank = _load_bank_uncached(db, slots)
     if ttl > 0:
-        _BANK_CACHE.update({"at": now, "key": key, "bank": bank})
-        return [dict(r) for r in bank]
+        _store_bank(now, key, bank)
+        return _copy_of(bank, now)
     return bank
+
+
+def _index_for(bank: List[Dict[str, Any]]) -> Index:
+    """The search index for a bank. A bank straight from _load_bank shares one index per cache load (built from the
+    untouched cached rows, never from a caller's copy); anything else gets a fresh index, as before."""
+    tok = getattr(bank, "token", None)
+    if tok is not None:
+        with _CACHE_LOCK:
+            if _BANK_CACHE["bank"] is not None and _BANK_CACHE["at"] == tok:
+                idx, source = _BANK_CACHE["index"], _BANK_CACHE["bank"]
+            else:
+                idx = source = None
+        if source is not None:
+            if idx is None:
+                idx = Index(source)
+                with _CACHE_LOCK:
+                    if _BANK_CACHE["at"] == tok:
+                        _BANK_CACHE["index"] = idx
+            return idx
+    return Index(bank)
+
+
+def _latest_tags_distinct_on(db: Session) -> Dict[str, Any]:
+    """Same rule as _latest_tags (newest confirmed, else newest draft, ties by id) written as Postgres DISTINCT ON, which
+    can walk ix_qshala_tags_current instead of numbering every tag row. Off unless PROMPT_QUIZ_TAGS_QUERY=distinct_on;
+    run backend/scripts/compare_latest_tags.py against the real database before turning it on."""
+    rows = (db.query(QshalaTag).filter(QshalaTag.status.in_(["confirmed", "draft"]))
+            .distinct(QshalaTag.question_id)
+            .order_by(QshalaTag.question_id, case((QshalaTag.status == "confirmed", 1), else_=0).desc(),
+                      QshalaTag.created_at.desc(), QshalaTag.id.desc()).all())
+    return {r.question_id: r for r in rows}
 
 
 def _latest_tags(db: Session) -> Dict[str, Any]:
     """Per question, the tag the bank uses: the newest confirmed one, else the newest draft. Chosen in SQL so only
     one row per question is loaded (it used to read every tag row, superseded ones included, and sort in Python)."""
+    if os.getenv("PROMPT_QUIZ_TAGS_QUERY", "").strip().lower() == "distinct_on" and db.get_bind().dialect.name == "postgresql":
+        return _latest_tags_distinct_on(db)
     rank = func.row_number().over(
         partition_by=QshalaTag.question_id,
         order_by=(case((QshalaTag.status == "confirmed", 1), else_=0).desc(),
@@ -521,9 +631,17 @@ def _latest_tags(db: Session) -> Dict[str, Any]:
     return {r.question_id: r for r in rows}
 
 
+_BANK_UNUSED_COLUMNS = ("options", "explanation", "audio_transcript", "video_transcript", "raw_media_refs",
+                        "visual_clues", "provenance_decks")
+
+
 def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str, Any]]:
     # The 768-number embedding vector is never read here; leaving it out roughly halves what is fetched per row.
-    qs = (db.query(Question).options(defer(Question.embedding), defer(Question.embedding_model))
+    # Nor are the long text/JSON columns below: the bank dict built further down reads none of them. If you start
+    # reading one, take it out of this list, otherwise it is fetched row by row (one query per question).
+    qs = (db.query(Question).options(
+              defer(Question.embedding), defer(Question.embedding_model),
+              *(defer(getattr(Question, c)) for c in _BANK_UNUSED_COLUMNS))
           .filter((Question.duplicate_status != "CONFIRMED_DUPLICATE") | (Question.duplicate_status.is_(None)))
           .filter(Question.slot.in_(list(slots)) | Question.slot.is_(None)).all())
     tags: Dict[str, Any] = {}
@@ -698,6 +816,7 @@ _PLACEHOLDER_ANS_ENTITIES = {
 }
 
 
+@lru_cache(maxsize=65536)
 def _normalize_answer_entity(ans: str) -> str:
     """Extracts a normalized core entity token set from an answer string for robust deduplication.
     Returns '' for placeholder, URL, data-URI, or punctuation-only answers so distinct questions
@@ -741,8 +860,14 @@ def guardian(hits: List[Dict[str, Any]], brief: Brief, exclude_ids: Optional[Set
             continue
         fp = _fp(h["question_text"])
         if fp:
-            candidates = {i for tok in fp for i in by_token.get(tok, ())}
-            if any(len(fp & seen[i]) / max(len(fp | seen[i]), 1) > 0.7 for i in candidates):
+            # Count shared tokens per earlier hit straight from the token index (|A & B|), then |A | B| = |A| + |B| - |A & B|;
+            # same ratio as comparing the sets, without building a union and intersection for every candidate.
+            shared: Dict[int, int] = {}
+            for tok in fp:
+                for i in by_token.get(tok, ()):
+                    shared[i] = shared.get(i, 0) + 1
+            n_fp = len(fp)
+            if any(inter / (n_fp + len(seen[i]) - inter) > 0.7 for i, inter in shared.items()):
                 continue
         seen.append(fp)
         for tok in fp:
@@ -914,7 +1039,10 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                 previous_brief: Optional[Dict[str, Any]] = None,
                 exclude_ids: Optional[Set[str]] = None,
                 current_questions: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    from backend.app.services.prompt_quiz import metrics as _metrics
+    _timer = _metrics.StageTimer()
     brief = interpret(prompt, count, options, previous_brief, current_questions=current_questions, db=db)
+    _timer.mark("interpret")
 
     # Geographic/locality queries: ONLY when the user's prompt is strictly asking for geographic trivia,
     # NOT when geography is just a qualifier for a subject (e.g. "people in india", "food in delhi", "startups in bangalore").
@@ -975,6 +1103,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         brief.search_terms = []
 
     bank = _load_bank(db, slots_for(brief))
+    _timer.mark("load_bank")
 
     # Data-driven deck/series filter: when prompt names a distinctive deck series from the bank
     # (e.g. "Agastya", "aghtya", or "Agastya Set 2 Prelims"), restrict retrieval to matching decks.
@@ -1012,9 +1141,10 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     deck_filter_tokens = {str(t).strip().lower() for t in (brief.filters.get("deck_filter") or []) if str(t).strip()}
     source_drop_tokens = deck_filter_tokens | matched_source_input_tokens
     has_source_filter = bool(deck_filter_tokens or brief.filters.get("document_ids"))
+    _timer.mark("deck_scope")
 
     # 3. Librarian: search broadly across the entire bank
-    idx = Index(bank)
+    idx = _index_for(bank)
     raw_search_query = brief.query or ""
     if getattr(brief, 'search_terms', None):
         raw_search_query = (raw_search_query + " " + " ".join(brief.search_terms)).strip()
@@ -1110,6 +1240,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                 b_adj["score"] = round(min(pad_cap * 0.5, 0.2), 3) if effective_query_for_floor else 1.0
                 hits.append(b_adj)
 
+    _timer.mark("retrieve")
     # Split into on-topic vs adjacent
     on_ok, adjacent, on_all, effective_l2s = split_pools(
         hits,
@@ -1165,6 +1296,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     # 5. Guardian + Editor on ranked on-topic list
     effective_exclude = set(exclude_ids or set())
     cands = guardian(on_ok, brief, exclude_ids=effective_exclude)
+    _timer.mark("rank_guard")
 
     narrative_arc: Optional[str] = None
     picked: List[Dict[str, Any]] = []
@@ -1227,6 +1359,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         if picked and cur_res is not None:
             narrative_arc = None
 
+    _timer.mark("select")
     # 6. Padding if requested and short
     padded = 0
     if brief.cross_topic_padding and len(picked) < brief.count:
@@ -1262,6 +1395,18 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     brief.narrative_arc = narrative_arc
 
+    _timer.mark("finish")
+    timings = {**_timer.stages, "total": _timer.total_ms()}
+    try:
+        _metrics.record({
+            "at": time.time(), "total_ms": timings["total"], "stages": _timer.stages, "bank_size": len(bank),
+            "interpreter": brief.source, "short": bool(fulfillment.get("short")),
+            "curator": "none" if cur_res is None and not narrative_arc and not os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes")
+                       else ("used" if narrative_arc else ("fallback" if cur_res is None else "empty")),
+        })
+    except Exception:
+        pass
+
     return {
         "brief": brief.public(),
         "questions": [_view(p) for p in picked],
@@ -1270,6 +1415,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         "stages": stages,
         "fulfillment": fulfillment,
         "narrative_arc": narrative_arc,
+        "timings_ms": timings,
     }
 
 
@@ -1292,7 +1438,7 @@ def swap_one(db: Session, prompt: str, question_id: str, keep_ids: List[str],
     target = next((b for b in bank if b["id"] == question_id), None)
     if target and target.get("subtopic_l2"):  # prefer a neighbour of the swapped question
         brief.query = f"{brief.query} {target['subtopic_l2']}".strip()
-    idx = Index(bank)
+    idx = _index_for(bank)
     search_query = brief.query
     if getattr(brief, 'search_terms', None):
         cleaned_terms = [w for w in tokenize(" ".join(brief.search_terms)) if w not in source_drop]

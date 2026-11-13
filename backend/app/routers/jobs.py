@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from backend.app.database import get_db
 from backend.app.models.document import Document
@@ -57,6 +57,7 @@ class BatchFileItem(BaseModel):
 
 class CreateBatchRequest(BaseModel):
     files: List[BatchFileItem]
+    client_id: Optional[str] = Field(default=None, max_length=64)
 
 
 @router.post("/upload-batch")
@@ -76,7 +77,8 @@ def create_upload_batch(payload: CreateBatchRequest, db: Session = Depends(get_d
             raise HTTPException(status_code=400, detail="Each file must have a non-empty client_item_id.")
 
     items_data = [f.model_dump() for f in payload.files]
-    batch = UploadBatch(total_expected=len(payload.files), items=items_data)
+    batch = UploadBatch(total_expected=len(payload.files), items=items_data,
+                        client_id=(payload.client_id or "").strip() or None)
     db.add(batch)
     db.commit()
     db.refresh(batch)
@@ -95,13 +97,19 @@ def upload_batch_heartbeat(batch_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/upload-batches/active")
-def get_active_upload_batch(db: Session = Depends(get_db)):
-    """Return the most recent batch that still has active work, ignoring abandoned batches (>5 min without heartbeat)."""
+def get_active_upload_batch(client_id: Optional[str] = Query(default=None, max_length=64), db: Session = Depends(get_db)):
+    """Return the most recent batch that still has active work, ignoring abandoned batches (>5 min without heartbeat).
+
+    With client_id, only that browser's own batches are considered, so one person's open uploads page never adopts (and can
+    never cancel) a colleague's batch. Without it, behaviour is as before (any batch), for older clients."""
     from datetime import timedelta
     now = datetime.now(timezone.utc)
     abandoned_cutoff = now - timedelta(minutes=5)
 
-    batches = db.query(UploadBatch).order_by(UploadBatch.created_at.desc()).limit(20).all()
+    batch_query = db.query(UploadBatch)
+    if client_id and client_id.strip():
+        batch_query = batch_query.filter(UploadBatch.client_id == client_id.strip())
+    batches = batch_query.order_by(UploadBatch.created_at.desc()).limit(20).all()
     for batch in batches:
         jobs = db.query(IngestionJob).filter(IngestionJob.batch_id == batch.id).all()
         jobs_by_cid = {j.client_item_id: j for j in jobs if j.client_item_id}

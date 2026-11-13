@@ -1,3 +1,4 @@
+import { getClientId } from './clientId';
 import {
   DashboardStats,
   DocumentItem,
@@ -223,6 +224,54 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json();
 }
 
+export interface QuestionSearchParams {
+    query?: string;
+    topic?: string;
+    subtopic?: string;
+    tag?: string;
+    grade_min?: number;
+    grade_max?: number;
+    difficulty?: string;
+    document_id?: string;
+    document_ids?: string[];
+    document_title?: string;
+    duplicate_status?: string;
+    question_format?: string;
+    format?: string;
+    slot?: string;
+    play_mode?: string;
+    sort_by?: string;
+    sort_order?: 'asc' | 'desc';
+    limit?: number;
+    offset?: number;
+    signal?: AbortSignal;
+  }
+
+function buildQuestionSearchQuery(params: QuestionSearchParams): string {
+  const searchParams = new URLSearchParams();
+  if (params.query) searchParams.append('query', params.query);
+  if (params.topic) searchParams.append('topic', params.topic);
+  if (params.subtopic) searchParams.append('subtopic', params.subtopic);
+  if (params.tag) searchParams.append('tag', params.tag);
+  if (params.grade_min) searchParams.append('grade_min', params.grade_min.toString());
+  if (params.grade_max) searchParams.append('grade_max', params.grade_max.toString());
+  if (params.difficulty) searchParams.append('difficulty', params.difficulty);
+  if (params.document_id) searchParams.append('document_id', params.document_id);
+  if (params.document_ids && params.document_ids.length > 0) {
+    searchParams.append('document_ids', params.document_ids.join(','));
+  }
+  if (params.document_title) searchParams.append('document_title', params.document_title);
+  if (params.duplicate_status) searchParams.append('duplicate_status', params.duplicate_status);
+  if (params.question_format || params.format) searchParams.append('question_format', (params.question_format || params.format)!);
+  if (params.slot) searchParams.append('slot', params.slot);
+  if (params.play_mode) searchParams.append('play_mode', params.play_mode);
+  if (params.sort_by) searchParams.append('sort_by', params.sort_by);
+  if (params.sort_order) searchParams.append('sort_order', params.sort_order);
+  if (params.limit) searchParams.append('limit', params.limit.toString());
+  if (params.offset) searchParams.append('offset', params.offset.toString());
+  return searchParams.toString();
+}
+
 export const api = {
   // Stats
   getStats: async (): Promise<DashboardStats> => {
@@ -433,55 +482,26 @@ export const api = {
     return handleResponse<TopicSummary>(res);
   },
 
-  searchQuestions: async (params: {
-    query?: string;
-    topic?: string;
-    subtopic?: string;
-    tag?: string;
-    grade_min?: number;
-    grade_max?: number;
-    difficulty?: string;
-    document_id?: string;
-    document_ids?: string[];
-    document_title?: string;
-    duplicate_status?: string;
-    question_format?: string;
-    format?: string;
-    slot?: string;
-    play_mode?: string;
-    sort_by?: string;
-    sort_order?: 'asc' | 'desc';
-    limit?: number;
-    offset?: number;
-    signal?: AbortSignal;
-  }): Promise<HistoricalQuestion[]> => {
-    const searchParams = new URLSearchParams();
-    if (params.query) searchParams.append('query', params.query);
-    if (params.topic) searchParams.append('topic', params.topic);
-    if (params.subtopic) searchParams.append('subtopic', params.subtopic);
-    if (params.tag) searchParams.append('tag', params.tag);
-    if (params.grade_min) searchParams.append('grade_min', params.grade_min.toString());
-    if (params.grade_max) searchParams.append('grade_max', params.grade_max.toString());
-    if (params.difficulty) searchParams.append('difficulty', params.difficulty);
-    if (params.document_id) searchParams.append('document_id', params.document_id);
-    if (params.document_ids && params.document_ids.length > 0) {
-      searchParams.append('document_ids', params.document_ids.join(','));
-    }
-    if (params.document_title) searchParams.append('document_title', params.document_title);
-    if (params.duplicate_status) searchParams.append('duplicate_status', params.duplicate_status);
-    if (params.question_format || params.format) searchParams.append('question_format', (params.question_format || params.format)!);
-    if (params.slot) searchParams.append('slot', params.slot);
-    if (params.play_mode) searchParams.append('play_mode', params.play_mode);
-    if (params.sort_by) searchParams.append('sort_by', params.sort_by);
-    if (params.sort_order) searchParams.append('sort_order', params.sort_order);
-    if (params.limit) searchParams.append('limit', params.limit.toString());
-    if (params.offset) searchParams.append('offset', params.offset.toString());
-
-    const res = await fetch(`${getApiBase()}/questions?${searchParams.toString()}`, {
+  searchQuestions: async (params: QuestionSearchParams): Promise<HistoricalQuestion[]> => {
+    const res = await fetch(`${getApiBase()}/questions?${buildQuestionSearchQuery(params)}`, {
       cache: 'no-store',
       signal: params.signal,
     });
     return handleResponse<HistoricalQuestion[]>(res);
+  },
+
+  // Same search, plus how many rows match in total (X-Total-Count; null when the server cannot say, e.g. semantic search).
+  searchQuestionsPage: async (
+    params: QuestionSearchParams
+  ): Promise<{ items: HistoricalQuestion[]; total: number | null }> => {
+    const res = await fetch(`${getApiBase()}/questions?${buildQuestionSearchQuery(params)}`, {
+      cache: 'no-store',
+      signal: params.signal,
+    });
+    const items = await handleResponse<HistoricalQuestion[]>(res);
+    const raw = res.headers.get('X-Total-Count');
+    const total = raw !== null && raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : null;
+    return { items, total };
   },
 
   getDuplicateCandidates: async (): Promise<HistoricalQuestion[]> => {
@@ -619,7 +639,7 @@ export const api = {
   getActiveUploadBatch: async (
     options?: { signal?: AbortSignal }
   ): Promise<ActiveBatchResponse> => {
-    const res = await fetch(`${getApiBase()}/jobs/upload-batches/active`, {
+    const res = await fetch(`${getApiBase()}/jobs/upload-batches/active?client_id=${encodeURIComponent(getClientId())}`, {
       signal: options?.signal,
     });
     return handleResponse<ActiveBatchResponse>(res);

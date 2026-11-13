@@ -14,6 +14,8 @@ import { isPlaceholderIcon } from '../lib/placeholderIcons';
 // whether the modal closed. Reproducing that exactly (rather than a "cleaner" wrapper that
 // rethrows) means this hook has to take the page's setSelectedDuplicateForReview setter as a
 // parameter and call it itself, instead of trying to return a signal the page would act on.
+export const PAGE_SIZE = 100;
+
 export function useVaultQuestions(
   initialTopic: string,
   setSelectedDuplicateForReview: (q: HistoricalQuestion | null) => void
@@ -41,6 +43,11 @@ export function useVaultQuestions(
   const [questions, setQuestions] = useState<HistoricalQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Paging: the server sends one page at a time plus the true number of matches in X-Total-Count.
+  const [total, setTotal] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   // Performance backlog item 4 (QSHALA_PERFORMANCE_IDEAS.md): every filter change fired a full
@@ -109,6 +116,53 @@ export function useVaultQuestions(
     }
   }, [topic]);
 
+  const searchParams = (offset: number, signal: AbortSignal) => ({
+    query: query.trim() || undefined,
+    topic: topic || undefined,
+    subtopic: subtopic || undefined,
+    tag: tagFilter.trim() || undefined,
+    difficulty: difficulty || undefined,
+    question_format: formatFilter || undefined,
+    slot: slotFilter || undefined,
+    document_ids: selectedDeckIds.length > 0 ? selectedDeckIds : undefined,
+    grade_min: gradeMin !== '' ? Number(gradeMin) : undefined,
+    duplicate_status: activeTab === 'duplicates' ? 'POSSIBLE_DUPLICATE' : undefined,
+    sort_by: sortBy,
+    sort_order: sortOrder,
+    limit: PAGE_SIZE,
+    offset,
+    signal,
+  });
+
+  // Append the next page to what is already shown. A newer search (filters changed) supersedes it via the same
+  // abort controller, and rows already shown are never added twice.
+  const loadMore = async () => {
+    if (loadingMore || loading || !hasMore || activeTab === 'review') return;
+    const controller = new AbortController();
+    inFlightRequest.current?.abort();
+    inFlightRequest.current = controller;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const { items, total: matches } = await api.searchQuestionsPage(searchParams(questions.length, controller.signal));
+      if (inFlightRequest.current !== controller) return;
+      const seen = new Set(questions.map((q) => q.id));
+      const fresh = items.filter((q) => !seen.has(q.id));
+      const merged = [...questions, ...fresh];
+      setQuestions(merged);
+      if (matches !== null) setTotal(matches);
+      setHasMore(items.length === 0 ? false : matches !== null ? merged.length < matches : items.length === PAGE_SIZE);
+    } catch (err) {
+      if (isAbortError(err)) return;
+      console.error(err);
+      if (inFlightRequest.current === controller) {
+        setLoadMoreError(err instanceof Error && err.message ? err.message : 'Could not load more questions.');
+      }
+    } finally {
+      if (inFlightRequest.current === controller) setLoadingMore(false);
+    }
+  };
+
   const fetchQuestions = async () => {
     // Cancel whatever fetch is still in flight before starting a new one -- its response, if it
     // ever arrives, belongs to filters the user has already moved past.
@@ -118,30 +172,21 @@ export function useVaultQuestions(
 
     setLoading(true);
     setLoadError(null);
+    setLoadMoreError(null);
+    setLoadingMore(false);
     try {
       if (activeTab === 'review') {
         const data = await api.getReviewCandidates(controller.signal);
         setQuestions(data);
         setReviewCount(data.length);
+        setTotal(data.length);
+        setHasMore(false);
         return;
       }
-      const data = await api.searchQuestions({
-        query: query.trim() || undefined,
-        topic: topic || undefined,
-        subtopic: subtopic || undefined,
-        tag: tagFilter.trim() || undefined,
-        difficulty: difficulty || undefined,
-        question_format: formatFilter || undefined,
-        slot: slotFilter || undefined,
-        document_ids: selectedDeckIds.length > 0 ? selectedDeckIds : undefined,
-        grade_min: gradeMin !== '' ? Number(gradeMin) : undefined,
-        duplicate_status: activeTab === 'duplicates' ? 'POSSIBLE_DUPLICATE' : undefined,
-        sort_by: sortBy,
-        sort_order: sortOrder,
-        limit: 100,
-        signal: controller.signal,
-      });
-      setQuestions(data);
+      const { items, total: matches } = await api.searchQuestionsPage(searchParams(0, controller.signal));
+      setQuestions(items);
+      setTotal(matches);
+      setHasMore(matches !== null ? items.length < matches : items.length === PAGE_SIZE);
     } catch (err) {
       // A superseded request aborting itself is expected traffic, not a failure -- don't log it
       // or flip off the loading state on behalf of the request that replaced it.
@@ -266,6 +311,7 @@ export function useVaultQuestions(
     sortOrder, setSortOrder,
     topicsList, documentsList, sourceCatalog, availableSubtopics,
     questions, loading, loadError, resolvingId,
+    total, hasMore, loadingMore, loadMoreError, loadMore,
     fetchQuestions, retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
     handleQuestionUpdated, handleConfirmFormat,

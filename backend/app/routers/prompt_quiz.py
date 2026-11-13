@@ -136,6 +136,18 @@ def format_counts(include_reserve: bool = False, include_example: bool = False, 
     }
 
 
+@router.get("/metrics")
+def metrics():
+    """Live view of recent drafts on this instance: stage timings, fallback rates, Gemini breaker and model status."""
+    from backend.app.services.prompt_quiz import metrics as m, llm_breaker
+    try:
+        from backend.app.services.ai.model_check import get_status
+        models = get_status()
+    except Exception:
+        models = None
+    return {**m.summary(), "gemini_breaker_open": not llm_breaker.allow(), "gemini_models": models}
+
+
 @router.get("/starters")
 def starters():
     return {"starters": STARTERS}
