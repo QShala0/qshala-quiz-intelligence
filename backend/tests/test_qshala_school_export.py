@@ -140,3 +140,50 @@ def test_quizzes_export_api_router_qshala_school():
     assert len(prs.slides) >= 3
     cover_text = " ".join([shape.text_frame.text for shape in prs.slides[0].shapes if shape.has_text_frame])
     assert "Cosmic Journey" in cover_text
+
+
+def test_qshala_school_causten_thin_bold_black_answer_and_media_fit(tmp_path):
+    """Style rules: Causten Round Thin everywhere, Bold only on the question number / cover title,
+    answers in black (never green), and images sized to the card without leaving the safe area."""
+    from PIL import Image
+    from pptx.util import Inches
+    from backend.app.services.export import exporter as ex
+
+    img_dir = ex.Path(ex.__file__).resolve().parents[4] / "backend" / "storage" / "_pytest_qs_fit"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        refs = []
+        for name, size in (("land", (1600, 900)), ("port", (900, 1400))):
+            Image.new("RGB", size, (60, 120, 180)).save(img_dir / f"{name}.png")
+            refs.append(f"backend/storage/_pytest_qs_fit/{name}.png")
+        quiz = {"title": "t", "topic": "GK", "questions": [
+            {"question_text": "Name this landmark.", "answer": "Taj Mahal", "explanation": "Built by Shah Jahan.",
+             "image_refs": [refs[0]], "is_approved": True},
+            {"question_text": "x " * 140, "answer": "Kabaddi", "explanation": "y " * 60,
+             "image_refs": [refs[1]], "is_approved": True},
+        ]}
+        prs = Presentation(io.BytesIO(QuizExporter.to_pptx(
+            quiz, quiz_type="qshala_school", custom_title="Quiz Hobby Class!",
+            custom_subtitle="Place your bets\nWorkshop 9")))
+    finally:
+        import shutil
+        shutil.rmtree(img_dir, ignore_errors=True)
+
+    bold_texts, pics = [], 0
+    for slide in prs.slides:
+        for sh in slide.shapes:
+            if sh.shape_type == 13 and sh.width < Inches(13):  # pictures other than the full-bleed backdrop
+                pics += 1
+                assert sh.left >= Inches(0.9) and sh.left + sh.width <= Inches(12.45)
+                assert sh.top >= Inches(1.5) and sh.top + sh.height <= Inches(6.25)
+            if not sh.has_text_frame:
+                continue
+            for par in sh.text_frame.paragraphs:
+                for r in par.runs:
+                    assert r.font.name in ("Causten Round Thin", "Causten Round Bold"), r.font.name
+                    if r.font.name == "Causten Round Bold":
+                        bold_texts.append(r.text)
+                    if r.font.color and r.font.color.type is not None:
+                        assert str(r.font.color.rgb).upper() != "059669"  # answers are black, not green
+    assert pics == 4  # question + answer image for both questions
+    assert set(bold_texts) == {"Quiz Hobby Class!", "Question 1", "Answer 1", "Question 2", "Answer 2"}

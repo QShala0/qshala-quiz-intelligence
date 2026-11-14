@@ -306,6 +306,123 @@ def _add_scaled_picture(slide, img_path: Path, max_left, max_top, max_w, max_h):
         logger.warning(f"Error adding picture {img_path} to slide: {img_err}")
         return None
 
+
+# --- QShala School (Causten Round) typography + media layout helpers ------------------------------
+CAUSTEN_THIN = "Causten Round Thin"
+CAUSTEN_BOLD = "Causten Round Bold"
+# Safe content zone inside the white card (inches): clear of the border artwork and bottom-right cats.
+_SAFE_L, _SAFE_R, _SAFE_T, _SAFE_B = 0.95, 12.38, 1.55, 6.15
+_BOLD_SHAPE_NAMES = {"QNum", "CoverTitle"}
+
+
+def _image_aspect(path: Optional[Path], default: float = 16 / 9) -> float:
+    """Width / height of an image (or ``default`` for video/audio posters that cannot be read)."""
+    if not path:
+        return default
+    try:
+        with Image.open(path) as im:
+            w, h = im.size
+        return (w / h) if w > 0 and h > 0 else default
+    except Exception:
+        return default
+
+
+def _fit_font_pt(text: str, w_in: float, h_in: float, sizes=(28, 26, 24, 22, 20, 18, 16)) -> int:
+    """Largest size (pt) at which ``text`` (Causten Round Thin, ~0.5 em avg glyph) fits a w x h box."""
+    paras = [t for t in (text or "").split("\n")] or [""]
+    for sz in sizes:
+        chars_per_line = max(1, int((w_in * 72) / (sz * 0.47)))
+        lines = sum(max(1, -(-len(t) // chars_per_line)) for t in paras)
+        if lines * sz * 1.28 <= h_in * 72:
+            return sz
+    return sizes[-1]
+
+
+def _plan_media(aspect: float, text_len: int, has_options: bool = False):
+    """Plan question/answer media against the amount of text. Returns (mode, text_box, media_box), inches.
+
+    ``stacked``: short text on top, media centred below using the full card width (landscape images shine).
+    ``side``: text left, media right with the media box sized to the image shape (portrait/square images
+    get a tall, narrow box instead of being letter-boxed into a landscape one).
+    """
+    full_w = _SAFE_R - _SAFE_L
+    if text_len <= 110 and aspect >= 0.9 and not has_options:
+        return ("stacked",
+                (_SAFE_L, _SAFE_T, full_w, 1.05),
+                (_SAFE_L, _SAFE_T + 1.2, full_w, _SAFE_B - (_SAFE_T + 1.2)))
+    box_h = _SAFE_B - _SAFE_T
+    media_w = max(3.6, min(6.4, aspect * box_h))
+    # long texts need breathing room: never let media take more than 45% of the width
+    media_w = min(media_w, full_w * 0.45) if text_len > 220 else media_w
+    gap = 0.45
+    text_w = full_w - media_w - gap
+    if text_w < 4.8:
+        media_w = full_w - 4.8 - gap
+        text_w = 4.8
+    return ("side",
+            (_SAFE_L, _SAFE_T, text_w, box_h),
+            (_SAFE_R - media_w, _SAFE_T, media_w, box_h))
+
+
+def _apply_causten_style(prs) -> None:
+    """Make every run explicit: Causten Round Thin, bold only for the question number / cover title.
+
+    PowerPoint ignores paragraph-level default run properties, so size/bold/colour are copied from the
+    paragraph defaults onto each run. Answer text that used the old green is turned black.
+    """
+    from pptx.util import Pt
+    from pptx.dml.color import RGBColor
+
+    green = "059669"
+    black = RGBColor(15, 23, 42)
+
+    def _style_para(par, bold_face: bool):
+        d = par.font  # paragraph-level defaults (what the builders set)
+        size, color = d.size, None
+        try:
+            if d.color and d.color.type is not None and d.color.rgb is not None:
+                color = d.color.rgb
+        except Exception:
+            color = None
+        runs = list(par.runs)
+        if not runs:
+            return
+        for r in runs:
+            f = r.font
+            f.name = CAUSTEN_BOLD if bold_face else CAUSTEN_THIN
+            f.bold = True if bold_face else False
+            if f.size is None and size is not None:
+                f.size = size
+            c = color
+            try:
+                if f.color and f.color.type is not None and f.color.rgb is not None:
+                    c = f.color.rgb
+            except Exception:
+                pass
+            if c is not None:
+                f.color.rgb = black if str(c).upper() == green.upper() else c
+        d.name = CAUSTEN_BOLD if bold_face else CAUSTEN_THIN
+
+    def _walk(shapes):
+        for sh in shapes:
+            if sh.shape_type == 6 and hasattr(sh, "shapes"):  # group
+                _walk(sh.shapes)
+                continue
+            if sh.has_text_frame:
+                bold_face = sh.name in _BOLD_SHAPE_NAMES
+                for pi, par in enumerate(sh.text_frame.paragraphs):
+                    # cover: only the title line is bold, the subtitle lines stay Thin
+                    _style_para(par, bold_face and (sh.name != "CoverTitle" or pi == 0))
+            if getattr(sh, "has_table", False) and sh.has_table:
+                for row in sh.table.rows:
+                    for cell in row.cells:
+                        for par in cell.text_frame.paragraphs:
+                            _style_para(par, False)
+
+    for slide in prs.slides:
+        _walk(slide.shapes)
+
+
 def _get_val(obj: Any, key: str, default: Any = None) -> Any:
     """Helper to extract attribute from dict or object."""
     if isinstance(obj, dict):
@@ -587,7 +704,7 @@ class QuizExporter:
         from pptx import Presentation
         from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
-        from pptx.enum.text import PP_ALIGN
+        from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
         from pptx.enum.shapes import MSO_SHAPE
         prs = Presentation()
         prs.slide_width = Inches(13.333)
@@ -637,8 +754,9 @@ class QuizExporter:
         # Typography & Color Standards (Inter for ZSV, Causten Round for QShala School)
         # -------------------------------------------------------------
         if is_qshala_school:
-            FONT_HEAD = "Causten Round"
-            FONT_BODY = "Causten Round"
+            # Causten Round family only: Thin everywhere, Bold only for the question number / cover title.
+            FONT_HEAD = CAUSTEN_THIN
+            FONT_BODY = CAUSTEN_THIN
         else:
             FONT_HEAD = "Inter"
             FONT_BODY = "Inter"
@@ -674,30 +792,35 @@ class QuizExporter:
             s_title.shapes.add_picture(str(cover_bg), 0, 0, Inches(13.333), Inches(7.5))
 
             if is_qshala_school:
-                # QShala School Template Cover Layout (Style Guide compliant):
-                # Centered Title in 44pt bold Causten Round, centered Subtitle in 24pt
-                tb_qshala_cov = s_title.shapes.add_textbox(Inches(1.50), Inches(2.20), Inches(10.333), Inches(3.20))
+                # QShala Jr cover, matching the "Place your bets" title slide: logo + circle backdrop are
+                # baked into cover_bg.png; title (bold) and subtitle sit in the circle, centred, bottom-anchored.
+                from pptx.enum.text import MSO_ANCHOR
+                tb_qshala_cov = s_title.shapes.add_textbox(Inches(2.61), Inches(3.10), Inches(8.11), Inches(2.98))
+                tb_qshala_cov.name = "CoverTitle"
                 tf_qcov = tb_qshala_cov.text_frame
                 tf_qcov.word_wrap = True
+                tf_qcov.vertical_anchor = MSO_ANCHOR.BOTTOM
 
                 p_qc1 = tf_qcov.paragraphs[0]
                 p_qc1.alignment = PP_ALIGN.CENTER
                 p_qc1.text = final_title
-                p_qc1.font.name = FONT_HEAD
-                p_qc1.font.size = Pt(44)
+                p_qc1.font.name = CAUSTEN_BOLD
+                p_qc1.font.size = Pt(44) if len(final_title) <= 34 else Pt(36)
                 p_qc1.font.bold = True
                 p_qc1.font.color.rgb = C_TEXT_DARK
 
-                sub_display = (custom_subtitle or campus_edition or "Middle School Assembly").strip()
+                sub_display = (custom_subtitle or campus_edition or "").strip()
                 if sub_display:
-                    p_qc2 = tf_qcov.add_paragraph()
-                    p_qc2.alignment = PP_ALIGN.CENTER
-                    p_qc2.space_before = Pt(18)
-                    p_qc2.text = sub_display
-                    p_qc2.font.name = FONT_HEAD
-                    p_qc2.font.size = Pt(24)
-                    p_qc2.font.bold = False
-                    p_qc2.font.color.rgb = C_TEXT_BODY
+                    sub_lines = [ln.strip() for ln in sub_display.splitlines() if ln.strip()]
+                    for k, ln in enumerate(sub_lines):
+                        p_qc2 = tf_qcov.add_paragraph()
+                        p_qc2.alignment = PP_ALIGN.CENTER
+                        p_qc2.space_before = Pt(30) if k == 0 else Pt(0)
+                        p_qc2.text = ln
+                        p_qc2.font.name = CAUSTEN_THIN
+                        p_qc2.font.size = Pt(40) if len(ln) <= 24 else Pt(32)
+                        p_qc2.font.bold = False
+                        p_qc2.font.color.rgb = C_TEXT_DARK
             elif quiz_type == "school":
                 # Clean School Cover Layout (Common Cover slide):
                 # Pre-printed at top: Zerodha Varsity Quiz / India's Premier Finance Quiz
@@ -991,6 +1114,7 @@ class QuizExporter:
             if is_qshala_school:
                 # QShala School Style Guide: Header in 40pt bold Causten Round, centered
                 tb_head = sq.shapes.add_textbox(Inches(1.00), Inches(0.70), Inches(11.333), Inches(0.75))
+                tb_head.name = "QNum"
                 p_hd = tb_head.text_frame.paragraphs[0]
                 p_hd.alignment = PP_ALIGN.CENTER
                 p_hd.text = f"Question {idx}"
@@ -1000,64 +1124,47 @@ class QuizExporter:
                 p_hd.font.color.rgb = C_TEXT_DARK
 
                 if has_media:
-                    is_short_prompt = (len(q_text) <= 90 and not options)
-                    if is_short_prompt:
-                        # Short 1-2 line prompt: centered text top, centered media below
-                        tb_q = sq.shapes.add_textbox(Inches(1.20), Inches(1.55), Inches(10.933), Inches(0.95))
-                        tf_q = tb_q.text_frame
-                        tf_q.word_wrap = True
-                        pq_main = tf_q.paragraphs[0]
-                        pq_main.alignment = PP_ALIGN.CENTER
-                        pq_main.text = q_text
-                        pq_main.font.name = FONT_BODY
-                        pq_main.font.size = Pt(26)
-                        pq_main.font.bold = True
-                        pq_main.font.color.rgb = C_TEXT_DARK
+                    _q_aspect = _image_aspect(poster_path or (resolved_q_imgs[0] if resolved_q_imgs else None))
+                    _opt_len = sum(len(str(o)) + 4 for o in options)
+                    mode_q, (tl, tt, tw, th), (ml, mt, mw, mh) = _plan_media(_q_aspect, len(q_text) + _opt_len, has_options=bool(options))
+                    stacked_q = (mode_q == "stacked")
+                    tb_q = sq.shapes.add_textbox(Inches(tl), Inches(tt), Inches(tw), Inches(th))
+                    tf_q = tb_q.text_frame
+                    tf_q.word_wrap = True
+                    pq_main = tf_q.paragraphs[0]
+                    pq_main.alignment = PP_ALIGN.CENTER
+                    pq_main.text = q_text
+                    q_full = q_text + "".join("\n" + str(o) for o in options)
+                    q_pt = _fit_font_pt(q_full, tw - 0.3, th - 0.2, sizes=(28, 26, 24, 22, 20, 18, 16))
+                    pq_main.font.name = FONT_BODY
+                    pq_main.font.size = Pt(q_pt)
+                    pq_main.font.bold = False
+                    pq_main.font.color.rgb = C_TEXT_DARK
+                    if options:
+                        for opt_idx, opt in enumerate(options):
+                            po = tf_q.add_paragraph()
+                            po.alignment = PP_ALIGN.CENTER
+                            po.space_before = Pt(8)
+                            prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                            po.text = f"{prefix}{opt}"
+                            po.font.name = FONT_BODY
+                            po.font.size = Pt(max(16, q_pt - 4))
+                            po.font.color.rgb = C_TEXT_BODY
+                    if not stacked_q:
+                        tf_q.vertical_anchor = MSO_ANCHOR.MIDDLE
 
-                        media_left = Inches(3.666)
-                        media_top = Inches(2.65)
-                        media_w = Inches(6.00)
-                        media_h = Inches(3.70)
-                    else:
-                        # 2-Column Side-by-Side Layout for Standard/Long Questions:
-                        # Left: Question text (width=7.20 in, height=4.70 in)
-                        # Right: Media Clue (width=3.80 in, height=4.50 in)
-                        # Prevents vertical collision between multi-line text and media
-                        tb_q = sq.shapes.add_textbox(Inches(1.00), Inches(1.60), Inches(7.20), Inches(4.70))
-                        tf_q = tb_q.text_frame
-                        tf_q.word_wrap = True
-                        pq_main = tf_q.paragraphs[0]
-                        pq_main.alignment = PP_ALIGN.LEFT
-                        pq_main.text = q_text
-                        pq_main.font.name = FONT_BODY
-                        pq_main.font.size = Pt(24) if len(q_text) < 180 else (Pt(20) if len(q_text) < 300 else Pt(18))
-                        pq_main.font.bold = True
-                        pq_main.font.color.rgb = C_TEXT_DARK
-
-                        if options:
-                            for opt_idx, opt in enumerate(options):
-                                po = tf_q.add_paragraph()
-                                po.space_before = Pt(8)
-                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                                po.text = f"{prefix}{opt}"
-                                po.font.name = FONT_BODY
-                                po.font.size = Pt(16)
-                                po.font.color.rgb = C_TEXT_BODY
-
-                        media_left = Inches(8.50)
-                        media_top = Inches(1.60)
-                        media_w = Inches(3.80)
-                        media_h = Inches(4.50)
+                    media_left, media_top, media_w, media_h = Inches(ml), Inches(mt), Inches(mw), Inches(mh)
+                    vid_h = media_h - Inches(0.45)  # leave room for the "VIDEO CLIP" caption
 
                     is_video_mention = bool(re.search(r"\bvideo\b|\bclip\b|\bwatch\b", q_text, re.I))
                     if video_path:
                         sq.shapes.add_movie(
                             str(video_path),
-                            media_left, media_top, media_w, min(media_h, Inches(3.80)),
+                            media_left, media_top, media_w, vid_h,
                             poster_frame_image=str(poster_path) if poster_path else None,
                             mime_type="video/mp4"
                         )
-                        tb_badge = sq.shapes.add_textbox(media_left, media_top + min(media_h, Inches(3.80)) + Inches(0.10), media_w, Inches(0.40))
+                        tb_badge = sq.shapes.add_textbox(media_left, media_top + vid_h + Inches(0.10), media_w, Inches(0.40))
                         pb = tb_badge.text_frame.paragraphs[0]
                         pb.alignment = PP_ALIGN.CENTER
                         pb.text = "▶ VIDEO CLIP"
@@ -1066,8 +1173,8 @@ class QuizExporter:
                         pb.font.bold = True
                         pb.font.color.rgb = C_ACCENT_ORANGE
                     elif is_video_mention and poster_path:
-                        _add_scaled_picture(sq, poster_path, media_left, media_top, media_w, min(media_h, Inches(3.80)))
-                        tb_badge = sq.shapes.add_textbox(media_left, media_top + min(media_h, Inches(3.80)) + Inches(0.10), media_w, Inches(0.40))
+                        _add_scaled_picture(sq, poster_path, media_left, media_top, media_w, vid_h)
+                        tb_badge = sq.shapes.add_textbox(media_left, media_top + vid_h + Inches(0.10), media_w, Inches(0.40))
                         pb = tb_badge.text_frame.paragraphs[0]
                         pb.alignment = PP_ALIGN.CENTER
                         pb.text = "▶ VIDEO CLIP"
@@ -1321,6 +1428,7 @@ class QuizExporter:
             if is_qshala_school:
                 # QShala School Answer Reveal Layout
                 tb_ahead = sa.shapes.add_textbox(Inches(1.00), Inches(0.70), Inches(11.333), Inches(0.75))
+                tb_ahead.name = "QNum"
                 pah = tb_ahead.text_frame.paragraphs[0]
                 pah.alignment = PP_ALIGN.CENTER
                 pah.text = f"Answer {idx}"
@@ -1330,43 +1438,34 @@ class QuizExporter:
                 pah.font.color.rgb = C_TEXT_DARK
 
                 if has_ans_img:
-                    if explanation and len(explanation) > 50:
-                        # 2-Column Solution Layout: Answer + Explanation left (7.20 in), Solution Image right (3.80 in)
-                        # Prevents image from overlapping bottom explanation or bottom-right cats artwork
-                        tb_a = sa.shapes.add_textbox(Inches(1.00), Inches(1.60), Inches(7.20), Inches(4.70))
-                        tf_a = tb_a.text_frame
-                        tf_a.word_wrap = True
-                        pa_head = tf_a.paragraphs[0]
-                        pa_head.alignment = PP_ALIGN.LEFT
-                        pa_head.text = ans_val
-                        pa_head.font.name = FONT_HEAD
-                        pa_head.font.size = Pt(34) if len(ans_val) < 40 else Pt(26)
-                        pa_head.font.bold = True
-                        pa_head.font.color.rgb = C_ACCENT_GREEN
-
+                    _a_aspect = _image_aspect(ans_img_path)
+                    mode_a, (tl, tt, tw, th), (ml, mt, mw, mh) = _plan_media(_a_aspect, len(ans_val) + len(explanation))
+                    if mode_a == "stacked" and explanation:
+                        # keep the explanation on the slide: answer + explanation above a slightly shorter image
+                        th, mh_trim = 1.55, 0.5
+                        mt, mh = mt + mh_trim, mh - mh_trim
+                    tb_a = sa.shapes.add_textbox(Inches(tl), Inches(tt), Inches(tw), Inches(th))
+                    tf_a = tb_a.text_frame
+                    tf_a.word_wrap = True
+                    pa_head = tf_a.paragraphs[0]
+                    pa_head.alignment = PP_ALIGN.CENTER
+                    pa_head.text = ans_val
+                    pa_head.font.name = FONT_HEAD
+                    pa_head.font.size = Pt(40) if len(ans_val) < 30 else (Pt(32) if len(ans_val) < 60 else Pt(26))
+                    pa_head.font.bold = False
+                    pa_head.font.color.rgb = C_TEXT_DARK
+                    if explanation:
+                        exp_h = th - (0.9 if mode_a == "stacked" else 1.3)
                         pa_exp = tf_a.add_paragraph()
-                        pa_exp.alignment = PP_ALIGN.LEFT
-                        pa_exp.space_before = Pt(14)
+                        pa_exp.alignment = PP_ALIGN.CENTER
+                        pa_exp.space_before = Pt(10)
                         pa_exp.text = explanation
                         pa_exp.font.name = FONT_BODY
-                        pa_exp.font.size = Pt(20) if len(explanation) < 200 else Pt(17)
+                        pa_exp.font.size = Pt(_fit_font_pt(explanation, tw - 0.3, max(0.6, exp_h), sizes=(22, 20, 18, 16, 14)))
                         pa_exp.font.color.rgb = C_TEXT_BODY
-
-                        _add_scaled_picture(sa, ans_img_path, Inches(8.50), Inches(1.60), Inches(3.80), Inches(4.50))
-                    else:
-                        # Short or no explanation: Centered answer top, centered solution image below
-                        tb_a = sa.shapes.add_textbox(Inches(1.10), Inches(1.55), Inches(11.133), Inches(0.95))
-                        tf_a = tb_a.text_frame
-                        tf_a.word_wrap = True
-                        pa_head = tf_a.paragraphs[0]
-                        pa_head.alignment = PP_ALIGN.CENTER
-                        pa_head.text = ans_val
-                        pa_head.font.name = FONT_HEAD
-                        pa_head.font.size = Pt(38) if len(ans_val) < 40 else Pt(30)
-                        pa_head.font.bold = True
-                        pa_head.font.color.rgb = C_ACCENT_GREEN
-
-                        _add_scaled_picture(sa, ans_img_path, Inches(3.666), Inches(2.65), Inches(6.00), Inches(3.70))
+                    if mode_a == "side":
+                        tf_a.vertical_anchor = MSO_ANCHOR.MIDDLE
+                    _add_scaled_picture(sa, ans_img_path, Inches(ml), Inches(mt), Inches(mw), Inches(mh))
                 else:
                     if explanation:
                         tb_a = sa.shapes.add_textbox(Inches(1.20), Inches(1.75), Inches(10.933), Inches(1.30))
@@ -1378,7 +1477,7 @@ class QuizExporter:
                         pa_head.font.name = FONT_HEAD
                         pa_head.font.size = Pt(44) if len(ans_val) < 40 else Pt(34)
                         pa_head.font.bold = True
-                        pa_head.font.color.rgb = C_ACCENT_GREEN
+                        pa_head.font.color.rgb = C_TEXT_DARK
 
                         tb_exp = sa.shapes.add_textbox(Inches(1.50), Inches(3.20), Inches(10.333), Inches(3.30))
                         tf_exp = tb_exp.text_frame
@@ -1399,7 +1498,7 @@ class QuizExporter:
                         pa_head.font.name = FONT_HEAD
                         pa_head.font.size = Pt(48) if len(ans_val) < 40 else Pt(38)
                         pa_head.font.bold = True
-                        pa_head.font.color.rgb = C_ACCENT_GREEN
+                        pa_head.font.color.rgb = C_TEXT_DARK
 
                 sa.notes_slide.notes_text_frame.text = (
                     f"Presenter Talking Points:\n"
@@ -1501,6 +1600,9 @@ class QuizExporter:
                     f"Award +10 points to any team with the correct answer or verified synonym.\n"
                     f"Trivia Context: {explanation}"
                 )
+
+        if is_qshala_school:
+            _apply_causten_style(prs)
 
         buffer = io.BytesIO()
         prs.save(buffer)
