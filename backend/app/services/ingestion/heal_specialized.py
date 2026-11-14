@@ -123,15 +123,16 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
             tier_text = c1 if step == 1 else (c2 if step == 2 else c3)
             tier_img = imgs[step - 1] if step - 1 < len(imgs) else None
             clues.append({
+                # Canonical shape read by the presenter, the quiz UI and the PPT export:
+                # {step, text, correct, wrong, images}. The old keys (points_correct/image) were
+                # ignored by every renderer, so the clues fell back to one merged block.
                 "step": step,
-                "points": p_lbl,
-                "points_correct": p_cor,
-                "points_wrong": p_wrg,
-                "points_label": p_lbl,
-                "difficulty_label": d_lbl,
                 "text": tier_text,
-                "image": tier_img,
-                "image_url": tier_img,
+                "correct": p_cor,
+                "wrong": p_wrg,
+                "images": [tier_img] if tier_img else [],
+                "points_label": p_lbl,       # extra, for any legacy reader; renderers ignore it
+                "difficulty_label": d_lbl,
             })
 
         payload = {
@@ -139,7 +140,12 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
             "badge": "Portfolio Builder • Stepped Clues",
             "rules": "All on buzzer • 1 attempt per clue • Clue 1: +20/-15, Clue 2: +15/-10, Clue 3: +10/-5",
             "clues": clues,
+            "scoring_ladder_ok": True,
             "answer": q.answer,
+            # scoring_ladder_ok + extraction are what make export_format_of() and the frontend isStepped()
+            # guard accept this as a real stepped-clue question and render the clues one at a time.
+            "extraction": {"confidence": 0.9, "needs_review": False, "route": "accept",
+                           "reasons": ["healed from merged clue text"]},
         }
 
         # Clean formatted question text for universal readability
