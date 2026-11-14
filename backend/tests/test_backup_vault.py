@@ -65,10 +65,13 @@ def test_newest_installed_postgres_tools_are_chosen_for_dump_and_restore(monkeyp
     (tmp_path / "postgresql" / "notaversion" / "bin").mkdir(parents=True)
     monkeypatch.delenv("PG_BIN_DIR", raising=False)
     monkeypatch.setattr(m.glob, "glob", lambda pattern: [str(p) for p in (tmp_path / "postgresql").glob("*/bin")])
-    assert m.pg_tool("pg_dump").endswith("/18/bin/pg_dump")
-    assert m.pg_tool("pg_restore").endswith("/18/bin/pg_restore")      # same version for both, always
+    # Compare with separators normalised so the test holds on Windows dev machines too
+    # (the code runs on Linux in CI and Cloud Run, where these paths already use "/").
+    norm = lambda p: p.replace("\\", "/")
+    assert norm(m.pg_tool("pg_dump")).endswith("/18/bin/pg_dump")
+    assert norm(m.pg_tool("pg_restore")).endswith("/18/bin/pg_restore")  # same version for both, always
     monkeypatch.setenv("PG_BIN_DIR", "/opt/pg/bin")
-    assert m.pg_tool("pg_restore") == "/opt/pg/bin/pg_restore"
+    assert norm(m.pg_tool("pg_restore")) == "/opt/pg/bin/pg_restore"
     monkeypatch.delenv("PG_BIN_DIR")
     monkeypatch.setattr(m.glob, "glob", lambda pattern: [])
     assert m.pg_tool("pg_restore") == "pg_restore"                    # nothing installed under /usr/lib: fall back to PATH
