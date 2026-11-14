@@ -95,7 +95,7 @@ type StructuredPayload =
 
 type ResolveMedia = (url: string | null | undefined) => string;
 
-const BRAND_YELLOW = '#FDB913';
+const ACCENT = '#2563eb'; // app primary blue
 
 // ---------------------------------------------------------------------------
 // Payload helpers
@@ -184,7 +184,7 @@ function StageImage({
   if (failed || !src) {
     return (
       <div
-        className={`flex items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/30 ${className || ''}`}
+        className={`flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-300 ${className || ''}`}
         aria-label="Image unavailable"
       >
         <ImageOff className="h-10 w-10" />
@@ -213,10 +213,10 @@ function StageImage({
       type="button"
       onClick={onZoom}
       aria-label={`Zoom image: ${alt}`}
-      className="group relative cursor-zoom-in focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60 rounded-xl"
+      className="group relative cursor-zoom-in focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 rounded-xl"
     >
       {img}
-      <span className="pointer-events-none absolute right-2 top-2 rounded-md bg-black/50 p-1.5 text-white/80 opacity-0 transition-opacity group-hover:opacity-100">
+      <span className="pointer-events-none absolute right-2 top-2 rounded-md bg-slate-900/60 p-1.5 text-white opacity-0 transition-opacity group-hover:opacity-100">
         <ZoomIn className="h-4 w-4" />
       </span>
     </button>
@@ -275,25 +275,25 @@ function SteppedView({ payload, step, resolveMedia, onZoom }: { payload: Stepped
             className={`rounded-2xl border px-6 py-5 transition-all duration-300 ${
               open
                 ? isCurrent
-                  ? 'border-amber-300/70 bg-amber-400/10 shadow-lg shadow-amber-500/10'
-                  : 'border-white/10 bg-white/5 opacity-60'
-                : 'border-dashed border-white/15 bg-white/[0.02]'
+                  ? 'border-amber-300 bg-amber-50 shadow-sm'
+                  : 'border-slate-200 bg-slate-50 opacity-70'
+                : 'border-dashed border-slate-300 bg-slate-50'
             }`}
           >
             <div className="mb-2 flex items-center gap-3">
-              <span className="rounded-lg bg-amber-400/20 px-3 py-1 font-mono text-sm font-bold text-amber-200">
+              <span className="rounded-lg bg-amber-100 px-3 py-1 font-mono text-sm font-bold text-amber-800">
                 Clue {c.step}
               </span>
               {points && (
-                <span className="rounded-lg bg-white/10 px-3 py-1 font-mono text-sm font-semibold text-white/80">
+                <span className="rounded-lg bg-slate-100 px-3 py-1 font-mono text-sm font-semibold text-slate-700">
                   {points}
                 </span>
               )}
             </div>
             {open ? (
               <div className="flex flex-wrap items-center gap-5">
-                <p className="min-w-0 flex-1 text-white" style={PROMPT_TEXT_STYLE}>
-                  {c.text || <span className="text-white/40">(no clue text)</span>}
+                <p className="min-w-0 flex-1 text-slate-900" style={PROMPT_TEXT_STYLE}>
+                  {c.text || <span className="text-slate-400">(no clue text)</span>}
                 </p>
                 {c.images.slice(0, 2).map((img) => (
                   <StageImage
@@ -307,7 +307,7 @@ function SteppedView({ payload, step, resolveMedia, onZoom }: { payload: Stepped
                 ))}
               </div>
             ) : (
-              <p className="text-xl font-medium text-white/30">Hidden — press Next to reveal</p>
+              <p className="text-xl font-medium text-slate-300">Hidden — press Next to reveal</p>
             )}
           </div>
         );
@@ -329,11 +329,11 @@ function ImageRevealView({ payload, step, resolveMedia, onZoom }: { payload: Ima
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-5">
       {payload.prompt && (
-        <p className="text-center font-semibold text-white" style={PROMPT_TEXT_STYLE}>
+        <p className="text-center font-semibold text-slate-900" style={PROMPT_TEXT_STYLE}>
           {payload.prompt}
         </p>
       )}
-      <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-black/40">
+      <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
         {payload.full_image ? (
           <StageImage
             url={payload.full_image}
@@ -343,7 +343,7 @@ function ImageRevealView({ payload, step, resolveMedia, onZoom }: { payload: Ima
             className="h-full w-full object-contain"
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-white/30">
+          <div className="flex h-full items-center justify-center text-slate-300">
             <ImageOff className="h-12 w-12" />
           </div>
         )}
@@ -359,9 +359,9 @@ function ImageRevealView({ payload, step, resolveMedia, onZoom }: { payload: Ima
                 open ? 'pointer-events-none opacity-0' : 'opacity-100'
               }`}
             >
-              <div className="flex h-full w-full flex-col items-center justify-center gap-2 border border-slate-900/40 bg-gradient-to-br from-indigo-900 to-slate-900 text-white/90">
+              <div className="flex h-full w-full flex-col items-center justify-center gap-2 border border-white/40 bg-gradient-to-br from-blue-500 to-blue-600 text-white">
                 <span className="text-3xl font-black">{s.step}</span>
-                {points && <span className="font-mono text-sm text-white/70">{points}</span>}
+                {points && <span className="font-mono text-sm text-slate-600">{points}</span>}
               </div>
             </div>
           );
@@ -376,7 +376,7 @@ function ConnectView({ payload, step, revealed, resolveMedia, onZoom }: { payloa
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col items-center gap-5">
       {payload.text_hint && (
-        <p className="text-center font-semibold text-white/90" style={PROMPT_TEXT_STYLE}>
+        <p className="text-center font-semibold text-slate-700" style={PROMPT_TEXT_STYLE}>
           {payload.text_hint}
         </p>
       )}
@@ -387,7 +387,7 @@ function ConnectView({ payload, step, revealed, resolveMedia, onZoom }: { payloa
           return (
             <div
               key={`${it.order}-${i}`}
-              className="relative aspect-video overflow-hidden rounded-2xl border border-white/10 bg-black/40"
+              className="relative aspect-video overflow-hidden rounded-2xl border border-slate-200 bg-slate-100"
             >
               {open ? (
                 <>
@@ -399,13 +399,13 @@ function ConnectView({ payload, step, revealed, resolveMedia, onZoom }: { payloa
                     className="h-full w-full object-contain"
                   />
                   {label && (
-                    <span className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-1 text-sm font-semibold text-white">
+                    <span className="absolute bottom-2 left-2 rounded-md bg-slate-900/70 px-2 py-1 text-sm font-semibold text-white">
                       {label}
                     </span>
                   )}
                 </>
               ) : (
-                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-indigo-900 to-slate-900 text-5xl font-black text-white/70">
+                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-500 to-blue-600 text-5xl font-black text-white">
                   {i + 1}
                 </div>
               )}
@@ -414,7 +414,7 @@ function ConnectView({ payload, step, revealed, resolveMedia, onZoom }: { payloa
         })}
       </div>
       {revealed && (
-        <p className="text-center text-2xl font-semibold text-sky-300">The connect links all four clues.</p>
+        <p className="text-center text-2xl font-semibold text-emerald-600">The connect links all four clues.</p>
       )}
     </div>
   );
@@ -433,10 +433,10 @@ function ArrangeView({ payload, revealed, resolveMedia, reduceMotion, onZoom }: 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
       {payload.prompt && (
-        <p className="text-center font-semibold text-white" style={PROMPT_TEXT_STYLE}>
+        <p className="text-center font-semibold text-slate-900" style={PROMPT_TEXT_STYLE}>
           {payload.prompt}
           {payload.direction && (
-            <span className="ml-2 text-lg font-normal text-white/50">
+            <span className="ml-2 text-lg font-normal text-slate-400">
               ({payload.direction === 'asc' ? 'ascending' : 'descending'})
             </span>
           )}
@@ -448,12 +448,12 @@ function ArrangeView({ payload, revealed, resolveMedia, reduceMotion, onZoom }: 
             key={it.label}
             style={reduceMotion ? undefined : { transitionDelay: `${i * 60}ms` }}
             className={`flex items-center gap-4 rounded-2xl border px-5 py-4 transition-all duration-300 ${
-              revealed ? 'border-emerald-300/50 bg-emerald-400/10' : 'border-white/10 bg-white/5'
+              revealed ? 'border-emerald-300/50 bg-emerald-400/10' : 'border-slate-200 bg-white'
             }`}
           >
             <span
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-black ${
-                revealed ? 'bg-emerald-400 text-slate-900' : 'bg-white/10 text-white/70'
+                revealed ? 'bg-emerald-400 text-slate-900' : 'bg-slate-100 text-slate-600'
               }`}
             >
               {revealed && orderKnown ? i + 1 : String.fromCharCode(65 + i)}
@@ -467,9 +467,9 @@ function ArrangeView({ payload, revealed, resolveMedia, reduceMotion, onZoom }: 
                 className="h-16 w-24 shrink-0 rounded-lg object-contain"
               />
             )}
-            <span className="min-w-0 flex-1 text-2xl font-semibold text-white">{it.text}</span>
+            <span className="min-w-0 flex-1 text-2xl font-semibold text-slate-900">{it.text}</span>
             {revealed && it.value && (
-              <span className="shrink-0 rounded-lg bg-white/10 px-3 py-1 font-mono text-lg text-sky-200">
+              <span className="shrink-0 rounded-lg bg-slate-100 px-3 py-1 font-mono text-lg text-blue-700">
                 {it.value}
               </span>
             )}
@@ -500,17 +500,17 @@ function OptionGrid({
           <div
             key={i}
             className={`flex items-center gap-4 rounded-2xl border px-5 py-4 text-left transition-all duration-300 ${
-              hit ? 'border-emerald-300 bg-emerald-400/15 shadow-lg shadow-emerald-500/10' : 'border-white/10 bg-white/5'
+              hit ? 'border-emerald-300 bg-emerald-400/15 shadow-lg shadow-emerald-500/10' : 'border-slate-200 bg-white'
             }`}
           >
             <span
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-black ${
-                hit ? 'bg-emerald-400 text-slate-900' : 'bg-white/10 text-white/70'
+                hit ? 'bg-emerald-400 text-slate-900' : 'bg-slate-100 text-slate-600'
               }`}
             >
               {o.letter || String.fromCharCode(65 + i)}
             </span>
-            <span className="text-2xl font-semibold text-white">{o.text}</span>
+            <span className="text-2xl font-semibold text-slate-900">{o.text}</span>
           </div>
         );
       })}
@@ -528,7 +528,7 @@ function McqView({ payload, revealed }: { payload: McqPayload } & EngineProps) {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       {payload.prompt && (
-        <h2 className="text-center font-bold text-white" style={QUESTION_TEXT_STYLE}>
+        <h2 className="text-center font-bold text-slate-900" style={QUESTION_TEXT_STYLE}>
           {payload.prompt}
         </h2>
       )}
@@ -545,12 +545,12 @@ function ListItView({ payload, revealed }: { payload: ListItPayload } & EnginePr
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       {payload.prompt && (
-        <h2 className="text-center font-bold text-white" style={QUESTION_TEXT_STYLE}>
+        <h2 className="text-center font-bold text-slate-900" style={QUESTION_TEXT_STYLE}>
           {payload.prompt}
         </h2>
       )}
       {payload.max_picks > 0 && (
-        <p className="text-center text-lg text-white/50">Pick up to {payload.max_picks}</p>
+        <p className="text-center text-lg text-slate-400">Pick up to {payload.max_picks}</p>
       )}
       <OptionGrid options={payload.options} correctIndexes={correct} revealed={revealed} />
     </div>
@@ -565,7 +565,7 @@ function StandardView({ q, resolveMedia, onZoom }: EngineProps) {
       className={`mx-auto flex w-full max-w-6xl items-center gap-8 ${hasImg ? 'flex-col lg:flex-row' : 'flex-col justify-center'}`}
     >
       <div className={`flex flex-col gap-5 ${hasImg ? 'flex-1' : 'max-w-4xl text-center'}`}>
-        <h2 className="font-bold leading-tight text-white" style={QUESTION_TEXT_STYLE}>
+        <h2 className="font-bold leading-tight text-slate-900" style={QUESTION_TEXT_STYLE}>
           {q.question_text}
         </h2>
         {q.options && q.options.length > 0 && (
@@ -573,9 +573,9 @@ function StandardView({ q, resolveMedia, onZoom }: EngineProps) {
             {q.options.map((opt, i) => (
               <div
                 key={i}
-                className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xl font-medium text-white/90"
+                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xl font-medium text-slate-700"
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-bold text-white/70">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-600">
                   {String.fromCharCode(65 + i)}
                 </span>
                 {opt}
@@ -621,13 +621,13 @@ function TimerRing({ seconds, duration, warning }: { seconds: number; duration: 
   return (
     <div className="relative h-16 w-16">
       <svg viewBox="0 0 64 64" className="h-16 w-16 -rotate-90">
-        <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="6" />
+        <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(15,23,42,0.08)" strokeWidth="6" />
         <circle
           cx="32"
           cy="32"
           r={r}
           fill="none"
-          stroke={warning ? '#f87171' : BRAND_YELLOW}
+          stroke={warning ? '#f87171' : ACCENT}
           strokeWidth="6"
           strokeLinecap="round"
           strokeDasharray={circ}
@@ -637,7 +637,7 @@ function TimerRing({ seconds, duration, warning }: { seconds: number; duration: 
       </svg>
       <span
         className={`absolute inset-0 flex items-center justify-center text-xl font-black tabular-nums ${
-          warning ? 'text-red-400' : 'text-white'
+          warning ? 'text-red-500' : 'text-slate-900'
         }`}
       >
         {seconds}
@@ -998,16 +998,16 @@ export default function StagePresenter({
       aria-label={`${quizTitle || 'Quiz'} presenter`}
       tabIndex={-1}
       onMouseMove={isFullscreen ? pokeControls : undefined}
-      className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 text-white outline-none"
+      className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 via-white to-blue-50 text-slate-900 outline-none"
       style={{ cursor: hudHidden ? 'none' : 'default' }}
     >
       {!current ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-6">
-          <p className="text-2xl font-semibold text-white/70">No approved questions to present.</p>
+          <p className="text-2xl font-semibold text-slate-600">No approved questions to present.</p>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl bg-white/10 px-6 py-3 font-semibold hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+            className="rounded-xl bg-slate-100 px-6 py-3 font-semibold hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
           >
             Close
           </button>
@@ -1021,27 +1021,27 @@ export default function StagePresenter({
             }`}
           >
             <div className="flex min-w-0 items-center gap-3">
-              <span className="truncate text-lg font-bold" style={{ color: BRAND_YELLOW }}>
+              <span className="truncate text-lg font-bold text-slate-900">
                 {quizTitle || 'QShala Quiz'}
               </span>
-              <span className="shrink-0 rounded-lg bg-white/10 px-3 py-1 text-sm font-semibold tabular-nums">
+              <span className="shrink-0 rounded-lg bg-slate-100 px-3 py-1 text-sm font-semibold tabular-nums">
                 Q {index + 1} / {total}
               </span>
               <span className={`shrink-0 rounded-lg border px-3 py-1 text-sm font-semibold ${fmt.chip}`}>
                 {fmt.label}
               </span>
               {current.difficulty && (
-                <span className="hidden shrink-0 rounded-lg bg-white/10 px-3 py-1 text-sm font-medium text-white/70 sm:inline">
+                <span className="hidden shrink-0 rounded-lg bg-slate-100 px-3 py-1 text-sm font-medium text-slate-600 sm:inline">
                   {current.difficulty}
                 </span>
               )}
               {(current.points_correct != null || current.points_wrong != null) && (
-                <span className="hidden shrink-0 rounded-lg bg-white/10 px-3 py-1 font-mono text-sm sm:inline">
+                <span className="hidden shrink-0 rounded-lg bg-slate-100 px-3 py-1 font-mono text-sm sm:inline">
                   {current.points_correct != null && (
                     <span className="text-emerald-300">+{current.points_correct}</span>
                   )}
                   {current.points_wrong != null && (
-                    <span className="ml-2 text-red-300">-{Math.abs(current.points_wrong)}</span>
+                    <span className="ml-2 text-red-600">-{Math.abs(current.points_wrong)}</span>
                   )}
                 </span>
               )}
@@ -1051,7 +1051,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={() => setShowHelp((v) => !v)}
                 aria-label="Keyboard shortcuts"
-                className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
               >
                 <Keyboard className="h-5 w-5" />
               </button>
@@ -1059,7 +1059,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={toggleFullscreen}
                 aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
-                className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
               >
                 {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
               </button>
@@ -1067,7 +1067,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={onClose}
                 aria-label="Close presenter"
-                className="rounded-lg p-2 text-white/70 hover:bg-red-500/20 hover:text-red-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                className="rounded-lg p-2 text-slate-600 hover:bg-red-500/20 hover:text-red-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -1080,10 +1080,10 @@ export default function StagePresenter({
               key={current.id || index}
               fallback={
                 <div className="flex flex-col items-center gap-4 text-center">
-                  <h2 className="font-bold text-white" style={QUESTION_TEXT_STYLE}>
+                  <h2 className="font-bold text-slate-900" style={QUESTION_TEXT_STYLE}>
                     {current.question_text}
                   </h2>
-                  <p className="text-white/50">This question&apos;s rich view could not be shown.</p>
+                  <p className="text-slate-400">This question&apos;s rich view could not be shown.</p>
                 </div>
               }
             >
@@ -1105,7 +1105,7 @@ export default function StagePresenter({
               className="mx-auto w-full max-w-6xl shrink-0 px-6 pb-2"
               style={reduceMotion ? undefined : { animation: 'stageSlideUp 300ms ease-out' }}
             >
-              <div className="rounded-t-3xl border border-white/15 bg-white px-8 py-5 text-slate-900 shadow-2xl">
+              <div className="rounded-t-3xl border border-slate-200 bg-white px-8 py-5 text-slate-900 shadow-2xl">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <span className="text-sm font-bold uppercase tracking-widest text-emerald-700">Answer</span>
                   <h3 className="font-black leading-tight" style={{ fontSize: 'clamp(1.75rem, 3vw, 3rem)' }}>
@@ -1115,7 +1115,7 @@ export default function StagePresenter({
                     <button
                       type="button"
                       onClick={() => setStoryOpen((v) => !v)}
-                      className="ml-auto flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                      className="ml-auto flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
                     >
                       <BookOpen className="h-4 w-4" />
                       {storyOpen ? 'Hide story' : 'Story behind the question'}
@@ -1142,7 +1142,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={goPrev}
                 aria-label="Previous"
-                className="rounded-xl bg-white/10 p-3 hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                className="rounded-xl bg-slate-100 p-3 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
               >
                 <ChevronLeft className="h-6 w-6" />
               </button>
@@ -1150,8 +1150,8 @@ export default function StagePresenter({
                 type="button"
                 onClick={goNext}
                 aria-label="Next / reveal"
-                className="flex items-center gap-2 rounded-xl px-5 py-3 font-bold text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
-                style={{ backgroundColor: BRAND_YELLOW }}
+                className="flex items-center gap-2 rounded-xl px-5 py-3 font-bold text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                style={{ backgroundColor: ACCENT }}
               >
                 {step < maxSteps ? <ChevronRight className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 {step < maxSteps ? 'Next' : revealed ? 'Next question' : 'Reveal'}
@@ -1160,7 +1160,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={resetQuestion}
                 aria-label="Reset this question"
-                className="rounded-xl bg-white/10 p-3 hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                className="rounded-xl bg-slate-100 p-3 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
               >
                 <RotateCcw className="h-5 w-5" />
               </button>
@@ -1172,9 +1172,8 @@ export default function StagePresenter({
                 <span
                   key={qq.id || i}
                   className={`h-2 rounded-full transition-all ${
-                    i === index ? 'w-6 bg-[color:var(--d)]' : 'w-2 bg-white/20'
+                    i === index ? 'w-6 bg-blue-600' : 'w-2 bg-slate-300'
                   }`}
-                  style={i === index ? ({ ['--d' as string]: BRAND_YELLOW } as React.CSSProperties) : undefined}
                 />
               ))}
             </div>
@@ -1188,7 +1187,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={startPauseTimer}
                     aria-label={timerRunning ? 'Pause timer' : 'Start timer'}
-                    className="rounded-lg bg-white/10 p-2 hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                    className="rounded-lg bg-slate-100 p-2 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
                   >
                     {timerRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                   </button>
@@ -1196,7 +1195,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={resetTimer}
                     aria-label="Reset timer"
-                    className="rounded-lg bg-white/10 p-2 hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                    className="rounded-lg bg-slate-100 p-2 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
                   >
                     <RotateCcw className="h-4 w-4" />
                   </button>
@@ -1204,7 +1203,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={() => setMuted((m) => !m)}
                     aria-label={muted ? 'Unmute timer sound' : 'Mute timer sound'}
-                    className="rounded-lg bg-white/10 p-2 hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                    className="rounded-lg bg-slate-100 p-2 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
                   >
                     {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
                   </button>
@@ -1214,15 +1213,15 @@ export default function StagePresenter({
                     type="button"
                     onClick={() => applyDuration(duration - 10)}
                     aria-label="Minus 10 seconds"
-                    className="rounded-lg bg-white/10 p-1.5 hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                    className="rounded-lg bg-slate-100 p-1.5 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
                   >
                     <Minus className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => applyDuration(30)}
-                    className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60 ${
-                      duration === 30 ? 'bg-white text-slate-900' : 'bg-white/10 hover:bg-white/20'
+                    className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 ${
+                      duration === 30 ? 'bg-blue-600 text-slate-900' : 'bg-slate-100 hover:bg-slate-200'
                     }`}
                   >
                     30
@@ -1230,8 +1229,8 @@ export default function StagePresenter({
                   <button
                     type="button"
                     onClick={() => applyDuration(60)}
-                    className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60 ${
-                      duration === 60 ? 'bg-white text-slate-900' : 'bg-white/10 hover:bg-white/20'
+                    className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 ${
+                      duration === 60 ? 'bg-blue-600 text-slate-900' : 'bg-slate-100 hover:bg-slate-200'
                     }`}
                   >
                     60
@@ -1240,7 +1239,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={() => applyDuration(duration + 10)}
                     aria-label="Plus 10 seconds"
-                    className="rounded-lg bg-white/10 p-1.5 hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+                    className="rounded-lg bg-slate-100 p-1.5 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </button>
@@ -1270,7 +1269,7 @@ export default function StagePresenter({
             type="button"
             onClick={() => setLightbox(null)}
             aria-label="Close zoom"
-            className="absolute right-6 top-6 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+            className="absolute right-6 top-6 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
           >
             <X className="h-6 w-6" />
           </button>
@@ -1280,11 +1279,11 @@ export default function StagePresenter({
       {/* ---- Keyboard help ---- */}
       {showHelp && (
         <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-6"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 p-6"
           onClick={() => setShowHelp(false)}
         >
           <div
-            className="w-full max-w-md rounded-2xl border border-white/15 bg-slate-900 p-6"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-slate-900"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-4 text-lg font-bold">Keyboard shortcuts</h3>
@@ -1300,15 +1299,15 @@ export default function StagePresenter({
                 ['Esc', 'Close (zoom first)'],
               ].map(([k, v]) => (
                 <React.Fragment key={k}>
-                  <dt className="font-mono font-semibold text-amber-200">{k}</dt>
-                  <dd className="text-white/70">{v}</dd>
+                  <dt className="font-mono font-semibold text-blue-700">{k}</dt>
+                  <dd className="text-slate-600">{v}</dd>
                 </React.Fragment>
               ))}
             </dl>
             <button
               type="button"
               onClick={() => setShowHelp(false)}
-              className="mt-5 w-full rounded-xl bg-white/10 py-2 font-semibold hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60"
+              className="mt-5 w-full rounded-xl bg-slate-100 py-2 font-semibold hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
             >
               Close
             </button>
