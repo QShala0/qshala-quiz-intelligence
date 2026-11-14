@@ -1076,6 +1076,20 @@ class QuizExporter:
                     if p and p.exists() and p not in resolved_q_imgs:
                         resolved_q_imgs.append(p)
 
+            # School template: an image tied to the answer must never appear on the question slide — it would
+            # give the answer away (the question image IS the branded product / ad, e.g. the Cornetto pack or
+            # the Fevicol creative). question_images/image_refs are a catch-all that also holds answer images,
+            # so drop any question image that is also an answer image; it still shows on the answer slide.
+            if is_qshala_school:
+                _ans_paths = set()
+                for _ai in (list(_get_val(q, "answer_images", []) or []) + list(hist_media.get("answer_images", []) or [])):
+                    if isinstance(_ai, str):
+                        _rp = _resolve_media_path(_ai, download_dir=media_tmp_dir)
+                        if _rp:
+                            _ans_paths.add(str(_rp))
+                if _ans_paths:
+                    resolved_q_imgs = [p for p in resolved_q_imgs if str(p) not in _ans_paths]
+
             poster_path = resolved_q_imgs[0] if resolved_q_imgs else None
             q_text = (_get_val(q, "question_text") or _get_val(q, "question", "")).strip()
             # Clean trailing prompt artifacts like '[Image on slide]', '[Image on the right]', '[Image on'
