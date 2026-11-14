@@ -11,6 +11,7 @@ Never prints the database URL or any key. This does not back up the media files 
 versioning or replicate that bucket separately.
 """
 import argparse
+import glob
 import hashlib
 import os
 import subprocess
@@ -52,8 +53,26 @@ def pg_env(database_url: str) -> dict:
     return env
 
 
+def pg_tool(name: str) -> str:
+    """The newest installed PostgreSQL client tool (for example /usr/lib/postgresql/18/bin/pg_dump), else the one on PATH.
+    pg_dump and pg_restore must come from the same, newest version: an older pg_restore cannot read a newer dump, and the
+    bare 'pg_restore' on a machine can be an older one than 'pg_dump'. PG_BIN_DIR forces a directory."""
+    override = os.environ.get("PG_BIN_DIR")
+    if override:
+        return str(Path(override) / name)
+    found = []
+    for d in glob.glob("/usr/lib/postgresql/*/bin"):
+        try:
+            version = int(Path(d).parent.name)
+        except ValueError:
+            continue
+        if (Path(d) / name).exists():
+            found.append((version, str(Path(d) / name)))
+    return max(found)[1] if found else name
+
+
 def dump_to(path: Path, database_url: str) -> str:
-    r = subprocess.run(["pg_dump", "--format=custom", "--no-owner", "--file", str(path)], env=pg_env(database_url),
+    r = subprocess.run([pg_tool("pg_dump"), "--format=custom", "--no-owner", "--file", str(path)], env=pg_env(database_url),
                        capture_output=True, text=True)
     if r.returncode != 0:
         err = r.stderr.strip()[-400:]                 # stderr never contains the password
@@ -61,7 +80,11 @@ def dump_to(path: Path, database_url: str) -> str:
             err += ("\nHINT: the database server is newer than this pg_dump. Install a matching or newer postgresql-client "
                     "(see the 'Install a pg_dump' step in .github/workflows/backup.yml) and keep the same version for restores.")
         raise RuntimeError("pg_dump failed: " + err)
-    listing = subprocess.run(["pg_restore", "--list", str(path)], check=True, capture_output=True, text=True).stdout
+    chk = subprocess.run([pg_tool("pg_restore"), "--list", str(path)], capture_output=True, text=True)
+    if chk.returncode != 0:
+        raise RuntimeError("the dump was written but could not be read back (pg_restore --list failed): " + chk.stderr.strip()[-300:]
+                           + "\nHINT: pg_restore must be the same or a newer version than pg_dump.")
+    listing = chk.stdout
     if "TABLE DATA" not in listing:
         raise RuntimeError("dump has no table data; refusing to keep it")
     h = hashlib.sha256()
