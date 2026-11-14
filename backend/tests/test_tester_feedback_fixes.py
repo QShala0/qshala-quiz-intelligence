@@ -692,8 +692,11 @@ def test_heal_specialized_preserves_specific_connect_prompts_and_six_images():
     db.refresh(q_six)
     assert specific_prompt in q_spec.question_text
     assert "Look at the 4 elements" not in q_spec.question_text
-    assert len(q_six.format_data["elements"]) == 6
-    assert [el["image_url"] for el in q_six.format_data["elements"]] == [f"e{i}.png" for i in range(1, 7)]
+    # Canonical CONNECT: all six clue images stored as items[{order,image}], ready for the structured grid.
+    assert q_six.format_data["type"] == "CONNECT"
+    assert len(q_six.format_data["items"]) == 6
+    assert [it["image"] for it in q_six.format_data["items"]] == [f"e{i}.png" for i in range(1, 7)]
+    assert [it["order"] for it in q_six.format_data["items"]] == list(range(1, 7))
 
 
 def test_science_vs_finance_taxonomy_precision():
