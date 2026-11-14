@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -24,6 +25,9 @@ import { getLocalQuiz, saveLocalQuiz } from '../../../lib/quizStorage';
 import QuestionCard from '../../../components/QuestionCard';
 import SlideViewerModal from '../../../components/SlideViewerModal';
 import LoadErrorBanner from '../../../components/LoadErrorBanner';
+import type { PresenterQuestion } from '../../../components/StagePresenter';
+
+const StagePresenter = dynamic(() => import('../../../components/StagePresenter'), { ssr: false });
 
 export default function QuizReviewStudioPage() {
   const params = useParams();
@@ -38,6 +42,7 @@ export default function QuizReviewStudioPage() {
 
   // Live Slide Deck Presentation Mode
   const [isPresenting, setIsPresenting] = useState(false);
+  const [isStageOpen, setIsStageOpen] = useState(false);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [imgFallbackUrls, setImgFallbackUrls] = useState<Record<string, string>>({});
   const [isExporting, setIsExporting] = useState<string | null>(null);
@@ -246,6 +251,16 @@ export default function QuizReviewStudioPage() {
             >
               <Play className="h-3.5 w-3.5 fill-current" />
               <span>Present Slide Deck</span>
+            </button>
+          )}
+
+          {approvedQuestions.length > 0 && (
+            <button
+              onClick={() => setIsStageOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer"
+            >
+              <Presentation className="h-3.5 w-3.5" />
+              <span>Present Live</span>
             </button>
           )}
 
@@ -533,6 +548,30 @@ export default function QuizReviewStudioPage() {
           onClose={() => setIsExportModalOpen(false)}
           quiz={quiz}
           onExport={handleDownload}
+        />
+      )}
+
+      {isStageOpen && (
+        <StagePresenter
+          isOpen={isStageOpen}
+          onClose={() => setIsStageOpen(false)}
+          quizTitle={quiz?.title}
+          resolveMediaUrl={resolveMediaUrl}
+          questions={approvedQuestions.map(
+            (q): PresenterQuestion => ({
+              id: q.id,
+              question_text: q.question_text,
+              answer: q.answer,
+              explanation: q.explanation ?? undefined,
+              question_format: q.question_format ?? undefined,
+              difficulty: q.difficulty,
+              question_images: q.question_images,
+              answer_images: q.answer_images,
+              image_refs: q.image_refs,
+              options: q.options ?? undefined,
+              format_payload: q.format_payload,
+            }),
+          )}
         />
       )}
     </div>
