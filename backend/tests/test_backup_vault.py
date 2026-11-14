@@ -95,3 +95,30 @@ def test_unreadable_dump_gives_a_clear_error(monkeypatch, tmp_path):
         raise AssertionError("expected a failure")
     except RuntimeError as e:
         assert "could not be read back" in str(e) and "unsupported version" in str(e) and "HINT" in str(e)
+
+
+def test_s3_client_strips_whitespace_from_r2_credentials(monkeypatch):
+    """A pasted secret with a trailing newline must not reach the SigV4 Authorization header
+    (boto3 rejects it as an 'Invalid header value' and every upload fails)."""
+    m = _mod()
+    captured = {}
+
+    class _FakeBoto3:
+        @staticmethod
+        def client(service, **kwargs):
+            captured.update(kwargs)
+            captured["service"] = service
+            return object()
+
+    monkeypatch.setitem(sys.modules, "boto3", _FakeBoto3)
+    monkeypatch.setenv("R2_ACCOUNT_ID", "acct123\n")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "AKIA_EXAMPLE\n")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "  secret-value  \n")
+
+    m._s3()
+
+    assert captured["endpoint_url"] == "https://acct123.r2.cloudflarestorage.com"
+    assert captured["aws_access_key_id"] == "AKIA_EXAMPLE"
+    assert captured["aws_secret_access_key"] == "secret-value"
+    for v in (captured["endpoint_url"], captured["aws_access_key_id"], captured["aws_secret_access_key"]):
+        assert "\n" not in v
