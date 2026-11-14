@@ -99,24 +99,32 @@ def test_heal_specialized_stepped_clue(in_memory_db):
     assert payload["type"] == "STEPPED_CLUE"
     assert len(payload["clues"]) == 3
 
+    # Canonical clue shape read by the presenter, quiz UI and PPT export: {step, text, correct, wrong, images}
     tier1 = payload["clues"][0]
     assert tier1["step"] == 1
-    assert tier1["points_correct"] == 20
-    assert tier1["points_wrong"] == -15
+    assert tier1["correct"] == 20
+    assert tier1["wrong"] == -15
     assert tier1["text"] == "First hint."
-    assert tier1["image_url"] == "http://img1.png"
+    assert tier1["images"] == ["http://img1.png"]
 
     tier2 = payload["clues"][1]
     assert tier2["step"] == 2
-    assert tier2["points_correct"] == 15
-    assert tier2["points_wrong"] == -10
+    assert tier2["correct"] == 15
+    assert tier2["wrong"] == -10
     assert tier2["text"] == "Second hint."
 
     tier3 = payload["clues"][2]
     assert tier3["step"] == 3
-    assert tier3["points_correct"] == 10
-    assert tier3["points_wrong"] == -5
+    assert tier3["correct"] == 10
+    assert tier3["wrong"] == -5
     assert tier3["text"] == "Third hint."
+
+    # The whole point of the fix: the payload is now accepted as a real stepped-clue question, so every
+    # surface reveals the clues one at a time instead of showing the merged block.
+    assert payload["scoring_ladder_ok"] is True
+    assert isinstance(payload["extraction"], dict)
+    from backend.app.services.export import format_slides
+    assert format_slides.export_format_of(payload) == "STEPPED_CLUE"
 
     # Verify clean question_text in markdown
     assert "Portfolio Builder" in healed_q.question_text
