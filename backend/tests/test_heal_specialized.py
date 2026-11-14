@@ -142,6 +142,14 @@ def test_heal_specialized_connect4(in_memory_db):
         answer="Reserve Bank of India",
         question_format="CONNECT_4",
         question_type="CONNECT_4",
+        # four clue images plus a countdown-timer graphic that must not become a quadrant
+        question_images=[
+            "http://img/clue1.png",
+            "http://img/timer-60s.gif",
+            "http://img/clue2.png",
+            "http://img/clue3.png",
+            "http://img/clue4.png",
+        ],
         format_payload={
             "type": "CONNECT_4",
             "items": [
@@ -160,10 +168,21 @@ def test_heal_specialized_connect4(in_memory_db):
     assert stats["connect4_healed"] == 1
 
     healed_q = in_memory_db.query(Question).filter(Question.id == "test-c4-1").first()
-    assert healed_q.question_format == "CONNECT_4"
-    assert "Connect 4" in healed_q.question_text
-    assert "Common Link" in healed_q.question_text
-    assert len(healed_q.format_payload["elements"]) == 4
+    payload = healed_q.format_payload
+    # Canonical CONNECT: one grid of clue images + answer on its own slide; timer is not a clue.
+    assert payload["type"] == "CONNECT"
+    assert healed_q.question_format == "CONNECT"
+    imgs = [it["image"] for it in payload["items"]]
+    assert imgs == ["http://img/clue1.png", "http://img/clue2.png", "http://img/clue3.png", "http://img/clue4.png"]
+    assert all("timer" not in u for u in imgs)
+    assert [it["order"] for it in payload["items"]] == [1, 2, 3, 4]
+    assert payload["item_labels"] == [
+        "Mint Road, Mumbai", "Governor Shaktikanta Das", "Repo Rate & Reverse Repo", "Issue of Banknotes",
+    ]
+    assert payload["answer"] == "Reserve Bank of India"
+    # accepted as a real connect question, so the structured grid renders everywhere
+    from backend.app.services.export import format_slides
+    assert format_slides.export_format_of(payload) == "CONNECT"
 
 
 def test_heal_reclassifies_mislabeled(in_memory_db):
