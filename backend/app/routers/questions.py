@@ -1,6 +1,9 @@
 import asyncio
+import logging
+import os
+import uuid
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, Query, HTTPException, Response
+from fastapi import APIRouter, Depends, Query, HTTPException, Response, UploadFile, File
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_, and_, func, desc, asc, String
 from backend.app.database import get_db
@@ -9,6 +12,7 @@ from backend.app.models.document import Document, Slide
 from backend.app.schemas.question import QuestionResponse, QuestionUpdate, DuplicateResolveRequest, ArrangeOrderUpdate
 from backend.app.services.retrieval.hybrid_retriever import HybridRetriever, apply_question_scope_filters
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/questions", tags=["Knowledge Base Questions"])
 
 
@@ -882,9 +886,105 @@ def update_question(
             raise HTTPException(status_code=400, detail=f"play_mode must be one of {sorted(ALLOWED_PLAY_MODES)}")
         q.play_mode = pm or None
 
+    if payload.question_images is not None or payload.answer_images is not None:
+        # Only the flat image lists change. Detaching a URL here never deletes the stored file, and format_payload
+        # (the Connect clue tiles etc.) is deliberately not touched.
+        q_imgs = _clean_image_urls(payload.question_images) if payload.question_images is not None else list(q.question_images or [])
+        a_imgs = _clean_image_urls(payload.answer_images) if payload.answer_images is not None else list(q.answer_images or [])
+        a_imgs = [u for u in a_imgs if u not in q_imgs]     # a picture has one role
+        q.question_images = q_imgs
+        q.answer_images = a_imgs
+        # image_refs is the catch-all (question + answer pictures). Keep it in step so a removed picture cannot come
+        # back through the display fallback; with no question pictures it is left empty, as that fallback would
+        # otherwise show the answer pictures as question pictures.
+        q.image_refs = list(dict.fromkeys(q_imgs + a_imgs)) if q_imgs else []
+
     db.commit()
     db.refresh(q)
     return _enrich_one(db, to_question_response(q, doc, slide))
+
+MAX_IMAGES_PER_QUESTION = 50
+
+
+def _clean_image_urls(urls: List[str]) -> List[str]:
+    """Trim, de-duplicate (order kept) and validate image URLs: http(s) or a server path such as /static/slides/..."""
+    out: List[str] = []
+    for u in urls:
+        if not isinstance(u, str):
+            raise HTTPException(status_code=400, detail="Image entries must be strings")
+        u = u.strip()
+        if not u:
+            continue
+        ok = u.lower().startswith(("http://", "https://")) or (u.startswith("/") and not u.startswith("//") and ".." not in u)
+        if not ok:
+            raise HTTPException(status_code=400, detail=f"Not an allowed image URL: {u[:80]}")
+        if u not in out:
+            out.append(u)
+    if len(out) > MAX_IMAGES_PER_QUESTION:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_IMAGES_PER_QUESTION} images per list")
+    return out
+
+
+def _sniff_image(data: bytes):
+    """(extension, content type) from the file's own bytes, never from the filename or the client's header."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png", "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg", "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp", "image/webp"
+    return None
+
+
+def _max_image_bytes() -> int:
+    try:
+        return int(os.getenv("QUESTION_IMAGE_MAX_BYTES", str(4 * 1024 * 1024)))
+    except ValueError:
+        return 4 * 1024 * 1024
+
+
+@router.post("/{question_id}/images")
+def upload_question_images(question_id: str, files: List[UploadFile] = File(...), db: Session = Depends(get_db)):
+    """Store new pictures for a question and return their URLs. Does not attach them: the caller saves the list it
+    wants with PATCH /questions/{id}. Nothing here touches the AI, tags or embeddings."""
+    if not db.query(Question.id).filter(Question.id == question_id).first():
+        raise HTTPException(status_code=404, detail="Question not found")
+    try:
+        max_files = int(os.getenv("QUESTION_IMAGE_MAX_FILES", "10"))
+    except ValueError:
+        max_files = 10
+    if not files or len(files) > max_files:
+        raise HTTPException(status_code=400, detail=f"Send between 1 and {max_files} images at a time")
+    limit = _max_image_bytes()
+
+    staged = []
+    for f in files:                                    # validate everything first, so a bad file stores nothing
+        data = f.file.read(limit + 1)
+        if len(data) > limit:
+            raise HTTPException(status_code=413, detail=f"{f.filename or 'image'} is larger than {limit // (1024 * 1024)} MB")
+        kind = _sniff_image(data)
+        if kind is None:
+            raise HTTPException(status_code=400, detail=f"{f.filename or 'file'} is not a PNG, JPEG or WebP image")
+        staged.append((data, kind))
+
+    from backend.app.config import settings
+    from backend.app.services.storage.r2_storage import get_media_storage
+    r2 = get_media_storage()
+    urls: List[str] = []
+    for data, (ext, ctype) in staged:
+        name = f"{uuid.uuid4().hex}.{ext}"
+        if r2 is not None:
+            try:
+                urls.append(r2.upload_bytes(f"questions/{question_id}/{name}", data, ctype))
+                continue
+            except Exception as e:  # fall back to local disk, like the rest of the media code
+                logger.warning("[question-images] R2 upload failed, using local disk: %s", e)
+        dest_dir = settings.SLIDES_DIR / "questions" / question_id
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        (dest_dir / name).write_bytes(data)
+        urls.append(f"/static/slides/questions/{question_id}/{name}")
+    return {"urls": urls}
+
 
 ALLOWED_SLOTS = {"LIVE", "RESERVE", "EXAMPLE"}
 ALLOWED_PLAY_MODES = {"BUZZER", "DIRECTED", "PASS", "AUDIENCE", "TIEBREAK", "ALL_ON_SCREEN", "BUFFER"}

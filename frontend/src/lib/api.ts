@@ -700,6 +700,28 @@ export const api = {
     return handleResponse<HistoricalQuestion>(res);
   },
 
+  // ---- Edit images: upload new pictures (not attached yet), then save the lists the question should have.
+  uploadQuestionImages: async (questionId: string, files: File[]): Promise<string[]> => {
+    const form = new FormData();
+    files.forEach((f) => form.append('files', f));
+    const res = await fetch(`${getApiBase()}/questions/${questionId}/images`, { method: 'POST', body: form });
+    const data = await handleResponse<{ urls: string[] }>(res);
+    return data.urls;
+  },
+
+  updateQuestionImages: async (
+    questionId: string,
+    questionImages: string[],
+    answerImages: string[],
+  ): Promise<HistoricalQuestion> => {
+    const res = await fetch(`${getApiBase()}/questions/${questionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question_images: questionImages, answer_images: answerImages }),
+    });
+    return handleResponse<HistoricalQuestion>(res);
+  },
+
   // ---- Edit Tags (v6)
   getQuestionDetail: async (questionId: string): Promise<QuestionDetail> => {
     const res = await fetch(`${getApiBase()}/questions/${questionId}/detail`, { cache: 'no-store' });

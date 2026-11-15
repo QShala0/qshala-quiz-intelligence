@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   X,
   Image as ImageIcon,
@@ -15,14 +15,32 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { HistoricalQuestion } from '../lib/types';
-import { resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
+import { api, resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
+import QuestionImageEditor, {
+  ALLOWED_IMAGE_TYPES, DraftImage, MAX_IMAGE_MB, hasClueTiles, initialDraft, newDraftId,
+} from './knowledge-base/QuestionImageEditor';
 
 interface MediaViewerModalProps {
   question: HistoricalQuestion | null;
   onClose: () => void;
+  // "Edit images": open straight into the picture editor. onQuestionUpdated receives the saved question.
+  startInEditMode?: boolean;
+  onQuestionUpdated?: (q: HistoricalQuestion) => void;
 }
 
-export default function MediaViewerModal({ question, onClose }: MediaViewerModalProps) {
+export default function MediaViewerModal({ question, onClose, startInEditMode = false, onQuestionUpdated }: MediaViewerModalProps) {
+  const editing = startInEditMode && Boolean(onQuestionUpdated);
+  const [draft, setDraft] = useState<DraftImage[]>(() => (editing && question ? initialDraft(question) : []));
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [originalSignature] = useState<string>(() =>
+    JSON.stringify((editing && question ? initialDraft(question) : []).map((d) => [d.url, d.role])),
+  );
+  const previewUrls = useRef<string[]>([]);
+  React.useEffect(() => {
+    const created = previewUrls.current;
+    return () => created.forEach((u) => URL.revokeObjectURL(u));
+  }, []);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
@@ -31,6 +49,65 @@ export default function MediaViewerModal({ question, onClose }: MediaViewerModal
   const [videoSrc, setVideoSrc] = useState<string>('');
   const [videoFallbackAttempted, setVideoFallbackAttempted] = useState(false);
   const [, setVideoPlaying] = useState(false);
+
+  const isDirty = JSON.stringify(draft.map((d) => [d.file ? null : d.url, d.role])) !== originalSignature
+    || draft.some((d) => d.file);
+
+  const handleFilesChosen = (files: File[]) => {
+    setEditError(null);
+    const accepted: DraftImage[] = [];
+    const problems: string[] = [];
+    for (const f of files) {
+      if (!ALLOWED_IMAGE_TYPES.includes(f.type)) {
+        problems.push(`${f.name} is not a PNG, JPG or WebP image`);
+      } else if (f.size > MAX_IMAGE_MB * 1024 * 1024) {
+        problems.push(`${f.name} is larger than ${MAX_IMAGE_MB} MB`);
+      } else {
+        const preview = URL.createObjectURL(f);
+        previewUrls.current.push(preview);
+        accepted.push({ id: newDraftId(), url: null, file: f, preview, role: 'question' });
+      }
+    }
+    if (accepted.length > 0) setDraft((prev) => [...prev, ...accepted]);
+    if (problems.length > 0) setEditError(problems.join('. ') + '.');
+  };
+
+  const handleRemoved = (item: DraftImage) => {
+    setEditError(null);
+    setDraft((prev) => prev.filter((d) => d.id !== item.id));
+  };
+
+  const handleCancel = () => {
+    if (isDirty && !window.confirm('Discard your image changes?')) return;
+    onClose();
+  };
+
+  const handleSave = async () => {
+    if (!question || !onQuestionUpdated || saving) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      let items = draft;
+      const toUpload = draft.filter((d) => d.file);
+      if (toUpload.length > 0) {
+        const urls = await api.uploadQuestionImages(question.id, toUpload.map((d) => d.file as File));
+        if (urls.length !== toUpload.length) throw new Error('The server stored a different number of images than were sent.');
+        const byId = new Map(toUpload.map((d, i) => [d.id, urls[i]]));
+        // Remember what was stored, so a retry after a failed save does not upload the same files again.
+        items = draft.map((d) => (byId.has(d.id) ? { ...d, url: byId.get(d.id) as string, file: null } : d));
+        setDraft(items);
+      }
+      const q = items.filter((d) => d.role === 'question').map((d) => d.url as string);
+      const a = items.filter((d) => d.role === 'answer').map((d) => d.url as string);
+      const updated = await api.updateQuestionImages(question.id, q, a);
+      onQuestionUpdated(updated);
+      onClose();
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : 'Could not save the images. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const getImageSrc = (rawUrl: string) => {
     if (!rawUrl) return '';
@@ -320,7 +397,19 @@ export default function MediaViewerModal({ question, onClose }: MediaViewerModal
           )}
 
           {/* Section: Slide Images & Visual Clues */}
-          {hasImages ? (
+          {editing ? (
+            <QuestionImageEditor
+              items={draft}
+              onChange={setDraft}
+              onFilesChosen={handleFilesChosen}
+              onRemoved={handleRemoved}
+              getImageSrc={getImageSrc}
+              onZoom={setFullscreenImage}
+              note={hasClueTiles(question)}
+              error={editError}
+              busy={saving}
+            />
+          ) : hasImages ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-[12.5px] font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
@@ -534,7 +623,7 @@ export default function MediaViewerModal({ question, onClose }: MediaViewerModal
 
 
           {/* Empty state if somehow opened on text-only question */}
-          {!hasImages && !hasAudio && !hasVideo && !hasVisualClues && (
+          {!editing && !hasImages && !hasAudio && !hasVideo && !hasVisualClues && (
             <div className="p-8 text-center text-slate-400 text-[13px]">
               This question does not contain extracted visual or audio media files.
             </div>
@@ -548,13 +637,34 @@ export default function MediaViewerModal({ question, onClose }: MediaViewerModal
               ? `Calibrated for Grades ${question.grade_min}–${question.grade_max}`
               : 'General Audience'}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-          >
-            Close
-          </button>
+          {editing ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={saving}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || !isDirty}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              Close
+            </button>
+          )}
         </div>
       </div>
 

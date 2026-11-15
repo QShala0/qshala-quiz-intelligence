@@ -36,6 +36,7 @@ function KnowledgeBaseContent() {
   } | null>(null);
   const [selectedQuestionForTags, setSelectedQuestionForTags] = useState<HistoricalQuestion | null>(null);
   const [selectedQuestionForMedia, setSelectedQuestionForMedia] = useState<HistoricalQuestion | null>(null);
+  const [questionForImageEdit, setQuestionForImageEdit] = useState<HistoricalQuestion | null>(null);
   const [selectedDuplicateForReview, setSelectedDuplicateForReview] = useState<HistoricalQuestion | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [imgFallbackUrls, setImgFallbackUrls] = useState<Record<string, string>>({});
@@ -254,6 +255,7 @@ function KnowledgeBaseContent() {
                       handleImgError={handleImgError}
                       setPreviewImage={setPreviewImage}
                       setSelectedQuestionForMedia={setSelectedQuestionForMedia}
+                      onEditImages={setQuestionForImageEdit}
                       setSelectedQuestionForTags={setSelectedQuestionForTags}
                       setSelectedDuplicateForReview={setSelectedDuplicateForReview}
                       handleViewSlide={handleViewSlide}
@@ -331,6 +333,15 @@ function KnowledgeBaseContent() {
         <MediaViewerModal
           question={selectedQuestionForMedia}
           onClose={() => setSelectedQuestionForMedia(null)}
+        />
+      )}
+
+      {questionForImageEdit && (
+        <MediaViewerModal
+          question={questionForImageEdit}
+          startInEditMode
+          onQuestionUpdated={handleQuestionUpdated}
+          onClose={() => setQuestionForImageEdit(null)}
         />
       )}
 

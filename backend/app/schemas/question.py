@@ -94,6 +94,10 @@ class QuestionUpdate(BaseModel):
     visual_clues: Optional[str] = None
     slot: Optional[str] = None
     play_mode: Optional[str] = None
+    # Ordered image lists for the "Edit images" feature. Only these (and the image_refs catch-all kept in step with
+    # them) are touched; format_payload (e.g. the numbered Connect clues) is never read or written.
+    question_images: Optional[List[str]] = None
+    answer_images: Optional[List[str]] = None
 
 
 class ArrangeOrderUpdate(BaseModel):
