@@ -643,7 +643,8 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
               defer(Question.embedding), defer(Question.embedding_model),
               *(defer(getattr(Question, c)) for c in _BANK_UNUSED_COLUMNS))
           .filter((Question.duplicate_status != "CONFIRMED_DUPLICATE") | (Question.duplicate_status.is_(None)))
-          .filter(Question.slot.in_(list(slots)) | Question.slot.is_(None)).all())
+          .filter(Question.slot.in_(list(slots)) | Question.slot.is_(None))
+          .filter(Question.format_needs_review.isnot(True)).all())
     tags: Dict[str, Any] = {}
     try:
         if QshalaTag is None:

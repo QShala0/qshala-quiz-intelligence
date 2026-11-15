@@ -1024,6 +1024,7 @@ class QuizExporter:
                     options=list(opts_q) if opts_q else None,
                     meta={}, idx=idx,
                     resolve=lambda u: _resolve_media_path(u, download_dir=media_tmp_dir),
+                    question_bg=question_bg if (is_qshala_school and question_bg.exists()) else None,
                 ):
                     continue
             is_starred = (idx % 5 == 0)
