@@ -338,6 +338,30 @@ def _fit_font_pt(text: str, w_in: float, h_in: float, sizes=(28, 26, 24, 22, 20,
     return sizes[-1]
 
 
+_SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+(?=[A-Z"\'(0-9])')
+
+
+def _question_paragraphs(text: str, max_paras: int = 4) -> list:
+    """Break a question into readable paragraphs on sentence boundaries, so a long question reads as
+    separate lines instead of one dense block (e.g. the context sentences and the final 'Which brand
+    is this?' each get their own paragraph). Short questions are returned as a single paragraph."""
+    text = re.sub(r'\s+', ' ', (text or '').strip())
+    if not text:
+        return ['']
+    parts = [s.strip() for s in _SENTENCE_SPLIT.split(text) if s.strip()]
+    if len(parts) <= 1:
+        return [text]
+    if len(parts) <= max_paras:
+        return parts
+    # Too many sentences: keep the final one (usually the actual question) on its own line and
+    # pack the rest evenly into the remaining paragraph slots.
+    import math
+    tail, head = parts[-1], parts[:-1]
+    per = max(1, math.ceil(len(head) / (max_paras - 1)))
+    grouped = [' '.join(head[i:i + per]) for i in range(0, len(head), per)]
+    return grouped + [tail]
+
+
 def _plan_media(aspect: float, text_len: int, has_options: bool = False):
     """Plan question/answer media against the amount of text. Returns (mode, text_box, media_box), inches.
 
@@ -1000,6 +1024,7 @@ class QuizExporter:
                     options=list(opts_q) if opts_q else None,
                     meta={}, idx=idx,
                     resolve=lambda u: _resolve_media_path(u, download_dir=media_tmp_dir),
+                    question_bg=question_bg if (is_qshala_school and question_bg.exists()) else None,
                 ):
                     continue
             is_starred = (idx % 5 == 0)
@@ -1051,6 +1076,20 @@ class QuizExporter:
                     p = _resolve_media_path(ci, download_dir=media_tmp_dir)
                     if p and p.exists() and p not in resolved_q_imgs:
                         resolved_q_imgs.append(p)
+
+            # School template: an image tied to the answer must never appear on the question slide — it would
+            # give the answer away (the question image IS the branded product / ad, e.g. the Cornetto pack or
+            # the Fevicol creative). question_images/image_refs are a catch-all that also holds answer images,
+            # so drop any question image that is also an answer image; it still shows on the answer slide.
+            if is_qshala_school:
+                _ans_paths = set()
+                for _ai in (list(_get_val(q, "answer_images", []) or []) + list(hist_media.get("answer_images", []) or [])):
+                    if isinstance(_ai, str):
+                        _rp = _resolve_media_path(_ai, download_dir=media_tmp_dir)
+                        if _rp:
+                            _ans_paths.add(str(_rp))
+                if _ans_paths:
+                    resolved_q_imgs = [p for p in resolved_q_imgs if str(p) not in _ans_paths]
 
             poster_path = resolved_q_imgs[0] if resolved_q_imgs else None
             q_text = (_get_val(q, "question_text") or _get_val(q, "question", "")).strip()
@@ -1132,14 +1171,20 @@ class QuizExporter:
                     tf_q = tb_q.text_frame
                     tf_q.word_wrap = True
                     pq_main = tf_q.paragraphs[0]
-                    pq_main.alignment = PP_ALIGN.CENTER
-                    pq_main.text = q_text
+                    q_paras = _question_paragraphs(q_text)
                     q_full = q_text + "".join("\n" + str(o) for o in options)
-                    q_pt = _fit_font_pt(q_full, tw - 0.3, th - 0.2, sizes=(28, 26, 24, 22, 20, 18, 16))
-                    pq_main.font.name = FONT_BODY
-                    pq_main.font.size = Pt(q_pt)
-                    pq_main.font.bold = False
-                    pq_main.font.color.rgb = C_TEXT_DARK
+                    # reserve a little height for the gaps between paragraphs when sizing
+                    q_pt = _fit_font_pt(q_full, tw - 0.3, (th - 0.2) - 0.12 * (len(q_paras) - 1), sizes=(28, 26, 24, 22, 20, 18, 16))
+                    for pi, para in enumerate(q_paras):
+                        p = pq_main if pi == 0 else tf_q.add_paragraph()
+                        p.alignment = PP_ALIGN.CENTER
+                        if pi > 0:
+                            p.space_before = Pt(8)
+                        p.text = para
+                        p.font.name = FONT_BODY
+                        p.font.size = Pt(q_pt)
+                        p.font.bold = False
+                        p.font.color.rgb = C_TEXT_DARK
                     if options:
                         for opt_idx, opt in enumerate(options):
                             po = tf_q.add_paragraph()
@@ -1211,12 +1256,18 @@ class QuizExporter:
                     tf_q = tb_q.text_frame
                     tf_q.word_wrap = True
                     pq_main = tf_q.paragraphs[0]
-                    pq_main.alignment = PP_ALIGN.CENTER
-                    pq_main.text = q_text
-                    pq_main.font.name = FONT_BODY
-                    pq_main.font.size = Pt(28) if len(q_text) < 180 else (Pt(24) if len(q_text) < 320 else Pt(20))
-                    pq_main.font.bold = True
-                    pq_main.font.color.rgb = C_TEXT_DARK
+                    q_paras = _question_paragraphs(q_text)
+                    qpt = 28 if len(q_text) < 180 else (24 if len(q_text) < 320 else 20)
+                    for pi, para in enumerate(q_paras):
+                        p = pq_main if pi == 0 else tf_q.add_paragraph()
+                        p.alignment = PP_ALIGN.CENTER
+                        if pi > 0:
+                            p.space_before = Pt(10)
+                        p.text = para
+                        p.font.name = FONT_BODY
+                        p.font.size = Pt(qpt)
+                        p.font.bold = False
+                        p.font.color.rgb = C_TEXT_DARK
 
                     if options:
                         for opt_idx, opt in enumerate(options):

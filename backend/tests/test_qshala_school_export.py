@@ -187,3 +187,47 @@ def test_qshala_school_causten_thin_bold_black_answer_and_media_fit(tmp_path):
                         assert str(r.font.color.rgb).upper() != "059669"  # answers are black, not green
     assert pics == 4  # question + answer image for both questions
     assert set(bold_texts) == {"Quiz Hobby Class!", "Question 1", "Answer 1", "Question 2", "Answer 2"}
+
+
+def test_qshala_school_answer_image_never_on_question_slide(tmp_path):
+    """An image tied to the answer (e.g. the branded product/ad) must not appear on the question slide in the
+    School template, or it gives the answer away. A distinct question image must still show."""
+    from PIL import Image
+    from pptx.util import Inches
+    from backend.app.services.export import exporter as ex
+
+    img_dir = ex.Path(ex.__file__).resolve().parents[4] / "backend" / "storage" / "_pytest_ans_leak"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        for name in ("reveal", "clue"):
+            Image.new("RGB", (800, 500), (120, 120, 120)).save(img_dir / f"{name}.png")
+        reveal = "backend/storage/_pytest_ans_leak/reveal.png"
+        clue = "backend/storage/_pytest_ans_leak/clue.png"
+        quiz = {"title": "t", "topic": "GK", "questions": [
+            # Q1: the only image is also the answer image -> must be dropped from the question slide
+            {"question_text": "Which product, whose name means 'little horn' in Italian, was born from a 1959 wafer innovation?",
+             "answer": "Cornetto", "image_refs": [reveal], "answer_images": [reveal], "is_approved": True},
+            # Q2: a genuine question clue image, not an answer image -> must stay on the question slide
+            {"question_text": "Name this landmark.", "answer": "Taj Mahal",
+             "question_images": [clue], "is_approved": True},
+        ]}
+        prs = Presentation(io.BytesIO(QuizExporter.to_pptx(quiz, quiz_type="qshala_school", show_answer_divider=True)))
+    finally:
+        import shutil
+        shutil.rmtree(img_dir, ignore_errors=True)
+
+    def content_pics(slide):
+        # pictures that are not the full-bleed backdrop
+        return [sh for sh in slide.shapes if sh.shape_type == 13 and sh.width < Inches(13)]
+
+    def slide_with(text):
+        for sl in prs.slides:
+            if any(sh.has_text_frame and text in sh.text_frame.text for sh in sl.shapes):
+                return sl
+        raise AssertionError(f"no slide with {text!r}")
+
+    # Q1: answer image dropped from the question, present on the answer
+    assert len(content_pics(slide_with("Question 1"))) == 0
+    assert len(content_pics(slide_with("Answer 1"))) >= 1
+    # Q2: distinct clue image stays on the question
+    assert len(content_pics(slide_with("Question 2"))) >= 1

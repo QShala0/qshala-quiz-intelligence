@@ -1,0 +1,73 @@
+name: Restore drill
+
+# Proves the backups are actually recoverable: downloads the latest dump from the private R2 bucket and
+# restores it into a throwaway Postgres 18 (+pgvector) service container, then reports the tables and rows
+# restored. It never touches the live database — restore_check.py refuses any target whose name is not a
+# scratch/restore database, and the scratch DB here lives only for the length of the job. Setup: docs/BACKUPS.md.
+# Needs repository secrets: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, BACKUP_R2_BUCKET.
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: vault-restore-drill
+  cancel-in-progress: false
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      scratch:
+        image: pgvector/pgvector:pg18   # Postgres 18 with pgvector, matching the production server + embedding column
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: restore_scratch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install a pg_restore at least as new as the backup
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-18   # pg_restore must be >= the dump's version (Neon: 18.x)
+          pg_restore --version
+      - name: Install dependencies
+        run: pip install -r backend/requirements.lock.txt
+      - name: Download the latest backup from R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          BACKUP_R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0, "backend/scripts")
+          from backup_vault import _s3
+          s3 = _s3()
+          bucket = os.environ["BACKUP_R2_BUCKET"].strip()
+          objs = []
+          for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix="backups/"):
+              objs += page.get("Contents", [])
+          if not objs:
+              print("no backups found in bucket"); sys.exit(1)
+          latest = max(objs, key=lambda o: o["LastModified"])
+          s3.download_file(bucket, latest["Key"], "latest.dump")
+          print(f"downloaded {latest['Key']} ({os.path.getsize('latest.dump')} bytes)")
+          PY
+      - name: Restore into the scratch database and verify it is readable
+        run: |
+          python backend/scripts/restore_check.py \
+            latest.dump \
+            "postgresql://postgres:postgres@localhost:5432/restore_scratch"

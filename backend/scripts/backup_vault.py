@@ -96,10 +96,13 @@ def dump_to(path: Path, database_url: str) -> str:
 
 def _s3():
     import boto3
-    acct = os.environ["R2_ACCOUNT_ID"]
+    # Strip the credentials: a stray trailing newline (easy to introduce when pasting a secret into
+    # GitHub/CI) ends up inside the SigV4 Authorization header and boto3 rejects it as an
+    # "Invalid header value", failing every upload. Whitespace is never meaningful in these values.
+    acct = os.environ["R2_ACCOUNT_ID"].strip()
     return boto3.client("s3", endpoint_url=f"https://{acct}.r2.cloudflarestorage.com",
-                        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-                        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"], region_name="auto")
+                        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"].strip(),
+                        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"].strip(), region_name="auto")
 
 
 def main(argv=None) -> int:

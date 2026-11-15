@@ -123,15 +123,16 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
             tier_text = c1 if step == 1 else (c2 if step == 2 else c3)
             tier_img = imgs[step - 1] if step - 1 < len(imgs) else None
             clues.append({
+                # Canonical shape read by the presenter, the quiz UI and the PPT export:
+                # {step, text, correct, wrong, images}. The old keys (points_correct/image) were
+                # ignored by every renderer, so the clues fell back to one merged block.
                 "step": step,
-                "points": p_lbl,
-                "points_correct": p_cor,
-                "points_wrong": p_wrg,
-                "points_label": p_lbl,
-                "difficulty_label": d_lbl,
                 "text": tier_text,
-                "image": tier_img,
-                "image_url": tier_img,
+                "correct": p_cor,
+                "wrong": p_wrg,
+                "images": [tier_img] if tier_img else [],
+                "points_label": p_lbl,       # extra, for any legacy reader; renderers ignore it
+                "difficulty_label": d_lbl,
             })
 
         payload = {
@@ -139,7 +140,12 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
             "badge": "Portfolio Builder • Stepped Clues",
             "rules": "All on buzzer • 1 attempt per clue • Clue 1: +20/-15, Clue 2: +15/-10, Clue 3: +10/-5",
             "clues": clues,
+            "scoring_ladder_ok": True,
             "answer": q.answer,
+            # scoring_ladder_ok + extraction are what make export_format_of() and the frontend isStepped()
+            # guard accept this as a real stepped-clue question and render the clues one at a time.
+            "extraction": {"confidence": 0.9, "needs_review": False, "route": "accept",
+                           "reasons": ["healed from merged clue text"]},
         }
 
         # Clean formatted question text for universal readability
@@ -183,6 +189,17 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
         if is_format_aware(q):
             continue
         imgs = list(q.question_images or q.image_refs or [])
+        # Preserve any real clue labels the old payload carried (from the deck's speaker notes); ignore the
+        # "Clue 1/2/3" placeholders the old healer wrote.
+        old_payload = q.format_payload or q.format_data or {}
+        old_items = old_payload.get("items") or old_payload.get("elements") or []
+        item_labels = []
+        if isinstance(old_items, list):
+            for it in old_items:
+                if isinstance(it, dict):
+                    lbl = (it.get("label") or it.get("text") or "").strip()
+                    if lbl and not re.fullmatch(r"clue\s*\d+", lbl, re.I):
+                        item_labels.append(lbl)
         default_prompt, sub_hint = connect_prompts.get(
             q.id,
             ("What common thread or concept connects all four clues and images?", None)
@@ -202,36 +219,39 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
             ))
         )
         resolved_prompt = default_prompt if is_generic else raw_body
-        # Build clean clue items (keep all clue images when > 4)
-        elements = []
-        for i in range(max(4, len(imgs))):
-            img_url = imgs[i] if i < len(imgs) else None
-            elements.append({
-                "index": i + 1,
-                "label": f"Clue {i + 1}",
-                "text": f"Clue {i + 1}",
-                "image": img_url,
-                "image_url": img_url,
-                "explanation": "",
-            })
+        # The 4 (or more) quadrants are clue images only: drop any countdown-timer graphic (timer media is
+        # named "...timer...") and blanks, keep order, de-duplicate. Padding the grid with empty slots and
+        # treating a timer as a clue is exactly what made the connect read wrong.
+        clue_imgs, seen = [], set()
+        for u in imgs:
+            if u and "timer" not in u.lower() and u not in seen:
+                seen.add(u)
+                clue_imgs.append(u)
+        items = [{"order": i + 1, "image": u} for i, u in enumerate(clue_imgs)]
 
         payload = {
-            "type": "CONNECT_4",
+            # Canonical CONNECT shape the presenter, quiz UI and export all read: items[{order,image}],
+            # text_hint, item_labels, scoring, answer — plus extraction + type "CONNECT" (not "CONNECT_4")
+            # and scoring, which is what export_format_of() and the frontend isConnect() guard require. The
+            # answer lives only here (and on its own slide), so it is no longer mixed into the question.
+            "type": "CONNECT",
             "badge": "Connect 4 • Common Link",
-            "prompt": resolved_prompt,
-            "sub_hint": sub_hint,
-            "elements": elements,
-            "common_link": q.answer,
-            "connection_reveal": q.answer,
+            "items": items,
+            "text_hint": resolved_prompt,
+            "item_labels": item_labels,
+            "scoring": {"correct": None, "wrong": None},
+            "answer": q.answer,
+            "extraction": {"confidence": 0.9, "needs_review": False, "route": "accept",
+                           "reasons": ["healed connect: canonical items, timer dropped"]},
         }
 
-        clean_text = f"[Connect 4 · Common Link]\n{resolved_prompt}"
+        clean_text = f"[Connect · Common Link]\n{resolved_prompt}"
         if sub_hint:
             clean_text += f"\n\nContext Hint: {sub_hint}"
 
         q.question_text = clean_text
-        q.question_format = "CONNECT_4"
-        q.question_type = "CONNECT_4"
+        q.question_format = "CONNECT"
+        q.question_type = "CONNECT"
         q.format_payload = payload
         q.format_data = payload
         stats["connect4_healed"] += 1
