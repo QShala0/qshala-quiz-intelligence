@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   AlertTriangle, Star, Play, Volume2, Image as ImageIcon, Video, Layers,
-  CheckCircle, Tag, ExternalLink,
+  CheckCircle, Tag, ExternalLink, Pencil,
 } from 'lucide-react';
 import { HistoricalQuestion } from '../../lib/types';
 import { isPlaceholderIcon } from '../../lib/placeholderIcons';
@@ -20,6 +20,7 @@ export interface QuestionRowProps {
   handleImgError: (url: string) => void;
   setPreviewImage: (url: string) => void;
   setSelectedQuestionForMedia: (q: HistoricalQuestion) => void;
+  onEditImages?: (q: HistoricalQuestion) => void;
   setSelectedQuestionForTags: (q: HistoricalQuestion) => void;
   setSelectedDuplicateForReview: (q: HistoricalQuestion) => void;
   handleViewSlide: (q: HistoricalQuestion) => void;
@@ -38,6 +39,7 @@ function QuestionRow({
   handleImgError,
   setPreviewImage,
   setSelectedQuestionForMedia,
+  onEditImages,
   setSelectedQuestionForTags,
   setSelectedDuplicateForReview,
   handleViewSlide,
@@ -228,6 +230,18 @@ function QuestionRow({
                 <Volume2 className="h-2.5 w-2.5 text-teal-600" />
               )}
               {hasVideoClue && <Video className="h-2.5 w-2.5 text-violet-600" />}
+            </button>
+          )}
+
+          {onEditImages && (
+            <button
+              type="button"
+              onClick={() => onEditImages(q)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-white hover:bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-bold text-blue-700 transition-colors cursor-pointer shadow-2xs"
+              title="Add or remove this question's images"
+            >
+              <Pencil className="h-3 w-3 text-blue-600" />
+              <span>Edit images</span>
             </button>
           )}
 
