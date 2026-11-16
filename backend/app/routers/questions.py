@@ -4,7 +4,9 @@ import os
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import List, Optional, Dict, Any
+from urllib.parse import unquote
 from fastapi import APIRouter, Depends, Query, HTTPException, Response, UploadFile, File
 from sqlalchemy.orm import Session, selectinload, defer, load_only
 from sqlalchemy import or_, and_, func, desc, asc, String
@@ -1068,6 +1070,86 @@ def upload_question_images(question_id: str, files: List[UploadFile] = File(...)
         (dest_dir / name).write_bytes(data)
         urls.append(f"/static/slides/questions/{question_id}/{name}")
     return {"urls": urls}
+
+
+def _source_max_bytes() -> int:
+    try:
+        return int(os.getenv("QUESTION_IMAGE_SOURCE_MAX_BYTES", str(25 * 1024 * 1024)))
+    except ValueError:
+        return 25 * 1024 * 1024
+
+
+def _local_media_path(url: str):
+    """The file on this server's disk for a /static/... picture path, or None. Never leaves the media folders."""
+    from backend.app.config import settings
+    path = url.split("?")[0]
+    if path.startswith("/api/v1/static/"):
+        path = path[len("/api/v1"):]
+    for prefix, root in (("/static/slides/", settings.SLIDES_DIR), ("/static/", settings.STORAGE_DIR)):
+        if path.startswith(prefix):
+            root = Path(root).resolve()
+            cand = (root / unquote(path[len(prefix):])).resolve()
+            try:
+                cand.relative_to(root)
+            except ValueError:
+                return None
+            return cand if cand.is_file() else None
+    return None
+
+
+@router.get("/{question_id}/image-source")
+def question_image_source(question_id: str, url: str = Query(..., min_length=1), db: Session = Depends(get_db)):
+    """The bytes of one of THIS question's pictures, served from the API's own address. The picture editor needs them:
+    a browser refuses to export a canvas that drew a picture from another site (the R2 CDN), so the editor loads the
+    picture through here instead. Only URLs the question itself lists are served, so this cannot fetch anything else."""
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if q is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    if url not in _picture_urls(q):
+        raise HTTPException(status_code=400, detail="That picture is not on this question")
+    limit = _source_max_bytes()
+    data: Optional[bytes] = None
+
+    local = _local_media_path(url) if url.startswith("/") else None
+    if local is not None:
+        data = local.read_bytes()[: limit + 1]
+    if data is None:
+        from backend.app.services.storage.r2_storage import get_media_storage
+        r2 = get_media_storage()
+        base = getattr(r2, "public_base_url", "") if r2 is not None else ""
+        key = None
+        if base and url.startswith(base + "/"):
+            key = unquote(url[len(base) + 1:].split("?")[0])
+        elif url.startswith("/static/") and r2 is not None:
+            key = media_cleanup.storage_key(url)
+        if key:
+            try:
+                data = r2.download(key)
+            except Exception as e:
+                logger.warning("[image-source] R2 read failed for %s: %s", key, type(e).__name__)
+    if data is None and url.startswith(("http://", "https://")):
+        import httpx
+        try:
+            with httpx.Client(timeout=20.0, follow_redirects=True,
+                              headers={"User-Agent": "Mozilla/5.0 (compatible; QShalaImageEditor/1.0)"}) as http:
+                with http.stream("GET", url) as resp:
+                    resp.raise_for_status()
+                    buf = bytearray()
+                    for chunk in resp.iter_bytes():
+                        buf.extend(chunk)
+                        if len(buf) > limit:
+                            break
+                    data = bytes(buf)
+        except Exception as e:
+            logger.warning("[image-source] download failed: %s", type(e).__name__)
+    if data is None:
+        raise HTTPException(status_code=404, detail="The picture file could not be found")
+    if len(data) > limit:
+        raise HTTPException(status_code=413, detail=f"The picture is larger than {limit // (1024 * 1024)} MB")
+    kind = _sniff_image(data)
+    if kind is None:
+        raise HTTPException(status_code=415, detail="Only PNG, JPEG or WebP pictures can be edited")
+    return Response(content=data, media_type=kind[1], headers={"Cache-Control": "private, max-age=300"})
 
 
 ALLOWED_SLOTS = {"LIVE", "RESERVE", "EXAMPLE"}

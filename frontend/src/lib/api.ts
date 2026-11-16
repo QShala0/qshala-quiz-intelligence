@@ -711,6 +711,21 @@ export const api = {
     return data.urls;
   },
 
+  // One of the question's own pictures, fetched through the API so the picture editor can draw it on a canvas and
+  // export the result (a browser refuses to export a canvas holding a picture from another site, such as the R2 CDN).
+  getQuestionImageSource: async (questionId: string, url: string): Promise<Blob> => {
+    const res = await fetch(`${getApiBase()}/questions/${questionId}/image-source?url=${encodeURIComponent(url)}`);
+    if (!res.ok) {
+      let message = `Could not open the picture (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body?.detail) message = String(body.detail);
+      } catch { /* not JSON */ }
+      throw new Error(message);
+    }
+    return res.blob();
+  },
+
   // `connect`: the question is a Connect question, so questionImages are its numbered clue pictures and are saved into
   // the question itself (clue_images). Otherwise they are the plain question-picture list.
   updateQuestionImages: async (
