@@ -668,11 +668,14 @@ async def upload_document_chunk(
             pass
 
     chunk_path = chunk_dir / f"chunk_{chunk_index:05d}.part"
+    tmp_path = chunk_dir / f"chunk_{chunk_index:05d}.part.tmp"
 
-    # Stream chunk to disk
-    with open(chunk_path, "wb") as f:
+    # Stream chunk to disk under a temporary name, then rename it into place in one step. Slices can arrive at the same
+    # time, and a slice that is still being written must never be counted (or stitched) as if it were complete.
+    with open(tmp_path, "wb") as f:
         while content := await chunk.read(64 * 1024):
             f.write(content)
+    os.replace(tmp_path, chunk_path)
 
     # A cancel may have landed while this slice was still streaming in: drop everything.
     if upload_cancel_requested(upload_id):
@@ -688,7 +691,21 @@ async def upload_document_chunk(
             "progress_percentage": round(((len(parts)) / total_chunks) * 100)
         }
 
-    # All chunks received! Stitch them together
+    # All chunks received. With several slices in flight at once, more than one request can reach this point together;
+    # exactly one of them (the one that creates the marker file) stitches and registers the deck, the others just report
+    # that their slice arrived. The client takes the deck from whichever response carries it.
+    try:
+        with open(chunk_dir / ".stitching", "x"):
+            pass
+    except FileExistsError:
+        return {
+            "status": "CHUNK_RECEIVED",
+            "chunk_index": chunk_index,
+            "total_chunks": total_chunks,
+            "progress_percentage": 100,
+        }
+
+    # Stitch them together
     doc_id = str(uuid.uuid4())
     save_filename = f"{doc_id}{ext}"
     settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -704,7 +721,14 @@ async def upload_document_chunk(
         return total
 
     # Joining up to hundreds of MB of slices is blocking disk work: keep it off the event loop.
-    file_size = await asyncio.to_thread(_stitch)
+    try:
+        file_size = await asyncio.to_thread(_stitch)
+    except Exception:
+        try:
+            (chunk_dir / ".stitching").unlink(missing_ok=True)   # let a retried slice try again
+        except Exception:
+            pass
+        raise
 
     # Enforce the same ceiling as the direct path (chunked bypasses Vercel's limit but
     # must still respect MAX_UPLOAD_MB so a runaway upload can't fill the disk).

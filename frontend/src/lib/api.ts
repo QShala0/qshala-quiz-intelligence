@@ -151,6 +151,14 @@ export const UPLOAD_CHUNK_SIZE = 24 * 1024 * 1024;
 // When uploads travel through Vercel rewrites (non-localhost without direct Cloud Run proxy bypass),
 // slice uploads into <= 3.5 MB requests so every chunk clears the platform gateway safely.
 export const VERCEL_SAFE_CHUNK_SIZE = Math.floor(3.5 * 1024 * 1024);
+// How many slices of one file are sent at the same time (after the first, which creates the upload on the server). One
+// slice at a time leaves the connection idle between requests and, on a long-distance link, far below its speed.
+// Set NEXT_PUBLIC_UPLOAD_PARALLEL=1 to go back to one at a time. Kept small: every slice in flight holds a server
+// connection, and the server stores slices one after another per upload anyway.
+export const UPLOAD_PARALLEL_SLICES = (() => {
+  const n = Number.parseInt(process.env.NEXT_PUBLIC_UPLOAD_PARALLEL ?? '3', 10);
+  return Number.isFinite(n) ? Math.min(6, Math.max(1, n)) : 3;
+})();
 
 /** Live numbers the Upload Center shows while a file is going up. */
 export interface UploadProgressInfo {
@@ -366,26 +374,44 @@ export const api = {
     options?.onUploadId?.(uploadId);
     const totalChunks = Math.ceil(file.size / chunkSize);
 
-    const report = (bytesSent: number, chunkIndex: number) => {
+    // Bytes sent so far for each slice (several are in flight at once), so progress is the sum.
+    const sentPerSlice = new Map<number, number>();
+    const report = (chunkIndex: number, sliceBytes: number) => {
+      sentPerSlice.set(chunkIndex, sliceBytes);
       if (!onProgress) return;
-      const sent = Math.min(bytesSent, file.size);
+      let total = 0;
+      sentPerSlice.forEach((v) => { total += v; });
+      const sent = Math.min(total, file.size);
       const pct = file.size > 0 ? Math.round((sent / file.size) * 100) : 0;
-      onProgress(pct, chunkIndex + 1, totalChunks, {
+      onProgress(pct, Math.min(totalChunks, sentPerSlice.size), totalChunks, {
         bytesSent: sent,
         totalBytes: file.size,
-        chunkIndex: chunkIndex + 1,
+        chunkIndex: Math.min(totalChunks, sentPerSlice.size),
         totalChunks,
         chunkSize,
       });
     };
 
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-      if (signal?.aborted) throw makeAbortError();
+    // Every slice shares one abort signal: a cancel, or the first slice that fails for good, stops the others.
+    const group = new AbortController();
+    const onOuterAbort = () => group.abort();
+    if (signal) {
+      if (signal.aborted) group.abort();
+      else signal.addEventListener('abort', onOuterAbort, { once: true });
+    }
+    const groupSignal = group.signal;
+
+    // The deck comes back from whichever slice finished the upload (usually the last one sent, but with several in
+    // flight any of them can be the one that completes it).
+    let finished: DocumentItem | null = null;
+
+    const sendSlice = async (chunkIndex: number): Promise<void> => {
+      if (groupSignal.aborted) throw makeAbortError();
 
       const start = chunkIndex * chunkSize;
       const end = Math.min(start + chunkSize, file.size);
       const chunkBlob = file.slice(start, end);
-      report(start, chunkIndex);
+      report(chunkIndex, 0);
 
       const formData = new FormData();
       formData.append('chunk', chunkBlob, file.name);
@@ -407,8 +433,8 @@ export const api = {
       for (let attempt = 0; attempt < BACKOFF_DELAYS.length; attempt++) {
         try {
           res = await xhrPost(`${getUploadApiBase()}/documents/upload-chunk`, formData, {
-            signal,
-            onUploadProgress: (loaded) => report(start + Math.min(loaded, end - start), chunkIndex),
+            signal: groupSignal,
+            onUploadProgress: (loaded) => report(chunkIndex, Math.min(loaded, end - start)),
           });
           if (res.ok) break;
           const errText = await res.text();
@@ -430,7 +456,7 @@ export const api = {
           lastError = netErr;
         }
         await new Promise((r) => setTimeout(r, BACKOFF_DELAYS[attempt]));
-        if (signal?.aborted) throw makeAbortError();
+        if (groupSignal.aborted) throw makeAbortError();
       }
 
       if (!res || !res.ok) {
@@ -438,17 +464,42 @@ export const api = {
       }
 
       const data = await res.json();
-      report(end, chunkIndex);
-
-      if (chunkIndex === totalChunks - 1) {
-        if (data.document) {
-          return data.document as DocumentItem;
-        }
-        return data as DocumentItem;
+      report(chunkIndex, end - start);
+      if (data && (data.document || data.status === 'COMPLETED')) {
+        finished = (data.document ?? data) as DocumentItem;
       }
+    };
+
+    try {
+      // Slice 0 goes alone: it creates the upload on the server, which the other slices then join.
+      await sendSlice(0);
+      let next = 1;
+      let failure: unknown = null;
+      const worker = async () => {
+        while (next < totalChunks && !failure && !groupSignal.aborted) {
+          const index = next++;
+          try {
+            await sendSlice(index);
+          } catch (e) {
+            if (!failure) failure = e;
+            group.abort();               // stop the slices still in flight
+            return;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(UPLOAD_PARALLEL_SLICES, Math.max(0, totalChunks - 1)) }, worker));
+      if (failure) {
+        // A real cancel by the caller is reported as such; otherwise the slice that failed first explains why.
+        if (signal?.aborted) throw makeAbortError();
+        throw failure;
+      }
+    } finally {
+      signal?.removeEventListener('abort', onOuterAbort);
     }
 
-    throw new Error('Upload completed without receiving document acknowledgment');
+    if (signal?.aborted) throw makeAbortError();
+    if (!finished) throw new Error('Upload completed without receiving document acknowledgment');
+    return finished;
   },
 
   /** Cancel a chunked upload that is still sending slices: the server deletes what it already received. */
