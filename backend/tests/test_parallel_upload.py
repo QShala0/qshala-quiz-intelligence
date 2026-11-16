@@ -216,3 +216,91 @@ def test_local_path_a_slice_still_being_written_is_never_counted(monkeypatch, cl
     (chunk_dir / "chunk_00001.part.tmp").write_bytes(b"half written")   # another slice mid-write
     r = _send(TestClient(app), uid, fn, 0, 2, b"A" * 100)
     assert r.status_code == 200 and r.json()["status"] == "CHUNK_RECEIVED"   # 1 finished slice of 2, not 2
+
+
+# ------------------------------------------------------------------------------------------------ slices of one upload take turns
+
+def test_slot_lets_one_slice_of_an_upload_run_at_a_time_and_cleans_up():
+    import asyncio
+
+    async def go():
+        running, peak, order = 0, 0, []
+
+        async def slice_work(name, upload_id):
+            nonlocal running, peak
+            async with documents_router._upload_slot(upload_id):
+                running += 1
+                peak = max(peak, running)
+                await asyncio.sleep(0.02)
+                order.append(name)
+                running -= 1
+
+        await asyncio.gather(*[slice_work(f"a{i}", "same") for i in range(5)])
+        assert peak == 1 and len(order) == 5
+        assert documents_router._UPLOAD_SLOTS == {}                    # nothing left behind
+
+        running, peak = 0, 0
+        await asyncio.gather(slice_work("x", "one"), slice_work("y", "two"))
+        assert peak == 2                                                # different uploads do not wait for each other
+        assert documents_router._UPLOAD_SLOTS == {}
+
+    asyncio.run(go())
+
+
+def test_slot_is_released_when_a_slice_fails():
+    import asyncio
+
+    async def go():
+        with pytest.raises(RuntimeError):
+            async with documents_router._upload_slot("boom"):
+                raise RuntimeError("R2 down")
+        async with documents_router._upload_slot("boom"):               # the next slice is not stuck behind the failure
+            pass
+        assert documents_router._UPLOAD_SLOTS == {}
+
+    asyncio.run(go())
+
+
+def test_r2_path_slices_sent_at_the_same_time_are_stored_one_after_another(monkeypatch, cleanup, no_ingestion):
+    import time
+
+    class SlowFakeR2(FakeR2):
+        active, peak = 0, 0
+
+        def upload_part(self, key, upload_id, part_number, data):
+            SlowFakeR2.active += 1
+            SlowFakeR2.peak = max(SlowFakeR2.peak, SlowFakeR2.active)
+            time.sleep(0.05)                                            # a real R2 upload takes time
+            try:
+                return super().upload_part(key, upload_id, part_number, data)
+            finally:
+                SlowFakeR2.active -= 1
+
+    fake = SlowFakeR2()
+    monkeypatch.setattr(settings, "INGESTION_MODE", "cloud_run_job")
+    monkeypatch.setattr(r2_storage, "get_r2_service", lambda: fake)
+    data = os.urandom(5 * MiB * 5 + 99)
+    parts = _slices(data, 5 * MiB)
+    total = len(parts)
+    uid, fn = _new_upload(cleanup)
+    results, errors = {}, []
+    with TestClient(app) as client:                                     # one event loop for every request, like the server
+        assert _send(client, uid, fn, 0, total, parts[0]).status_code == 200
+        barrier = threading.Barrier(total - 1)
+
+        def worker(i):
+            try:
+                barrier.wait(timeout=10)
+                results[i] = _send(client, uid, fn, i, total, parts[i])
+            except Exception as e:                                      # pragma: no cover
+                errors.append(repr(e))
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(1, total)]
+        [t.start() for t in threads]
+        [t.join(timeout=60) for t in threads]
+    assert not errors, errors
+    assert all(r.status_code == 200 for r in results.values()), [r.text for r in results.values()]
+    assert SlowFakeR2.peak == 1                                         # never two part uploads of one upload at once
+    assert fake.assembled() == data                                     # and no slice was lost to a racing update
+    assert len([r for r in results.values() if r.json().get("status") == "COMPLETED"]) == 1
+    assert len(no_ingestion) == 1

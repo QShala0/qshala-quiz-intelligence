@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import copy
 import json
 import logging
@@ -292,7 +293,35 @@ async def upload_document(
 _MULTIPART_STATE_FILE = "r2_multipart_state.json"
 
 
-async def _upload_chunk_direct_to_r2(
+# Slices of one upload are handled one at a time inside this process. The row lock in the database already makes them
+# take turns, but a request waiting for that lock used to wait INSIDE the event loop (the query is a blocking call):
+# the request holding the lock was then unable to finish (its next step needs the loop), the lock was never released,
+# and Neon's 5 minute idle-in-transaction timeout finally cut the holder's connection (the 500s seen once slices were
+# sent in parallel). Waiting here is an ordinary await, so the loop stays free and the holder can finish.
+_UPLOAD_SLOTS: dict = {}
+
+
+@contextlib.asynccontextmanager
+async def _upload_slot(upload_id: str):
+    entry = _UPLOAD_SLOTS.get(upload_id)
+    if entry is None:
+        entry = _UPLOAD_SLOTS[upload_id] = [asyncio.Lock(), 0]
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            yield
+    finally:
+        entry[1] -= 1
+        if entry[1] <= 0 and _UPLOAD_SLOTS.get(upload_id) is entry:
+            del _UPLOAD_SLOTS[upload_id]
+
+
+async def _upload_chunk_direct_to_r2(chunk_dir, chunk: UploadFile, upload_id: str, *args, **kwargs):
+    async with _upload_slot(upload_id):
+        return await _upload_chunk_direct_to_r2_locked(chunk_dir, chunk, upload_id, *args, **kwargs)
+
+
+async def _upload_chunk_direct_to_r2_locked(
     chunk_dir, chunk: UploadFile, upload_id: str, chunk_index: int, total_chunks: int,
     ext: str, filename: str, title: Optional[str], year: Optional[int],
     r2, db: Session, background_tasks: BackgroundTasks,
@@ -309,7 +338,10 @@ async def _upload_chunk_direct_to_r2(
     query = db.query(UploadSession).filter(UploadSession.upload_id == upload_id)
     if is_postgres:
         query = query.with_for_update()
-    session_rec = query.first()
+        # The lock may be held by another server instance: wait for it off the event loop, never on it.
+        session_rec = await asyncio.to_thread(query.first)
+    else:
+        session_rec = query.first()
 
     # 1. Idempotency: if already COMPLETED, return the created document
     if session_rec and session_rec.status == "COMPLETED":
