@@ -135,7 +135,17 @@ export function getFallbackMediaUrl(currentUrl: string): string | null {
 // API base (e.g. https://<service>.run.app/api/v1) to send uploads straight to the backend; the
 // backend's CORS regex already allows the Vercel origins. Unset = previous behaviour.
 export function getUploadApiBase(): string {
-  return process.env.NEXT_PUBLIC_UPLOAD_API_URL || getApiBase();
+  const raw = (process.env.NEXT_PUBLIC_UPLOAD_API_URL || '').trim();
+  if (!raw) return getApiBase();
+  // The setting is easy to give as just the service address (https://<service>.run.app): every upload request then
+  // 404s because the API lives under /api/v1. Add that part when it is missing.
+  return withApiPath(raw);
+}
+
+/** `https://host` -> `https://host/api/v1`; an address that already ends in /api or /api/v1 is left as it is. */
+export function withApiPath(base: string): string {
+  const clean = base.replace(/\/+$/, '');
+  return /\/api(\/v\d+)?$/.test(clean) ? clean : `${clean}/api/v1`;
 }
 
 // Size of each slice sent by uploadDocumentChunked. Exported so the UI can show the same number.
