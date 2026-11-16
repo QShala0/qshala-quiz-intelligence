@@ -1,0 +1,39 @@
+name: Weekly vault maintenance
+
+# Runs the whole-vault repair and heal passes once a week. They used to run every time the backend or the worker
+# started (a full read of the question table each time, which is Neon network transfer); on Cloud Run they are now off
+# at startup (STARTUP_MAINTENANCE_MODE) and this is the scheduled replacement. Both passes are idempotent.
+# Needs the repository secret DATABASE_URL (already used by the nightly backup). Run it by hand from the Actions tab
+# with "Run workflow". GitHub emails the account that last pushed this file when a scheduled run fails.
+on:
+  schedule:
+    - cron: "30 22 * * 0"          # Sunday 22:30 UTC = Monday 04:00 IST, after the 03:00 IST nightly backup
+  workflow_dispatch: {}
+
+concurrency:
+  group: vault-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.lock.txt
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.lock.txt
+      - name: Repair and heal
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REQUIRE_POSTGRES: "1"
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL repository secret is not set (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+          python backend/scripts/run_vault_maintenance.py
