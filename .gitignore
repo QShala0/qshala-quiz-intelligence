@@ -72,3 +72,6 @@ Thumbs.db
 backend/eval_data/results/
 qshala-quiz-intelligence/
 frontend/public/static/slides/memtest-*/
+
+# The School export is built on this master deck (artwork lives in its slide master); it must ship.
+!backend/app/services/export/templates/qshala_school_master.pptx

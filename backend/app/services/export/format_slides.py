@@ -181,10 +181,17 @@ def _backdrop(slide, bg: Optional[Path]) -> None:
     slide.shapes.add_picture(str(bg), 0, 0, Inches(13.333), Inches(7.5))
 
 
-def _answer_marker(prs, blank, bg: Optional[Path] = None):
+def _answer_marker(prs, blank, bg: Optional[Path] = None, layout=None):
+    """The "Answer" divider. With a School master layout it is that layout's title placeholder over the master
+    artwork; otherwise a text box (on the backdrop picture when one is given)."""
+    if layout is not None:
+        s = prs.slides.add_slide(layout)
+        s.shapes.title.text_frame.text = "Answer"
+        s.shapes.title.name = "Heading"
+        return s
     s = prs.slides.add_slide(blank)
     _backdrop(s, bg)
-    _text(s, 3.0, 2.8, 7.333, 1.8, "ANSWER", size=54, bold=True, align="center", name="Title 1")
+    _text(s, 3.0, 2.8, 7.333, 1.8, "ANSWER", size=54, bold=True, align="center", name="Heading")
     return s
 
 
@@ -198,12 +205,12 @@ def _reveal_slides(prs, blank, d: Dict[str, Any], P: Dict[str, Any], resolve: Ca
     bg = d.get("question_bg")
     steps = P["reveal_steps"]
     full = resolve(P.get("full_image")) if P.get("full_image") else None
-    X, Y, W, H = 0.7, 1.5, 6.0, 5.4
+    X, Y, W, H = 1.0, 1.6, 5.8, 5.0
     cells = {"top-left": (0, 0), "top-right": (1, 0), "bottom-left": (0, 1), "bottom-right": (1, 1)}
     for k in range(len(steps)):
         s = prs.slides.add_slide(blank)
         _backdrop(s, bg)
-        _text(s, 0.7, 0.35, 11.9, 0.9, P.get("prompt") or d["question_text"], size=26, bold=True, name="Title 1")
+        _text(s, 1.0, 0.6, 11.3, 0.9, P.get("prompt") or d["question_text"], size=26, bold=True, name="Title 1")
         pic = _picture(s, full, X, Y, W, H, name="Full Image")
         # the covers sit on the picture as placed (scaled to fit, centred), not on the box it was fitted into
         X0, Y0, W0, H0 = (X, Y, W, H) if pic is None else (pic.left / 914400.0, pic.top / 914400.0, pic.width / 914400.0, pic.height / 914400.0)
@@ -219,15 +226,15 @@ def _reveal_slides(prs, blank, d: Dict[str, Any], P: Dict[str, Any], resolve: Ca
                 _picture(s, resolve(st["cover"]), X0 + cx * W0 / 2, Y0 + cy * H0 / 2, W0 / 2, H0 / 2, name=f"Cover Tile {st['step']}")
         lines = "\n".join(f"{st['step']}.  +{st['correct']} / {MINUS}{abs(st['wrong'])}" if st.get("wrong") else f"{st['step']}.  +{st['correct']} / 0"
                           for st in steps)
-        _text(s, 7.3, 1.6, 5.3, 3.0, "Points if answered after cover\n" + lines, size=18, color="334155")
-        _text(s, 7.3, 5.9, 5.3, 0.8, f"Covers lifted: {k} of {len(steps)}", size=14, color="64748B")
+        _text(s, 7.3, 1.7, 5.0, 3.0, "Points if answered after cover\n" + lines, size=18, color="334155")
+        _text(s, 7.3, 5.6, 5.0, 0.8, f"Covers lifted: {k} of {len(steps)}", size=14, color="64748B")
         if k == 0:
             _notes(s, blob)
-    _answer_marker(prs, blank, bg)
+    _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 0.7, 0.35, 11.9, 1.0, d["answer"], size=34, bold=True, color="059669", name="Title 1")
-    _picture(sa, full, 3.2, 1.6, 6.9, 5.5, name="Full Image")
+    _text(sa, 1.0, 0.6, 11.3, 1.0, d["answer"], size=34, bold=True, color="059669", name="Title 1")
+    _picture(sa, full, 3.2, 1.7, 6.9, 4.8, name="Full Image")
 
 
 def _list_it_slides(prs, blank, d, P, resolve, blob, idx):
@@ -236,29 +243,29 @@ def _list_it_slides(prs, blank, d, P, resolve, blob, idx):
     def grid(slide, marks: bool):
         for i, o in enumerate(P["options"][:9]):
             col, row = i % 3, i // 3
-            x, y = 0.8 + col * 4.0, 2.2 + row * 1.5
+            x, y = 1.0 + col * 3.85, 2.2 + row * 1.4
             text = o["text"]
             if marks:
                 good = o.get("correct")
                 prefix = "✓  " if good else ("✗  " if good is False else "")
-                _box(slide, x, y, 3.8, 1.3, "DCFCE7" if good else ("FEE2E2" if good is False else "F1F5F9"),
+                _box(slide, x, y, 3.65, 1.2, "DCFCE7" if good else ("FEE2E2" if good is False else "F1F5F9"),
                      "16A34A" if good else ("DC2626" if good is False else "CBD5E1"), prefix + text, size=18, color="14532D" if good else ("7F1D1D" if good is False else "334155"),
                      name=f"Option {i + 1}")
             else:
-                _box(slide, x, y, 3.8, 1.3, "F8FAFC", "94A3B8", text, size=18, color="0F172A", name=f"Option {i + 1}")
+                _box(slide, x, y, 3.65, 1.2, "F8FAFC", "94A3B8", text, size=18, color="0F172A", name=f"Option {i + 1}")
 
     s = prs.slides.add_slide(blank)
     _backdrop(s, bg)
     title = P.get("prompt") or d["question_text"]
     if P.get("team"):
         title += f"\nTeam {P['team']}"
-    _text(s, 0.8, 0.3, 11.7, 1.7, title, size=26, bold=True, name="Title 1")
+    _text(s, 1.0, 0.55, 11.3, 1.5, title, size=26, bold=True, name="Title 1")
     grid(s, False)
     _notes(s, blob)
-    _answer_marker(prs, blank, bg)
+    _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 0.8, 0.3, 11.7, 1.7, "Correct answers are ticked", size=26, bold=True, color="059669", name="Title 1")
+    _text(sa, 1.0, 0.55, 11.3, 1.5, "Correct answers are ticked", size=26, bold=True, color="059669", name="Title 1")
     grid(sa, True)
 
 
@@ -266,22 +273,22 @@ def _connect_slides(prs, blank, d, P, resolve, blob, idx):
     bg = d.get("question_bg")
     s = prs.slides.add_slide(blank)
     _backdrop(s, bg)
-    _text(s, 0.7, 0.3, 11.9, 0.9, "Connect", size=34, bold=True, name="Title 1")
+    _text(s, 1.0, 0.55, 11.3, 0.9, "Connect", size=34, bold=True, name="Heading")
     if P.get("text_hint"):
-        _text(s, 0.7, 1.15, 11.9, 0.8, P["text_hint"], size=22, color="334155")
+        _text(s, 1.0, 1.4, 11.3, 0.8, P["text_hint"], size=22, color="334155")
     items = P.get("items") or []
     n = len(items)
     cols = 3 if n > 4 else 2 if n > 1 else 1
     rows = max(1, -(-n // cols))
-    cw, ch = 3.6, min(1.65, 4.6 / rows)
+    cw, ch = 3.6, min(1.65, 4.0 / rows)
     for i, it in enumerate(items):
         col, row = i % cols, i // cols
-        _picture(s, resolve(it.get("image")), 0.9 + col * (cw + 0.3), 2.1 + row * (ch + 0.15), cw, ch, name=f"Picture {i + 1}")
+        _picture(s, resolve(it.get("image")), 1.1 + col * (cw + 0.3), 2.3 + row * (ch + 0.15), cw, ch, name=f"Picture {i + 1}")
     _notes(s, blob)
-    _answer_marker(prs, blank, bg)
+    _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 0.7, 2.6, 11.9, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
+    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
 
 
 def _stepped_slides(prs, blank, d, P, resolve, blob, idx):
@@ -293,17 +300,17 @@ def _stepped_slides(prs, blank, d, P, resolve, blob, idx):
         if c.get("correct") is not None:
             w_ = c.get("wrong") or 0
             pts = f": +{c['correct']}/{('-' + str(abs(w_))) if w_ else '0'}"
-        _text(s, 0.7, 0.3, 11.9, 0.9, f"Q{idx}. Clue {i + 1}{pts}", size=26, bold=True, color="C2410C", name="Title 1")
-        _text(s, 0.7, 1.5, 7.0, 5.0, c.get("text") or "", size=24, color="0F172A")
+        _text(s, 1.0, 0.55, 11.3, 0.9, f"Q{idx}. Clue {i + 1}{pts}", size=26, bold=True, color="C2410C", name="Heading")
+        _text(s, 1.0, 1.7, 6.8, 4.4, c.get("text") or "", size=24, color="0F172A")
         imgs = c.get("images") or []
         for j, u in enumerate(imgs[:3]):
-            _picture(s, resolve(u), 8.2, 1.5 + j * 1.9, 4.4, 1.8, name=f"Picture {j + 1}")
+            _picture(s, resolve(u), 8.2, 1.7 + j * 1.5, 4.2, 1.4, name=f"Picture {j + 1}")
         if i == 0:
             _notes(s, blob)
-    _answer_marker(prs, blank, bg)
+    _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 0.7, 2.6, 11.9, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
+    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
 
 
 def _arrange_slides(prs, blank, d, P, resolve, blob, idx):
@@ -314,7 +321,7 @@ def _arrange_slides(prs, blank, d, P, resolve, blob, idx):
     def draw(slide, with_values: bool):
         for i, it in enumerate(items):
             col = i % 4
-            x, y = 0.5 + col * 3.2, 2.0
+            x, y = 0.9 + col * 3.0, 2.0
             g = slide.shapes.add_group_shape()
             g.name = f"Item {it['label']}"
             lab = g.shapes.add_textbox(Inches(x), Inches(y), Inches(0.7), Inches(0.7))
@@ -328,19 +335,19 @@ def _arrange_slides(prs, blank, d, P, resolve, blob, idx):
             nm.text_frame.paragraphs[0].font.size = Pt(18)
             nm.text_frame.paragraphs[0].font.bold = True
             nm.name = "Name"
-            _picture(slide, resolve(it.get("image")), x, y + 1.1, 3.0, 3.2, shapes=g.shapes, name="Picture")
+            _picture(slide, resolve(it.get("image")), x, y + 1.1, 2.8, 3.0, shapes=g.shapes, name="Picture")
 
     s = prs.slides.add_slide(blank)
     _backdrop(s, bg)
-    _text(s, 0.7, 0.3, 11.9, 1.4, P.get("prompt") or d["question_text"], size=26, bold=True, name="Title 1")
+    _text(s, 1.0, 0.55, 11.3, 1.3, P.get("prompt") or d["question_text"], size=26, bold=True, name="Title 1")
     draw(s, False)
     _notes(s, blob)
-    _answer_marker(prs, blank, bg)
+    _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
     order = P.get("correct_order") or []
     head = ("Correct order: " + " – ".join(str(x) for x in order)) if order else "Correct order not recorded"
-    _text(sa, 0.7, 0.3, 11.9, 1.4, head, size=26, bold=True, color="059669", name="Title 1")
+    _text(sa, 1.0, 0.55, 11.3, 1.3, head, size=26, bold=True, color="059669", name="Title 1")
     draw(sa, True)
 
 
@@ -348,14 +355,14 @@ def _mcq_slides(prs, blank, d, P, resolve, blob, idx):
     bg = d.get("question_bg")
     s = prs.slides.add_slide(blank)
     _backdrop(s, bg)
-    _text(s, 0.7, 0.3, 11.9, 0.8, f"{idx}.*" if P.get("star") else f"{idx}.", size=26, bold=True, color="64748B", name="Title 1")
-    _text(s, 0.7, 1.2, 11.9, 2.4, P.get("prompt") or d["question_text"], size=26, bold=True)
-    _text(s, 0.9, 3.8, 11.5, 3.2, "\n".join(o["text"] for o in P["options"]), size=24, color="334155")
+    _text(s, 1.0, 0.55, 11.3, 0.8, f"{idx}.*" if P.get("star") else f"{idx}.", size=26, bold=True, color="64748B", name="Title 1")
+    _text(s, 1.0, 1.4, 11.3, 2.3, P.get("prompt") or d["question_text"], size=26, bold=True)
+    _text(s, 1.1, 3.8, 9.3, 2.5, "\n".join(o["text"] for o in P["options"]), size=24, color="334155")
     _notes(s, blob)
-    _answer_marker(prs, blank, bg)
+    _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 0.7, 2.6, 11.9, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
+    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
 
 
 _BUILDERS = {
@@ -386,14 +393,14 @@ def export_format_of(payload: Any) -> Optional[str]:
 def add_format_question(prs, blank_layout, *, payload: Dict[str, Any], question_text: str, answer: str, explanation: str,
                         options: Optional[List[str]], meta: Dict[str, Any], idx: int,
                         resolve: Callable[[str], Optional[Path]],
-                        question_bg: Optional[Path] = None) -> bool:
+                        question_bg: Optional[Path] = None, answer_layout=None) -> bool:
     """Append the slides of one question. False (nothing added) when the payload cannot be expanded."""
     fmt = export_format_of(payload)
     if not fmt:
         return False
     blob, _urls = build_blob(fmt, payload, question_text, answer, explanation, options, meta)
     before = len(prs.slides)
-    d = {"question_text": question_text, "answer": answer, "question_bg": question_bg}
+    d = {"question_text": question_text, "answer": answer, "question_bg": question_bg, "answer_layout": answer_layout}
     try:
         _BUILDERS[fmt](prs, blank_layout, d, payload, resolve, blob, idx)
     except Exception as e:                                     # leave the deck as it was; the caller falls back

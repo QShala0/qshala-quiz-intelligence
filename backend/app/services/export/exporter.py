@@ -308,11 +308,11 @@ def _add_scaled_picture(slide, img_path: Path, max_left, max_top, max_w, max_h):
 
 
 # --- QShala School (Causten Round) typography + media layout helpers ------------------------------
-CAUSTEN_THIN = "Causten Round Thin"
-CAUSTEN_BOLD = "Causten Round Bold"
+CAUSTEN_REGULAR = "Causten Round"          # the family's standard (Regular) weight: all body text
+CAUSTEN_BOLD = "Causten Round Bold"        # headings only: cover title, question/answer number, Answer divider
 # Safe content zone inside the white card (inches): clear of the border artwork and bottom-right cats.
 _SAFE_L, _SAFE_R, _SAFE_T, _SAFE_B = 0.95, 12.38, 1.55, 6.15
-_BOLD_SHAPE_NAMES = {"QNum", "CoverTitle"}
+_BOLD_SHAPE_NAMES = {"QNum", "CoverTitle", "Heading"}
 
 
 def _image_aspect(path: Optional[Path], default: float = 16 / 9) -> float:
@@ -328,7 +328,7 @@ def _image_aspect(path: Optional[Path], default: float = 16 / 9) -> float:
 
 
 def _fit_font_pt(text: str, w_in: float, h_in: float, sizes=(28, 26, 24, 22, 20, 18, 16)) -> int:
-    """Largest size (pt) at which ``text`` (Causten Round Thin, ~0.5 em avg glyph) fits a w x h box."""
+    """Largest size (pt) at which ``text`` (Causten Round, ~0.5 em avg glyph) fits a w x h box."""
     paras = [t for t in (text or "").split("\n")] or [""]
     for sz in sizes:
         chars_per_line = max(1, int((w_in * 72) / (sz * 0.47)))
@@ -388,13 +388,80 @@ def _plan_media(aspect: float, text_len: int, has_options: bool = False):
             (_SAFE_R - media_w, _SAFE_T, media_w, box_h))
 
 
-def _apply_causten_style(prs) -> None:
-    """Make every run explicit: Causten Round Thin, bold only for the question number / cover title.
+_SCHOOL_MASTER = Path(__file__).resolve().parent / "templates" / "qshala_school_master.pptx"
 
-    PowerPoint ignores paragraph-level default run properties, so size/bold/colour are copied from the
-    paragraph defaults onto each run. Answer text that used the old green is turned black.
+
+def _load_school_master():
+    """The School template deck (artwork in its slide master/layouts, no slides), or None if it is missing."""
+    if not _SCHOOL_MASTER.exists():
+        logger.warning("School master deck missing at %s; falling back to picture backgrounds", _SCHOOL_MASTER)
+        return None
+    from pptx import Presentation
+    return Presentation(str(_SCHOOL_MASTER))
+
+
+def _layout_named(prs, name: str):
+    for layout in prs.slide_layouts:
+        if layout.name == name:
+            return layout
+    raise KeyError(f"layout {name!r} not in the School master deck")
+
+
+def _school_cover(prs, layout, title: str, subtitle: str, Pt):
+    """Cover on the template's Title Slide layout: real title/subtitle placeholders over the master artwork."""
+    slide = prs.slides.add_slide(layout)
+    ttl = slide.shapes.title
+    ttl.text_frame.text = title
+    ttl.name = "CoverTitle"
+    for r in ttl.text_frame.paragraphs[0].runs:
+        r.font.size = Pt(44) if len(title) <= 34 else Pt(36)
+    sub_ph = next((ph for ph in slide.placeholders if ph.placeholder_format.idx == 1), None)
+    lines = [ln.strip() for ln in subtitle.splitlines() if ln.strip()]
+    if sub_ph is not None and lines:
+        tf = sub_ph.text_frame
+        tf.text = lines[0]
+        for ln in lines[1:]:
+            tf.add_paragraph().text = ln
+        for par in tf.paragraphs:
+            for r in par.runs:
+                r.font.size = Pt(32) if len(par.text) <= 24 else Pt(26)
+    elif sub_ph is not None:
+        sub_ph._element.getparent().remove(sub_ph._element)   # no empty "Click to add subtitle" box
+    return slide
+
+
+def _set_run_font(run, face: str) -> None:
+    """Latin, East-Asian and complex-script typefaces all set, so no script of the run can fall back to the theme font."""
+    from pptx.oxml.ns import qn
+    run.font.name = face
+    rPr = run._r.get_or_add_rPr()
+    latin = rPr.find(qn("a:latin"))
+    for tag in ("a:ea", "a:cs"):
+        for old in rPr.findall(qn(tag)):
+            rPr.remove(old)
+    anchor = latin
+    for tag in ("a:ea", "a:cs"):
+        el = rPr.makeelement(qn(tag), {"typeface": face})
+        anchor.addnext(el)
+        anchor = el
+
+
+def _is_title_placeholder(sh) -> bool:
+    try:
+        from pptx.enum.shapes import PP_PLACEHOLDER
+        return sh.is_placeholder and sh.placeholder_format.type in (PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE)
+    except Exception:
+        return False
+
+
+def _apply_causten_style(prs) -> None:
+    """Make every run explicit: Causten Round (standard weight), Causten Round Bold for headings only.
+
+    Headings are the cover title, the question/answer number, the Answer divider and short slide headings (shapes
+    named in _BOLD_SHAPE_NAMES, or title placeholders). PowerPoint ignores paragraph-level default run properties,
+    so size/bold/colour are copied from the paragraph defaults onto each run. Answer text that used the old green
+    is turned black.
     """
-    from pptx.util import Pt
     from pptx.dml.color import RGBColor
 
     green = "059669"
@@ -413,7 +480,7 @@ def _apply_causten_style(prs) -> None:
             return
         for r in runs:
             f = r.font
-            f.name = CAUSTEN_BOLD if bold_face else CAUSTEN_THIN
+            _set_run_font(r, CAUSTEN_BOLD if bold_face else CAUSTEN_REGULAR)
             f.bold = True if bold_face else False
             if f.size is None and size is not None:
                 f.size = size
@@ -425,7 +492,7 @@ def _apply_causten_style(prs) -> None:
                 pass
             if c is not None:
                 f.color.rgb = black if str(c).upper() == green.upper() else c
-        d.name = CAUSTEN_BOLD if bold_face else CAUSTEN_THIN
+        d.name = CAUSTEN_BOLD if bold_face else CAUSTEN_REGULAR
 
     def _walk(shapes):
         for sh in shapes:
@@ -433,9 +500,9 @@ def _apply_causten_style(prs) -> None:
                 _walk(sh.shapes)
                 continue
             if sh.has_text_frame:
-                bold_face = sh.name in _BOLD_SHAPE_NAMES
+                bold_face = sh.name in _BOLD_SHAPE_NAMES or _is_title_placeholder(sh)
                 for pi, par in enumerate(sh.text_frame.paragraphs):
-                    # cover: only the title line is bold, the subtitle lines stay Thin
+                    # cover: only the title line is bold, the subtitle lines stay regular
                     _style_para(par, bold_face and (sh.name != "CoverTitle" or pi == 0))
             if getattr(sh, "has_table", False) and sh.has_table:
                 for row in sh.table.rows:
@@ -730,16 +797,26 @@ class QuizExporter:
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
         from pptx.enum.shapes import MSO_SHAPE
-        prs = Presentation()
-        prs.slide_width = Inches(13.333)
-        prs.slide_height = Inches(7.5)
-        blank_layout = prs.slide_layouts[6]
+        is_qshala_school = (quiz_type in ("qshala_school", "qshala"))
+        master_prs = _load_school_master() if is_qshala_school else None
+        if master_prs is not None:
+            # The artwork (backdrop, cover circle, Answer cats) lives in the slide master / layouts of this deck, so
+            # it is part of the template and not a selectable picture on each slide.
+            prs = master_prs
+            blank_layout = _layout_named(prs, "Blank")
+            cover_layout = _layout_named(prs, "Title Slide")
+            divider_layout = _layout_named(prs, "Section Header")
+        else:
+            prs = Presentation()
+            prs.slide_width = Inches(13.333)
+            prs.slide_height = Inches(7.5)
+            blank_layout = prs.slide_layouts[6]
+            cover_layout = divider_layout = None
 
         # -------------------------------------------------------------
         # Template Asset Directory Setup
         # -------------------------------------------------------------
         assets_base = Path(__file__).resolve().parent / "templates" / "assets"
-        is_qshala_school = (quiz_type in ("qshala_school", "qshala"))
         if is_qshala_school:
             track_dir = assets_base / "qshala_school"
         elif quiz_type == "corporate":
@@ -778,9 +855,9 @@ class QuizExporter:
         # Typography & Color Standards (Inter for ZSV, Causten Round for QShala School)
         # -------------------------------------------------------------
         if is_qshala_school:
-            # Causten Round family only: Thin everywhere, Bold only for the question number / cover title.
-            FONT_HEAD = CAUSTEN_THIN
-            FONT_BODY = CAUSTEN_THIN
+            # Causten Round family only: standard weight for body text, Bold for headings.
+            FONT_HEAD = CAUSTEN_REGULAR   # bold headings are decided per shape in _apply_causten_style
+            FONT_BODY = CAUSTEN_REGULAR
         else:
             FONT_HEAD = "Inter"
             FONT_BODY = "Inter"
@@ -810,9 +887,14 @@ class QuizExporter:
         # -------------------------------------------------------------
         # 1. Cover Slide
         # -------------------------------------------------------------
-        s_title = prs.slides.add_slide(blank_layout)
+        if master_prs is not None:
+            s_title = _school_cover(prs, cover_layout, final_title, (custom_subtitle or campus_edition or "").strip(), Pt)
+        else:
+            s_title = prs.slides.add_slide(blank_layout)
 
-        if not is_minimalist and cover_bg.exists():
+        if master_prs is not None:
+            pass
+        elif not is_minimalist and cover_bg.exists():
             s_title.shapes.add_picture(str(cover_bg), 0, 0, Inches(13.333), Inches(7.5))
 
             if is_qshala_school:
@@ -841,7 +923,7 @@ class QuizExporter:
                         p_qc2.alignment = PP_ALIGN.CENTER
                         p_qc2.space_before = Pt(30) if k == 0 else Pt(0)
                         p_qc2.text = ln
-                        p_qc2.font.name = CAUSTEN_THIN
+                        p_qc2.font.name = CAUSTEN_REGULAR
                         p_qc2.font.size = Pt(40) if len(ln) <= 24 else Pt(32)
                         p_qc2.font.bold = False
                         p_qc2.font.color.rgb = C_TEXT_DARK
@@ -1024,7 +1106,8 @@ class QuizExporter:
                     options=list(opts_q) if opts_q else None,
                     meta={}, idx=idx,
                     resolve=lambda u: _resolve_media_path(u, download_dir=media_tmp_dir),
-                    question_bg=question_bg if (is_qshala_school and question_bg.exists()) else None,
+                    question_bg=question_bg if (is_qshala_school and master_prs is None and question_bg.exists()) else None,
+                    answer_layout=divider_layout,
                 ):
                     continue
             is_starred = (idx % 5 == 0)
@@ -1121,7 +1204,9 @@ class QuizExporter:
             # (A) QUESTION SLIDE (uses question_bg: PPT.png with peach border)
             # ---------------------------------------------------------
             sq = prs.slides.add_slide(blank_layout)
-            if not is_minimalist and question_bg.exists():
+            if master_prs is not None:
+                pass            # the panel artwork comes from the slide master
+            elif not is_minimalist and question_bg.exists():
                 sq.shapes.add_picture(str(question_bg), 0, 0, Inches(13.333), Inches(7.5))
                 if not is_qshala_school:
                     # Number badge slot matching South Zone template: top=0.40", left=6.67", width=4.13"
@@ -1418,8 +1503,17 @@ class QuizExporter:
             # ---------------------------------------------------------
             render_divider = (show_answer_divider is not False)
             if render_divider:
-                s_ai = prs.slides.add_slide(blank_layout)
-                if not is_minimalist and answer_intro_bg.exists():
+                if master_prs is not None:
+                    s_ai = prs.slides.add_slide(divider_layout)
+                    s_ai.shapes.title.text_frame.text = "Answer"
+                    s_ai.shapes.title.name = "Heading"
+                    for _r in s_ai.shapes.title.text_frame.paragraphs[0].runs:
+                        _r.font.size = Pt(50)
+                else:
+                    s_ai = prs.slides.add_slide(blank_layout)
+                if master_prs is not None:
+                    pass
+                elif not is_minimalist and answer_intro_bg.exists():
                     s_ai.shapes.add_picture(str(answer_intro_bg), 0, 0, Inches(13.333), Inches(7.5))
                 else:
                     bg_ai = s_ai.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(13.333), Inches(7.5))
@@ -1427,20 +1521,23 @@ class QuizExporter:
                     bg_ai.fill.fore_color.rgb = C_WHITE
                     bg_ai.line.fill.background()
 
-                tb_ai = s_ai.shapes.add_textbox(Inches(4.00), Inches(2.75), Inches(5.333), Inches(1.90))
-                pai = tb_ai.text_frame.paragraphs[0]
-                pai.alignment = PP_ALIGN.CENTER
-                pai.text = "Answer"
-                pai.font.name = FONT_HEAD
-                pai.font.size = Pt(50)
-                pai.font.bold = True
-                pai.font.color.rgb = C_TEXT_DARK
+                if master_prs is None:
+                    tb_ai = s_ai.shapes.add_textbox(Inches(4.00), Inches(2.75), Inches(5.333), Inches(1.90))
+                    pai = tb_ai.text_frame.paragraphs[0]
+                    pai.alignment = PP_ALIGN.CENTER
+                    pai.text = "Answer"
+                    pai.font.name = FONT_HEAD
+                    pai.font.size = Pt(50)
+                    pai.font.bold = True
+                    pai.font.color.rgb = C_TEXT_DARK
 
             # ---------------------------------------------------------
             # (C) ANSWER REVEAL SLIDE (uses answer_bg: Red border 2.png)
             # ---------------------------------------------------------
             sa = prs.slides.add_slide(blank_layout)
-            if not is_minimalist and answer_bg.exists():
+            if master_prs is not None:
+                pass            # the panel artwork comes from the slide master
+            elif not is_minimalist and answer_bg.exists():
                 sa.shapes.add_picture(str(answer_bg), 0, 0, Inches(13.333), Inches(7.5))
             else:
                 bg_a = sa.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(13.333), Inches(7.5))
