@@ -26,7 +26,7 @@ from backend.app.services.ingestion import progress
 from backend.app.services.ingestion.vision_resize import shrink_for_vision
 from backend.app.services.tagging.qshala_tagger import safe_error
 from backend.app.services.question_meta_service import (
-    upsert_deck_metadata, deck_row_to_info, ensure_question_metadata, apply_tag_to_meta,
+    upsert_deck_metadata, deck_row_to_info, add_new_question_metadata, apply_latest_tags_to_meta,
 )
 from backend.app.services.tagging import topic_paths
 from backend.app.services.tagging.qshala_rules import classify_taxonomy
@@ -881,23 +881,27 @@ class IngestionPipeline:
             # Assign question ids now: the metadata rows and the tagger both key on questions.id.
             db.flush()
 
-            for q_m, q_data in zip(question_models, unique_candidates):
-                ensure_question_metadata(db, q_m, q_data.get("_meta"), deck_row, doc)
+            # These questions were created a moment ago, so they have no metadata row or topic path yet: queue every row
+            # and let the commit below write them in a few batches, not a lookup and a flush per question.
+            add_new_question_metadata(db, [(q_m, q_data.get("_meta")) for q_m, q_data in zip(question_models, unique_candidates)],
+                                      deck_row, doc)
+            for q_m in question_models:
                 try:
-                    topic_paths.replace_paths(
-                        db,
-                        q_m.id,
-                        [{"l1": q_m.topic, "l2": q_m.subtopic, "keywords": q_m.tags or []}],
-                        source="RULES",
-                        record_history=False,
-                        question=q_m,
-                    )
+                    topic_paths.add_new_question_paths(
+                        db, q_m, [{"l1": q_m.topic, "l2": q_m.subtopic, "keywords": q_m.tags or []}], source="RULES")
                 except Exception as tp_err:
-                    logger.warning("replace_paths rule seeding error: %s", tp_err)
+                    logger.warning("rule topic-path seeding error: %s", tp_err)
 
             # Phase C1 done: questions + metadata are durable BEFORE tagging runs. A tagging hiccup
             # can no longer roll back the whole ingested deck, and the connection is released.
             db.commit()
+            # The commit marks every question object as stale, and the tagger reads each one: reload them all with one
+            # query (the large embedding column stays unloaded) instead of one query per question.
+            if question_models:
+                from sqlalchemy.orm import defer
+                ids = [q_m.id for q_m in question_models]
+                for i in range(0, len(ids), 500):
+                    db.query(Question).options(defer(Question.embedding)).filter(Question.id.in_(ids[i:i + 500])).all()
             t0 = _stage_log(document_id, "C:dedup+persist", t0)
             # The questions are durable and searchable now; only the AI tags are still to come. Tell the upload page, so it
             # can link to them while tagging runs instead of making the uploader wait for the whole deck.
@@ -936,15 +940,10 @@ class IngestionPipeline:
                                        f"Tagging AI usage: {tag_stats['calls']} calls, {tag_stats['tokens_in']:,} input / "
                                        f"{tag_stats['tokens_out']:,} output / {tag_stats.get('tokens_think', 0):,} thinking tokens")
                     # Mirror each question's resulting tag onto its metadata row (geography, year, ...).
-                    for q_m in question_models:
-                        latest = (db.query(QshalaTag)
-                                  .filter(QshalaTag.question_id == q_m.id)
-                                  .order_by(QshalaTag.created_at.desc()).first())
-                        if latest is not None:
-                            try:
-                                apply_tag_to_meta(db, q_m.id, latest)
-                            except Exception as meta_err:
-                                logger.warning("apply_tag_to_meta failed for %s: %s", q_m.id, safe_error(meta_err))
+                    try:
+                        apply_latest_tags_to_meta(db, [q_m.id for q_m in question_models])
+                    except Exception as meta_err:
+                        logger.warning("copying tags to question metadata failed: %s", safe_error(meta_err))
                     db.commit()
                 except IngestionCancelled:
                     raise
