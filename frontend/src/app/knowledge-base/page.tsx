@@ -46,6 +46,7 @@ function KnowledgeBaseContent() {
     duplicateCount,
     reviewCount,
     query, setQuery,
+    matchMode, setMatchMode, appliedQuery,
     topic, setTopic,
     subtopic, setSubtopic,
     tagFilter, setTagFilter,
@@ -169,6 +170,7 @@ function KnowledgeBaseContent() {
       {/* Search & Filters Bar */}
       <VaultFilters
         query={query} setQuery={setQuery}
+        matchMode={matchMode} setMatchMode={setMatchMode}
         onSearchSubmit={handleSearch}
         topic={topic} setTopic={setTopic}
         subtopic={subtopic} setSubtopic={setSubtopic}
@@ -265,6 +267,7 @@ function KnowledgeBaseContent() {
                       resolvingId={resolvingId}
                       tagFilter={tagFilter}
                       setTagFilter={setTagFilter}
+                      highlight={appliedQuery}
                     />
                   ))
                 )}

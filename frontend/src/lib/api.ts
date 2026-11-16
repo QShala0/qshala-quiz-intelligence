@@ -240,6 +240,7 @@ export interface QuestionSearchParams {
     format?: string;
     slot?: string;
     play_mode?: string;
+    match?: 'exact' | 'smart';
     sort_by?: string;
     sort_order?: 'asc' | 'desc';
     limit?: number;
@@ -265,6 +266,7 @@ function buildQuestionSearchQuery(params: QuestionSearchParams): string {
   if (params.question_format || params.format) searchParams.append('question_format', (params.question_format || params.format)!);
   if (params.slot) searchParams.append('slot', params.slot);
   if (params.play_mode) searchParams.append('play_mode', params.play_mode);
+  if (params.match === 'smart') searchParams.append('match', 'smart');
   if (params.sort_by) searchParams.append('sort_by', params.sort_by);
   if (params.sort_order) searchParams.append('sort_order', params.sort_order);
   if (params.limit) searchParams.append('limit', params.limit.toString());

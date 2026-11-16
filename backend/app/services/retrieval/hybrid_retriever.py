@@ -23,6 +23,36 @@ TAXONOMY_FILE = Path(__file__).resolve().parent.parent / "tagging" / "taxonomy.j
 # than silently reintroducing that single-customer bias as a code-level default.
 SYNONYM_EXPANSIONS_FILE = Path(__file__).resolve().parent / "synonym_expansions.json"
 
+def keyword_terms(query: str) -> List[Dict[str, str]]:
+    """Split a search box value into terms: "quoted phrases" stay whole, everything else is one word per term."""
+    terms: List[Dict[str, str]] = []
+    for phrase, word in re.findall(r'"([^"]+)"|(\w+)', query or "", re.UNICODE):
+        if phrase.strip():
+            terms.append({"kind": "phrase", "text": phrase.strip()})
+        elif word:
+            terms.append({"kind": "word", "text": word})
+    return terms
+
+
+def apply_keyword_filter(query_builder, query: str):
+    """Exact-words search: every typed word (or quoted phrase) must appear in the question, answer, options, topic,
+    subtopic or tags. Deck names are NOT matched here (the deck resolver handles those), otherwise every question in a deck called "Space" would match the word "space". A word matches from the start of a word, so "astro" finds "astronomy" but "cat" does
+    not find "location"."""
+    from sqlalchemy import cast
+    cols = [Question.question_text, Question.answer, Question.topic, Question.subtopic,
+            cast(Question.tags, String), cast(Question.options, String)]
+    for term in keyword_terms(query):
+        text = term["text"]
+        if term["kind"] == "word" and is_postgres:
+            pattern = r"\m" + re.escape(text)
+            clauses = [c.op("~*")(pattern) for c in cols]
+        else:
+            like = "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            clauses = [c.ilike(like, escape="\\") for c in cols]
+        query_builder = query_builder.filter(or_(*clauses))
+    return query_builder
+
+
 def apply_question_scope_filters(
     query_builder,
     *,

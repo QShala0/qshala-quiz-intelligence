@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Check, Lock, RefreshCw, Sparkles, Trash2, Unlock } from 'lucide-react';
+import { ArrowUp, Check, Lock, Plus, RefreshCw, Sparkles, Trash2, Unlock } from 'lucide-react';
 import { getApiBase, resolveMediaUrl } from '../../lib/api';
-import { SourceCatalog } from '../../lib/types';
+import { HistoricalQuestion, SourceCatalog } from '../../lib/types';
+import BankPickerDrawer from '../../components/BankPickerDrawer';
 import SourceMultiPicker, { summarizeSelectedSources } from '../../components/SourceMultiPicker';
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
@@ -128,6 +129,7 @@ export default function QuizzerHome() {
   const [locked, setLocked] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
+  const [bankOpen, setBankOpen] = useState(false);
 
   // Brief chips state
   const [editCount, setEditCount] = useState<number>(10);
@@ -306,6 +308,29 @@ export default function QuizzerHome() {
     } catch {
       setError('No other matching question found for that slot.');
     }
+  }
+
+  function addFromBank(h: HistoricalQuestion) {
+    const nq: DraftQ = {
+      id: h.id,
+      question_text: h.question_text,
+      answer: h.answer,
+      topic_l1: h.topic,
+      subtopic_l2: h.subtopic ?? null,
+      difficulty: h.difficulty ?? null,
+      question_images: h.question_images ?? undefined,
+      answer_images: h.answer_images ?? undefined,
+      image_refs: h.image_refs ?? undefined,
+      question_format: h.question_format ?? null,
+      format_payload: h.format_payload ?? undefined,
+      slot: h.slot ?? null,
+      play_mode: h.play_mode ?? null,
+      topic_label: h.topic_label ?? null,
+      document_id: h.document_id,
+      document_title: h.document_title ?? null,
+    };
+    setQs((cur) => (cur.some((x) => x.id === nq.id) ? cur : [...cur, nq]));
+    setChecked((cur) => new Set(cur).add(nq.id));
   }
 
   function removeQuestion(id: string) {
@@ -1023,6 +1048,19 @@ export default function QuizzerHome() {
               </li>
             ))}
           </ol>
+          <button
+            type="button"
+            onClick={() => setBankOpen(true)}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white py-3 text-[14px] font-medium text-slate-600 transition hover:border-blue-400 hover:bg-blue-50/40 hover:text-blue-700 cursor-pointer"
+          >
+            <Plus size={16} /> Add question from bank
+          </button>
+          <BankPickerDrawer
+            open={bankOpen}
+            onClose={() => setBankOpen(false)}
+            existingIds={new Set(qs.map((q) => q.id))}
+            onAdd={addFromBank}
+          />
           {qs.length === 0 && <p className="mt-4 text-[14px] text-slate-500">Nothing left. Try a broader prompt.</p>}
 
           {/* Refine Box & Quick Suggestions */}

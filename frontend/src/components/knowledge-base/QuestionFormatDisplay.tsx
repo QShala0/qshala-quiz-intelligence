@@ -2,6 +2,7 @@ import { HistoricalQuestion } from '../../lib/types';
 import { isPlaceholderIcon } from '../../lib/placeholderIcons';
 import { hasStructuredView } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../formats/StructuredFormatBody';
+import Highlight from '../Highlight';
 
 // Renders a question's body differently depending on its question_format (QShala priority plan
 // P3-1: extracted unchanged from knowledge-base/page.tsx, where it was a standalone function
@@ -12,12 +13,14 @@ export default function QuestionFormatDisplay({
   setPreviewImage,
   handleImgError,
   onQuestionUpdated,
+  highlight,
 }: {
   q: HistoricalQuestion;
   getImageSrc: (url: string) => string;
   setPreviewImage: (url: string) => void;
   handleImgError: (url: string) => void;
   onQuestionUpdated?: (q: HistoricalQuestion) => void;
+  highlight?: string;
 }) {
   const fmt = q.question_format;
   const payload = q.format_data || q.format_payload;
@@ -42,7 +45,7 @@ export default function QuestionFormatDisplay({
       <div className="space-y-2 mt-1">
         {q.question_text && q.question_text.trim() && (
           <div className="font-semibold text-[13.5px] text-slate-900 leading-snug">
-            {q.question_text}
+            <Highlight text={q.question_text} query={highlight} />
           </div>
         )}
         {rawImgs.length > 0 && (
@@ -70,7 +73,7 @@ export default function QuestionFormatDisplay({
         )}
         <div className="text-[12.5px] text-slate-700 font-normal">
           <span className="font-bold text-blue-700">Common Link:</span>{' '}
-          <span className="font-semibold text-slate-900">{q.answer}</span>
+          <span className="font-semibold text-slate-900"><Highlight text={q.answer} query={highlight} /></span>
         </div>
       </div>
     );
@@ -118,12 +121,12 @@ export default function QuestionFormatDisplay({
           </div>
         ) : (
           <div className="font-semibold text-[13.5px] text-slate-900 leading-snug">
-            {q.question_text}
+            <Highlight text={q.question_text} query={highlight} />
           </div>
         )}
         <div className="text-[12.5px] text-slate-700 font-normal pt-0.5">
           <span className="font-bold text-amber-800">Answer:</span>{' '}
-          <span className="font-semibold text-slate-900">{q.answer}</span>
+          <span className="font-semibold text-slate-900"><Highlight text={q.answer} query={highlight} /></span>
         </div>
       </div>
     );
@@ -134,7 +137,7 @@ export default function QuestionFormatDisplay({
     return (
       <div className="space-y-2 mt-1">
         <div className="font-semibold text-[13.5px] text-slate-900 leading-snug">
-          {q.question_text}
+          <Highlight text={q.question_text} query={highlight} />
         </div>
         {items && Array.isArray(items) && items.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-1">
@@ -148,7 +151,7 @@ export default function QuestionFormatDisplay({
         )}
         <div className="text-[12.5px] text-slate-700 font-normal pt-0.5">
           <span className="font-bold text-purple-700">Correct Sequence:</span>{' '}
-          <span className="font-semibold text-slate-900">{q.answer}</span>
+          <span className="font-semibold text-slate-900"><Highlight text={q.answer} query={highlight} /></span>
         </div>
       </div>
     );
@@ -158,10 +161,10 @@ export default function QuestionFormatDisplay({
   return (
     <>
       <div className="font-semibold text-[13.5px] text-slate-900 leading-snug">
-        {q.question_text}
+        <Highlight text={q.question_text} query={highlight} />
       </div>
       <div className="mt-1 text-[12px] text-slate-600 font-normal">
-        Answer: <span className="font-semibold text-slate-800">{q.answer}</span>
+        Answer: <span className="font-semibold text-slate-800"><Highlight text={q.answer} query={highlight} /></span>
       </div>
     </>
   );
