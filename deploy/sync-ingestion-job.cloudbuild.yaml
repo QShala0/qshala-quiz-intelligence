@@ -23,7 +23,7 @@ steps:
         set -euo pipefail
         SERVICE="qshala-quiz-intelligence"
         JOB="qshala-ingestion-worker"
-        REGION="asia-south1"
+        REGION="asia-southeast1"
 
         echo "Waiting for $$SERVICE to redeploy with commit $COMMIT_SHA ..."
         for i in $(seq 1 60); do

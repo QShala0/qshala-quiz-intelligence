@@ -7,7 +7,7 @@
 substitutions:
   _SERVICE: qshala-quiz-intelligence
   _JOB: qshala-ingestion-worker
-  _REGION: asia-south1
+  _REGION: asia-southeast1             # moved from asia-south1 (Mumbai) next to the Neon database (Singapore)
   _REPO: cloud-run-source-deploy        # Artifact Registry repository the console source-deploy used
 
 steps:

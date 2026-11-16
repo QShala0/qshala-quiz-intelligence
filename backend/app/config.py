@@ -243,7 +243,7 @@ class Settings(BaseSettings):
     INGESTION_MAX_CONCURRENCY: int = 1
     INGESTION_MODE: str = "cloud_run_job" if is_cloud_run else "in_process"
     GCP_PROJECT_ID: Optional[str] = "qshala-quiz" if is_cloud_run else None
-    GCP_REGION: Optional[str] = "asia-south1" if is_cloud_run else None
+    GCP_REGION: Optional[str] = "asia-southeast1" if is_cloud_run else None
     INGESTION_JOB_NAME: Optional[str] = "qshala-ingestion-worker" if is_cloud_run else None
 
     @field_validator("INGESTION_MAX_CONCURRENCY", mode="before")

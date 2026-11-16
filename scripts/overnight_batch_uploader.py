@@ -18,7 +18,7 @@ from typing import List, Dict, Any, Optional
 import requests
 
 # Base URL for QShala Cloud Run API
-BASE_URL = os.environ.get("API_BASE_URL", "https://qshala-quiz-intelligence-238470261844.asia-south1.run.app").rstrip("/")
+BASE_URL = os.environ.get("API_BASE_URL", "https://qshala-quiz-intelligence-238470261844.asia-southeast1.run.app").rstrip("/")
 
 # Target files in order of ascending size
 TARGET_FILES = [

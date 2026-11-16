@@ -6,7 +6,7 @@
 set -euo pipefail
 SERVICE="${SERVICE:-qshala-quiz-intelligence}"
 JOB="${JOB:-qshala-ingestion-worker}"
-REGION="${REGION:-asia-south1}"
+REGION="${REGION:-asia-southeast1}"
 cd "$(dirname "$0")"
 gcloud run services describe "$SERVICE" --region="$REGION" --format=export > cloudrun-service.live.yaml
 gcloud run jobs describe "$JOB" --region="$REGION" --format=export > cloudrun-job.live.yaml
