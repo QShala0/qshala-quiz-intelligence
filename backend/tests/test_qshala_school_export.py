@@ -142,8 +142,9 @@ def test_quizzes_export_api_router_qshala_school():
     assert "Cosmic Journey" in cover_text
 
 
-def test_qshala_school_causten_thin_bold_black_answer_and_media_fit(tmp_path):
-    """Style rules: Causten Round Thin everywhere, Bold only on the question number / cover title,
+def test_qshala_school_causten_regular_bold_headings_black_answer_and_media_fit(tmp_path):
+    """Style rules: Causten Round (standard weight) for body text, Bold only on headings (cover title, question and
+    answer number, the Answer divider),
     answers in black (never green), and images sized to the card without leaving the safe area."""
     from PIL import Image
     from pptx.util import Inches
@@ -180,13 +181,13 @@ def test_qshala_school_causten_thin_bold_black_answer_and_media_fit(tmp_path):
                 continue
             for par in sh.text_frame.paragraphs:
                 for r in par.runs:
-                    assert r.font.name in ("Causten Round Thin", "Causten Round Bold"), r.font.name
+                    assert r.font.name in ("Causten Round", "Causten Round Bold"), r.font.name
                     if r.font.name == "Causten Round Bold":
                         bold_texts.append(r.text)
                     if r.font.color and r.font.color.type is not None:
                         assert str(r.font.color.rgb).upper() != "059669"  # answers are black, not green
     assert pics == 4  # question + answer image for both questions
-    assert set(bold_texts) == {"Quiz Hobby Class!", "Question 1", "Answer 1", "Question 2", "Answer 2"}
+    assert set(bold_texts) == {"Quiz Hobby Class!", "Question 1", "Answer 1", "Question 2", "Answer 2", "Answer"}
 
 
 def test_qshala_school_answer_image_never_on_question_slide(tmp_path):
@@ -231,3 +232,46 @@ def test_qshala_school_answer_image_never_on_question_slide(tmp_path):
     assert len(content_pics(slide_with("Answer 1"))) >= 1
     # Q2: distinct clue image stays on the question
     assert len(content_pics(slide_with("Question 2"))) >= 1
+
+
+def test_qshala_school_template_lives_in_the_slide_master_not_on_slides():
+    """The artwork must come from the deck's slide master / layouts (not selectable), never from a picture stuck on
+    each slide; the theme fonts are Causten Round; every run, including ea/cs, names a Causten face."""
+    import re
+    import zipfile
+    from pptx.util import Inches
+    quiz = {"title": "t", "topic": "GK", "questions": [
+        {"question_text": "Which planet is the Red Planet?", "answer": "Mars", "is_approved": True}]}
+    raw = QuizExporter.to_pptx(quiz, quiz_type="qshala_school", custom_title="Hobby Quiz", custom_subtitle="Round 1")
+    prs = Presentation(io.BytesIO(raw))
+
+    # artwork: in the master and the cover/divider layouts, on no slide
+    assert any(sh.shape_type == 13 for sh in prs.slide_master.shapes)
+    layouts = {l.name: l for l in prs.slide_layouts}
+    assert any(sh.shape_type == 13 for sh in layouts["Title Slide"].shapes)
+    assert any(sh.shape_type == 13 for sh in layouts["Section Header"].shapes)
+    for slide in prs.slides:
+        assert not any(sh.shape_type == 13 for sh in slide.shapes), "background picture found on a slide"
+
+    # cover = Title Slide layout, divider = Section Header, the rest sit on the master panel
+    names = [s.slide_layout.name for s in prs.slides]
+    assert names == ["Title Slide", "Blank", "Section Header", "Blank"], names
+    assert prs.slides[0].shapes.title.text_frame.text == "Hobby Quiz"
+    assert prs.slides[2].shapes.title.text_frame.text == "Answer"
+
+    # theme fonts are Causten, not Aptos/Calibri
+    theme = zipfile.ZipFile(io.BytesIO(raw)).read("ppt/theme/theme1.xml").decode()
+    assert re.search(r'<a:majorFont><a:latin typeface="Causten Round Bold"', theme)
+    assert re.search(r'<a:minorFont><a:latin typeface="Causten Round"', theme)
+
+    # every run names a Causten face for latin + ea + cs
+    ok = {"Causten Round", "Causten Round Bold"}
+    for slide in prs.slides:
+        for sh in slide.shapes:
+            if not sh.has_text_frame:
+                continue
+            for par in sh.text_frame.paragraphs:
+                for r in par.runs:
+                    rPr = r._r.rPr
+                    faces = {el.get("typeface") for el in rPr if el.tag.split("}")[1] in ("latin", "ea", "cs")}
+                    assert faces and faces <= ok, (r.text, faces)
