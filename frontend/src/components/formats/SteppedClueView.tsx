@@ -28,16 +28,19 @@ export default function SteppedClueView({ payload, getImageSrc, handleImgError, 
       <ol className="space-y-1.5">
         {clues.map((c) => {
           return (
-            <li key={c.step} className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[12.5px]">
-              <span className="shrink-0 rounded bg-amber-200 px-2 py-0.5 font-mono text-[11px] font-bold text-amber-900">
-                Clue {c.step} · {ladderText(c.correct, c.wrong) || '—'}
-              </span>
-              <div className="min-w-0 flex-1 leading-snug text-slate-800">
-                {c.text || <span className="text-slate-400">(no text)</span>}
+            <li key={c.step} className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-[13px]">
+              {/* The points label sits above the clue text, so the text can use the whole width beside the picture. */}
+              <div className="min-w-0 flex-1">
+                <span className="mb-1 inline-block rounded bg-amber-200 px-2 py-0.5 font-mono text-[11px] font-bold text-amber-900">
+                  Clue {c.step} · {ladderText(c.correct, c.wrong) || '—'}
+                </span>
+                <div className="leading-snug text-slate-800">
+                  {c.text || <span className="text-slate-400">(no text)</span>}
+                </div>
               </div>
               {c.images.slice(0, 2).map((img) => (
                 <button key={img} type="button" onClick={() => setPreviewImage(img)} className="shrink-0 overflow-hidden rounded-md border border-amber-300 bg-white cursor-pointer">
-                  <img src={getImageSrc(img)} onError={() => handleImgError(img)} alt={`Clue ${c.step}`} className="h-10 w-14 object-contain" />
+                  <img src={getImageSrc(img)} onError={() => handleImgError(img)} alt={`Clue ${c.step}`} className="h-14 w-20 object-contain" />
                 </button>
               ))}
             </li>

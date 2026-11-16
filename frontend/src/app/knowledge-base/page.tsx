@@ -216,12 +216,12 @@ function KnowledgeBaseContent() {
           <TableSkeleton columns={3} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-[13px] border-collapse">
+            <table className="w-full min-w-[920px] table-fixed text-left text-[13px] border-collapse">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/60 font-semibold text-[12px] uppercase tracking-wider text-slate-600">
-                  <th className="py-3 px-4 w-6/12">Question</th>
-                  <th className="py-3 px-4">Topics</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                  <th className="py-3 px-4 w-[56%]">Question</th>
+                  <th className="py-3 pl-9 pr-4 w-[26%]">Topics</th>
+                  <th className="py-3 px-4 w-[18%] text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
