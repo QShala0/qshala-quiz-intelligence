@@ -1,14 +1,16 @@
 'use client';
 
 import React, { useRef } from 'react';
-import { Image as ImageIcon, Plus, X, AlertTriangle, Info } from 'lucide-react';
+import { Image as ImageIcon, Plus, X, AlertTriangle, Info, ChevronLeft, ChevronRight } from 'lucide-react';
 import { HistoricalQuestion } from '../../lib/types';
 import { isPlaceholderIcon } from '../../lib/placeholderIcons';
+import { isConnect } from '../../lib/formatPayloads';
 
 // The picture editor shown inside the Multimodal Question Media popup ("Edit images"). It edits a local draft only:
 // nothing is uploaded or saved until the popup's Save button is pressed, and Cancel throws the draft away.
-// It edits the flat question / answer picture lists. The numbered clue tiles of a Connect question live in the
-// question's format data and are never touched from here.
+// For most questions it edits the question / answer picture lists. For a Connect question the pictures marked
+// "Question" ARE the numbered clue pictures (1, 2, 3 ... in the order shown), so saving rewrites them in the
+// question itself, not just in the strip under it.
 
 export const MAX_IMAGE_MB = 4; // keep in step with QUESTION_IMAGE_MAX_BYTES on the server (default 4 MiB)
 export const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -27,22 +29,24 @@ export function newDraftId(): string {
   return `draft-${draftCounter}`;
 }
 
-// The same pictures, in the same order and with the same roles, that the viewer shows for this question.
+// A Connect question keeps its numbered pictures in its own data (items 1..n), which can differ from the flat strip.
+export function isConnectQuestion(q: HistoricalQuestion): boolean {
+  return isConnect(q.format_payload);
+}
+
+// The pictures, in the same order and with the same roles, that the viewer shows for this question. For a Connect
+// question the "Question" pictures are its numbered clue pictures.
 export function initialDraft(q: HistoricalQuestion): DraftImage[] {
-  const rawQ = q.question_images && q.question_images.length > 0 ? q.question_images : (q.image_refs || []);
-  const qs = rawQ.filter((x) => !isPlaceholderIcon(x));
+  const connectItems = isConnect(q.format_payload) ? q.format_payload.items : null;
+  const rawQ = connectItems
+    ? [...connectItems].sort((a, b) => a.order - b.order).map((it) => it.image)
+    : (q.question_images && q.question_images.length > 0 ? q.question_images : (q.image_refs || []));
+  const qs = rawQ.filter((x) => Boolean(x) && !isPlaceholderIcon(x));
   const as = (q.answer_images || []).filter((x) => !isPlaceholderIcon(x) && !qs.includes(x));
   return [
     ...qs.map((url) => ({ id: newDraftId(), url, file: null, preview: null, role: 'question' as const })),
     ...as.map((url) => ({ id: newDraftId(), url, file: null, preview: null, role: 'answer' as const })),
   ];
-}
-
-// Connect-style questions get their numbered pictures from the question's clue data, not from this list.
-export function hasClueTiles(q: HistoricalQuestion): boolean {
-  const fmt = `${q.question_format || ''} ${q.question_type || ''}`.toUpperCase();
-  const payload = q.format_payload as { clues?: unknown[] } | null | undefined;
-  return fmt.includes('CONNECT') || Boolean(payload && Array.isArray(payload.clues) && payload.clues.length > 0);
 }
 
 interface Props {
@@ -51,17 +55,36 @@ interface Props {
   onFilesChosen: (files: File[]) => void;
   onRemoved: (item: DraftImage) => void;
   getImageSrc: (url: string) => string;
+  onImageError?: (url: string) => void;   // lets the popup try the backend's /api/v1/static path for a local file
   onZoom: (src: string) => void;
-  note: boolean;     // show the "numbered clues are not changed" note
+  connect: boolean;       // a Connect question: "Question" pictures are the numbered clue pictures
+  removedCount: number;   // stored pictures taken off the question in this draft
   error: string | null;
   busy: boolean;
 }
 
-export default function QuestionImageEditor({ items, onChange, onFilesChosen, onRemoved, getImageSrc, onZoom, note, error, busy }: Props) {
+export default function QuestionImageEditor({
+  items, onChange, onFilesChosen, onRemoved, getImageSrc, onImageError, onZoom, connect, removedCount, error, busy,
+}: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const setRole = (id: string, role: DraftImage['role']) =>
     onChange(items.map((it) => (it.id === id ? { ...it, role } : it)));
+
+  // Order matters for Connect (it is the numbering), so a picture can be moved one place left or right.
+  const move = (index: number, delta: -1 | 1) => {
+    const to = index + delta;
+    if (to < 0 || to >= items.length) return;
+    const next = [...items];
+    [next[index], next[to]] = [next[to], next[index]];
+    onChange(next);
+  };
+  const clueNumber = (id: string): number | null => {
+    if (!connect) return null;
+    const qs = items.filter((it) => it.role === 'question');
+    const pos = qs.findIndex((it) => it.id === id);
+    return pos >= 0 ? pos + 1 : null;
+  };
 
   return (
     <div className="space-y-3" data-testid="question-image-editor">
@@ -73,10 +96,24 @@ export default function QuestionImageEditor({ items, onChange, onFilesChosen, on
         <span className="text-[11.5px] text-slate-500">PNG, JPG or WebP, up to {MAX_IMAGE_MB} MB each</span>
       </div>
 
-      {note && (
-        <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] text-sky-900">
+      {connect && (
+        <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[12px] text-sky-900" data-testid="connect-note">
           <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-sky-600" />
-          <span>Edits the image strip only. The numbered clues are not changed.</span>
+          <span>
+            Connect question: the pictures marked <strong>Question</strong> are its numbered clue pictures (1, 2, 3 …) in
+            the order shown, and saving changes them in the question itself. Use the arrows to reorder. Pictures marked
+            <strong> Answer</strong> show with the common link.
+          </span>
+        </div>
+      )}
+
+      {removedCount > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900" data-testid="delete-warning">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+          <span>
+            {removedCount} picture{removedCount === 1 ? '' : 's'} will be removed. When you save, the stored file is
+            deleted too, unless another question, quiz or slide still uses it. This cannot be undone.
+          </span>
         </div>
       )}
 
@@ -99,7 +136,12 @@ export default function QuestionImageEditor({ items, onChange, onFilesChosen, on
                 title="Click to enlarge"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt={`Image ${idx + 1}`} className="h-full w-full object-cover" />
+                <img
+                  src={src}
+                  alt={`Image ${idx + 1}`}
+                  className="h-full w-full object-cover"
+                  onError={() => { if (it.url && onImageError) onImageError(it.url); }}
+                />
               </button>
               <button
                 type="button"
@@ -111,9 +153,40 @@ export default function QuestionImageEditor({ items, onChange, onFilesChosen, on
               >
                 <X className="h-3.5 w-3.5" />
               </button>
-              {it.file && (
-                <span className="absolute left-1.5 top-1.5 rounded bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">New</span>
+              {clueNumber(it.id) !== null && (
+                <span
+                  className="absolute left-1.5 top-1.5 rounded bg-blue-700/90 px-1.5 py-0.5 text-[10px] font-bold text-white"
+                  data-testid="clue-number"
+                  title="Clue picture number"
+                >
+                  {clueNumber(it.id)}
+                </span>
               )}
+              {it.file && (
+                <span className="absolute left-1.5 top-[5.3rem] rounded bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">New</span>
+              )}
+              <div className="absolute right-1.5 top-[5.3rem] flex gap-1">
+                <button
+                  type="button"
+                  disabled={busy || idx === 0}
+                  onClick={() => move(idx, -1)}
+                  className="rounded bg-black/60 p-0.5 text-white hover:bg-black/80 disabled:opacity-30 cursor-pointer"
+                  title="Move earlier"
+                  aria-label={`Move image ${idx + 1} earlier`}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || idx === items.length - 1}
+                  onClick={() => move(idx, 1)}
+                  className="rounded bg-black/60 p-0.5 text-white hover:bg-black/80 disabled:opacity-30 cursor-pointer"
+                  title="Move later"
+                  aria-label={`Move image ${idx + 1} later`}
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
               <div className="flex text-[10.5px] font-bold uppercase" role="group" aria-label={`Image ${idx + 1} role`}>
                 <button
                   type="button"

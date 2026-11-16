@@ -11,6 +11,7 @@ from backend.app.models.question import Question
 from backend.app.models.document import Document, Slide
 from backend.app.schemas.question import QuestionResponse, QuestionUpdate, DuplicateResolveRequest, ArrangeOrderUpdate
 from backend.app.services.retrieval.hybrid_retriever import HybridRetriever, apply_question_scope_filters, apply_keyword_filter
+from backend.app.services import media_cleanup
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/questions", tags=["Knowledge Base Questions"])
@@ -78,11 +79,7 @@ def to_question_response(q: Question, doc: Optional[Document], slide: Optional[S
     ans_vids = getattr(q, "answer_videos", []) or []
 
     # Filter out placeholder video camera icons from image_refs / question_images
-    placeholder_filenames = {
-        "slide_41_img_1.png", "slide_40_img_1.png", "slide_49_img_1.png",
-        "slide_53_img_1.png", "slide_120_img_1.png", "slide_122_img_1.png",
-        "image16.png"
-    }
+    placeholder_filenames = media_cleanup.PLACEHOLDER_FILENAMES
     def _is_placeholder(p: str) -> bool:
         if not p:
             return False
@@ -898,10 +895,20 @@ def update_question(
             raise HTTPException(status_code=400, detail=f"play_mode must be one of {sorted(ALLOWED_PLAY_MODES)}")
         q.play_mode = pm or None
 
-    if payload.question_images is not None or payload.answer_images is not None:
-        # Only the flat image lists change. Detaching a URL here never deletes the stored file, and format_payload
-        # (the Connect clue tiles etc.) is deliberately not touched.
-        q_imgs = _clean_image_urls(payload.question_images) if payload.question_images is not None else list(q.question_images or [])
+    touches_images = (payload.question_images is not None or payload.answer_images is not None
+                      or payload.clue_images is not None)
+    before_urls = _picture_urls(q) if touches_images else set()
+    if touches_images:
+        if payload.clue_images is not None:
+            # Connect: these ARE the question's numbered pictures, so they are written into the question itself
+            # (format_payload items, renumbered 1..n in this order) as well as the flat list below.
+            clue = _clean_image_urls(payload.clue_images)
+            _set_connect_items(q, clue)
+            q_imgs = clue
+        elif payload.question_images is not None:
+            q_imgs = _clean_image_urls(payload.question_images)
+        else:
+            q_imgs = list(q.question_images or [])
         a_imgs = _clean_image_urls(payload.answer_images) if payload.answer_images is not None else list(q.answer_images or [])
         a_imgs = [u for u in a_imgs if u not in q_imgs]     # a picture has one role
         q.question_images = q_imgs
@@ -913,9 +920,38 @@ def update_question(
 
     db.commit()
     db.refresh(q)
-    return _enrich_one(db, to_question_response(q, doc, slide))
+    response = _enrich_one(db, to_question_response(q, doc, slide))
+    if touches_images:
+        # Pictures taken off this question are deleted from storage too, unless anything else still uses them
+        # (see services/media_cleanup.py). Runs after the commit; a failure there never fails the save.
+        removed = before_urls - _picture_urls(q)
+        if removed:
+            media_cleanup.delete_unreferenced(db, removed)
+    return response
 
 MAX_IMAGES_PER_QUESTION = 50
+
+
+def _picture_urls(q: Question) -> set:
+    """Every picture URL this question points at: the flat lists plus a Connect question's numbered items."""
+    urls = set()
+    for col in ("question_images", "answer_images", "image_refs"):
+        urls.update(u for u in (getattr(q, col, None) or []) if isinstance(u, str) and u)
+    payload = getattr(q, "format_payload", None)
+    if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+        urls.update(it["image"] for it in payload["items"] if isinstance(it, dict) and isinstance(it.get("image"), str) and it["image"])
+    return urls
+
+
+def _set_connect_items(q: Question, urls: List[str]) -> None:
+    """Replace a Connect question's numbered pictures. Items keep any extra fields they had; order is renumbered 1..n.
+    Everything else in the payload (hint, speaker-note labels, scoring, answer) is left exactly as it was."""
+    payload = q.format_payload
+    if not (isinstance(payload, dict) and payload.get("type") == "CONNECT" and isinstance(payload.get("items"), list)):
+        raise HTTPException(status_code=400, detail="clue_images can only be set on a Connect question")
+    old = {it.get("image"): it for it in payload["items"] if isinstance(it, dict)}
+    items = [{**old.get(u, {}), "order": i, "image": u} for i, u in enumerate(urls, start=1)]
+    q.format_payload = {**payload, "items": items}
 
 
 def _clean_image_urls(urls: List[str]) -> List[str]:

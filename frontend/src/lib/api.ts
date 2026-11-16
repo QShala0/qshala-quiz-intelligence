@@ -711,15 +711,20 @@ export const api = {
     return data.urls;
   },
 
+  // `connect`: the question is a Connect question, so questionImages are its numbered clue pictures and are saved into
+  // the question itself (clue_images). Otherwise they are the plain question-picture list.
   updateQuestionImages: async (
     questionId: string,
     questionImages: string[],
     answerImages: string[],
+    connect = false,
   ): Promise<HistoricalQuestion> => {
     const res = await fetch(`${getApiBase()}/questions/${questionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question_images: questionImages, answer_images: answerImages }),
+      body: JSON.stringify(connect
+        ? { clue_images: questionImages, answer_images: answerImages }
+        : { question_images: questionImages, answer_images: answerImages }),
     });
     return handleResponse<HistoricalQuestion>(res);
   },
