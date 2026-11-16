@@ -30,6 +30,7 @@ export interface QuestionRowProps {
   resolvingId: string | null;
   tagFilter: string;
   setTagFilter: (v: string) => void;
+  highlight?: string;
 }
 
 function QuestionRow({
@@ -49,6 +50,7 @@ function QuestionRow({
   resolvingId,
   tagFilter,
   setTagFilter,
+  highlight,
 }: QuestionRowProps) {
   const rawQImgs = (q.question_images && q.question_images.length > 0 ? q.question_images : q.image_refs || []);
   const cleanQImgs = rawQImgs.filter(x => !isPlaceholderIcon(x));
@@ -100,6 +102,7 @@ function QuestionRow({
               setPreviewImage={setPreviewImage}
               handleImgError={handleImgError}
               onQuestionUpdated={onQuestionUpdated}
+              highlight={highlight}
             />
           </div>
           {q.star_marked && (

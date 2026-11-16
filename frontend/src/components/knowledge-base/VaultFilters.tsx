@@ -10,6 +10,8 @@ import SourceMultiPicker from '../SourceMultiPicker';
 export interface VaultFiltersProps {
   query: string;
   setQuery: (v: string) => void;
+  matchMode: 'exact' | 'smart';
+  setMatchMode: (v: 'exact' | 'smart') => void;
   onSearchSubmit: (e: React.FormEvent) => void;
   topic: string;
   setTopic: (v: string) => void;
@@ -38,7 +40,7 @@ export interface VaultFiltersProps {
 }
 
 export default function VaultFilters({
-  query, setQuery, onSearchSubmit,
+  query, setQuery, matchMode, setMatchMode, onSearchSubmit,
   topic, setTopic,
   subtopic, setSubtopic,
   tagFilter, setTagFilter,
@@ -85,6 +87,27 @@ export default function VaultFilters({
           Search
         </button>
       </form>
+
+      <div className="flex items-center gap-2 text-[12px] text-slate-500" role="radiogroup" aria-label="Match mode">
+        <span className="font-medium">Match:</span>
+        {([['exact', 'Exact words'], ['smart', 'Smart (related)']] as const).map(([val, label]) => (
+          <button
+            key={val}
+            type="button"
+            role="radio"
+            aria-checked={matchMode === val}
+            onClick={() => setMatchMode(val)}
+            className={`rounded-full border px-2.5 py-0.5 font-semibold transition-colors cursor-pointer ${
+              matchMode === val ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+        <span className="hidden sm:inline text-slate-400">
+          {matchMode === 'exact' ? 'Only questions containing every word you type.' : 'Also returns loosely related questions.'}
+        </span>
+      </div>
 
       {/* Dynamic Filters & Sorting */}
       <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 text-[13px]">

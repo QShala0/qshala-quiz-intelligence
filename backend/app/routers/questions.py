@@ -10,7 +10,7 @@ from backend.app.database import get_db
 from backend.app.models.question import Question
 from backend.app.models.document import Document, Slide
 from backend.app.schemas.question import QuestionResponse, QuestionUpdate, DuplicateResolveRequest, ArrangeOrderUpdate
-from backend.app.services.retrieval.hybrid_retriever import HybridRetriever, apply_question_scope_filters
+from backend.app.services.retrieval.hybrid_retriever import HybridRetriever, apply_question_scope_filters, apply_keyword_filter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/questions", tags=["Knowledge Base Questions"])
@@ -370,6 +370,7 @@ async def search_questions(
     format: Optional[str] = Query(None, description="Alias for question_format"),
     slot: Optional[str] = Query(None, description="LIVE | RESERVE | EXAMPLE"),
     play_mode: Optional[str] = Query(None, description="BUZZER | DIRECTED | PASS | AUDIENCE | TIEBREAK | ALL_ON_SCREEN | BUFFER"),
+    match: Optional[str] = Query("exact", description="exact: every typed word must appear in the question (default). smart: semantic ranking with synonyms"),
     sort_by: Optional[str] = Query("created_at"),
     sort_order: Optional[str] = Query("desc"),
     limit: int = Query(50, ge=1, le=200),
@@ -415,7 +416,9 @@ async def search_questions(
         if response is not None and page_info.get("total") is not None:
             response.headers["X-Total-Count"] = str(page_info["total"])
 
-    def _filtered_search(override_doc_ids: Optional[List[str]] = None):
+    smart_match = isinstance(match, str) and match.strip().lower() == "smart"
+
+    def _filtered_search(override_doc_ids: Optional[List[str]] = None, keywords: Optional[str] = None):
         target_doc_ids = override_doc_ids if override_doc_ids is not None else doc_ids_list
         q_builder = db.query(Question, Document, Slide).\
             options(selectinload(Question.duplicate_of)).\
@@ -434,6 +437,8 @@ async def search_questions(
             play_mode=play_mode_str,
             question_format=fmt_str,
         )
+        if keywords:
+            q_builder = apply_keyword_filter(q_builder, keywords)
         if topic_str:
             q_builder = q_builder.filter(
                 or_(
@@ -507,6 +512,13 @@ async def search_questions(
                 _res = await asyncio.to_thread(lambda: _filtered_search(override_doc_ids=effective_doc_ids))
                 _send_total()
                 return _res
+
+        if not smart_match:
+            # Exact words: only questions that actually contain every typed word, paged with a true total.
+            _res = await asyncio.to_thread(
+                lambda: _filtered_search(override_doc_ids=effective_doc_ids, keywords=effective_query))
+            _send_total()
+            return _res
 
         # 2. Perform semantic/hybrid search strictly scoped to active deck/source and vault filters
         retriever = HybridRetriever(db)

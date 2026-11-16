@@ -25,6 +25,10 @@ export function useVaultQuestions(
   const [reviewCount, setReviewCount] = useState<number>(0);
 
   const [query, setQuery] = useState('');
+  // exact: every typed word must appear in the question. smart: semantic ranking (can return loosely related questions).
+  const [matchMode, setMatchMode] = useState<'exact' | 'smart'>('exact');
+  // The query the rows on screen were actually fetched with (the box may already hold newer, unsearched text).
+  const [appliedQuery, setAppliedQuery] = useState('');
   const [topic, setTopic] = useState(initialTopic);
   const [subtopic, setSubtopic] = useState('');
   const [tagFilter, setTagFilter] = useState('');
@@ -118,6 +122,7 @@ export function useVaultQuestions(
 
   const searchParams = (offset: number, signal: AbortSignal) => ({
     query: query.trim() || undefined,
+    match: matchMode,
     topic: topic || undefined,
     subtopic: subtopic || undefined,
     tag: tagFilter.trim() || undefined,
@@ -184,6 +189,7 @@ export function useVaultQuestions(
         return;
       }
       const { items, total: matches } = await api.searchQuestionsPage(searchParams(0, controller.signal));
+      setAppliedQuery(query.trim());
       setQuestions(items);
       setTotal(matches);
       setHasMore(matches !== null ? items.length < matches : items.length === PAGE_SIZE);
@@ -217,7 +223,7 @@ export function useVaultQuestions(
     // state on an unmounted component.
     return () => inFlightRequest.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, topic, subtopic, tagFilter, difficulty, formatFilter, slotFilter, selectedDeckIds, gradeMin, sortBy, sortOrder]);
+  }, [activeTab, topic, subtopic, tagFilter, difficulty, formatFilter, slotFilter, selectedDeckIds, gradeMin, sortBy, sortOrder, matchMode]);
 
   useEffect(() => {
     if (prevQueryRef.current !== '' && query === '') {
@@ -299,6 +305,7 @@ export function useVaultQuestions(
     duplicateCount, setDuplicateCount,
     reviewCount, setReviewCount,
     query, setQuery,
+    matchMode, setMatchMode, appliedQuery,
     topic, setTopic,
     subtopic, setSubtopic,
     tagFilter, setTagFilter,
