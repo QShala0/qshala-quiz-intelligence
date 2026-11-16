@@ -1,10 +1,12 @@
 import asyncio
 import logging
 import os
+import threading
+import time
 import uuid
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException, Response, UploadFile, File
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, defer, load_only
 from sqlalchemy import or_, and_, func, desc, asc, String
 from backend.app.database import get_db
 from backend.app.models.question import Question
@@ -60,12 +62,47 @@ def _enrich(db: Session, responses: List[QuestionResponse]) -> List[QuestionResp
 def _enrich_one(db: Session, response: QuestionResponse) -> QuestionResponse:
     return _enrich(db, [response])[0]
 
+# The search box's deck-name resolver needs every deck's title and every topic word. They change only when a deck is
+# ingested, edited or removed, so they are kept for a short while instead of being re-read on every search. Each
+# container keeps its own copy; invalidate_search_scope_cache() (called with the stats cache) empties this one.
+SEARCH_SCOPE_CACHE_SECONDS: float = float(os.getenv("SEARCH_SCOPE_CACHE_SECONDS", "60"))
+_scope_cache: Dict[str, Any] = {"at": 0.0, "docs": None, "topic_words": None}
+_scope_lock = threading.Lock()
+
+
+def invalidate_search_scope_cache() -> None:
+    with _scope_lock:
+        _scope_cache.update({"at": 0.0, "docs": None, "topic_words": None})
+
+
+def _search_scope_lists(db: Session):
+    """(all decks as id/title/filename dicts, set of topic and subtopic words), from the cache when fresh."""
+    now = time.monotonic()
+    with _scope_lock:
+        if (SEARCH_SCOPE_CACHE_SECONDS > 0 and _scope_cache["docs"] is not None
+                and now - _scope_cache["at"] < SEARCH_SCOPE_CACHE_SECONDS):
+            return _scope_cache["docs"], _scope_cache["topic_words"]
+    from backend.app.services.prompt_quiz.retrieval import tokenize as pq_tokenize
+    docs = [{"id": d.id, "title": d.title or "", "filename": d.filename or ""}
+            for d in db.query(Document.id, Document.title, Document.filename).all()]
+    topic_words = set()
+    for t_val, st_val in db.query(Question.topic, Question.subtopic).distinct().all():
+        topic_words.update(pq_tokenize(t_val or ""))
+        topic_words.update(pq_tokenize(st_val or ""))
+    with _scope_lock:
+        _scope_cache.update({"at": time.monotonic(), "docs": docs, "topic_words": topic_words})
+    return docs, topic_words
+
+
 def to_question_response(q: Question, doc: Optional[Document], slide: Optional[Slide]) -> QuestionResponse:
     dup_text = None
     dup_ans = None
-    if getattr(q, "duplicate_of", None):
-        dup_text = q.duplicate_of.question_text
-        dup_ans = q.duplicate_of.answer
+    # Only use the duplicate's row when it was loaded with the question. Touching an unloaded relationship here would
+    # run one extra query per row; _enrich fills the text for the whole page in one query instead.
+    dup_row = q.__dict__.get("duplicate_of")
+    if dup_row is not None:
+        dup_text = dup_row.question_text
+        dup_ans = dup_row.answer
 
     # Resolve video refs: check column or fallback to raw_media_refs with .mp4
     raw_refs = getattr(q, "raw_media_refs", []) or []
@@ -417,8 +454,13 @@ async def search_questions(
 
     def _filtered_search(override_doc_ids: Optional[List[str]] = None, keywords: Optional[str] = None):
         target_doc_ids = override_doc_ids if override_doc_ids is not None else doc_ids_list
+        # A list row only shows the deck title and slide number, and never the vector, so only those are loaded
+        # (the deck's progress log and the slide's text and vector made each row about 5 KB). The duplicate's text
+        # is filled for the whole page by _enrich in one query.
         q_builder = db.query(Question, Document, Slide).\
-            options(selectinload(Question.duplicate_of)).\
+            options(defer(Question.embedding),
+                    load_only(Document.id, Document.title),
+                    load_only(Slide.id, Slide.slide_number)).\
             outerjoin(Document, Question.document_id == Document.id).\
             outerjoin(Slide, Question.slide_id == Slide.id)
 
@@ -471,23 +513,17 @@ async def search_questions(
             from backend.app.services.prompt_quiz.retrieval import SYNONYMS, tokenize as pq_tokenize
             from backend.app.services.prompt_quiz.interpreter_llm import V6_THEMES
 
-            doc_q = db.query(Document.id, Document.title, Document.filename)
+            all_docs, topic_words = _search_scope_lists(db)
             if doc_ids_list:
-                doc_q = doc_q.filter(Document.id.in_(doc_ids_list))
-            docs_rows = [
-                {"id": d.id, "title": d.title or "", "filename": d.filename or ""}
-                for d in doc_q.all()
-            ]
+                wanted = set(doc_ids_list)
+                docs_rows = [d for d in all_docs if d["id"] in wanted]
+            else:
+                docs_rows = list(all_docs)
             if not docs_rows:
                 return None
 
             extra_excl = set(SYNONYMS.keys()) | {w for t in V6_THEMES for w in pq_tokenize(t)}
             # Don't hijack single-word global searches when the word is an actual Question topic/subtopic outside matched decks
-            topic_rows = db.query(Question.topic, Question.subtopic).distinct().all()
-            topic_words = set()
-            for t_val, st_val in topic_rows:
-                topic_words.update(pq_tokenize(t_val or ""))
-                topic_words.update(pq_tokenize(st_val or ""))
 
             resolved = resolve_deck_query(
                 query_str,

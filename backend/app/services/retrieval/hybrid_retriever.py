@@ -1,12 +1,13 @@
 import json
+import os
 import re
 import logging
 from collections import OrderedDict
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 import numpy as np
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import or_, and_, not_, func, String
+from sqlalchemy.orm import Session, selectinload, defer
+from sqlalchemy import or_, and_, not_, func, String, text
 from backend.app.database import is_postgres, PG_VECTOR_AVAILABLE
 from backend.app.models.question import Question
 from backend.app.models.document import Document, Slide
@@ -22,6 +23,43 @@ TAXONOMY_FILE = Path(__file__).resolve().parent.parent / "tagging" / "taxonomy.j
 # domain. A missing/unreadable file now falls back to {} -- no synonym expansion at all -- rather
 # than silently reintroducing that single-customer bias as a code-level default.
 SYNONYM_EXPANSIONS_FILE = Path(__file__).resolve().parent / "synonym_expansions.json"
+
+# How hard the vector index looks for neighbours. pgvector's defaults (ivfflat.probes = 1, hnsw.ef_search = 40) made
+# the IVFFlat index search a single one of its 100 lists, so a request for 60 candidates came back with about 4.
+# Iterative scan (pgvector 0.8+) keeps scanning until LIMIT rows are found, also when filters remove some.
+VECTOR_IVFFLAT_PROBES: int = int(os.getenv("VECTOR_IVFFLAT_PROBES", "20"))
+VECTOR_HNSW_EF_SEARCH: int = int(os.getenv("VECTOR_HNSW_EF_SEARCH", "100"))
+VECTOR_ITERATIVE_SCAN: str = os.getenv("VECTOR_ITERATIVE_SCAN", "relaxed_order").strip().lower()
+# Smart search without a query embedding (the embedding call failed) ranks by keywords only. Only rows that contain at
+# least one search word are loaded, at most this many (it used to load up to 2000 full rows: 8-9 s on production).
+SMART_FALLBACK_CAP: int = int(os.getenv("SMART_FALLBACK_CAP", "300"))
+
+
+def vector_scan_settings() -> Dict[str, str]:
+    settings_ = {"ivfflat.probes": str(max(1, VECTOR_IVFFLAT_PROBES)),
+                 "hnsw.ef_search": str(max(1, VECTOR_HNSW_EF_SEARCH))}
+    if VECTOR_ITERATIVE_SCAN in ("relaxed_order", "strict_order"):
+        settings_["hnsw.iterative_scan"] = VECTOR_ITERATIVE_SCAN
+        settings_["ivfflat.iterative_scan"] = VECTOR_ITERATIVE_SCAN
+    return settings_
+
+
+def tune_vector_scan(db: Session) -> bool:
+    """Raise the vector index search width for the current transaction only (set_config(..., true) is SET LOCAL, so it
+    is safe through Neon's transaction pooler and never leaks to another request). All settings go in ONE query: each
+    extra statement is a full network round trip to the database. Returns False when they could not be set."""
+    pairs = vector_scan_settings()
+    sql = "SELECT " + ", ".join(f"set_config('{k}', :v{i}, true)" for i, k in enumerate(pairs))
+    try:
+        db.execute(text(sql), {f"v{i}": v for i, v in enumerate(pairs.values())})
+        return True
+    except Exception as e:
+        logger.warning("vector search settings not applied (%s); using the server defaults", type(e).__name__)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False
 
 def keyword_terms(query: str) -> List[Dict[str, str]]:
     """Split a search box value into terms: "quoted phrases" stay whole, everything else is one word per term."""
@@ -314,11 +352,30 @@ class HybridRetriever:
 
         return results
 
-    def _join_query(self):
+    def _join_query(self, skip_question_embedding: bool = False):
+        # The deck's progress log and the slide vectors are never read by a search; the question vector is only read
+        # by the in-process ranking (no pgvector), so the database-ranked path leaves it behind too.
+        opts = [selectinload(Question.duplicate_of), defer(Document.progress_detail), defer(Slide.embedding)]
+        if skip_question_embedding:
+            opts.append(defer(Question.embedding))
         return self.db.query(Question, Document, Slide).\
-            options(selectinload(Question.duplicate_of)).\
+            options(*opts).\
             join(Document, Question.document_id == Document.id).\
             outerjoin(Slide, Question.slide_id == Slide.id)
+
+    def _keyword_prefilter(self, query_builder, words: List[str]):
+        """Keep only rows that contain at least one of the search words (3+ letters) somewhere the keyword ranking
+        looks. Rows without any of them would score zero there anyway."""
+        words = [w for w in dict.fromkeys(words) if len(w) >= 3][:40]
+        if not words:
+            return query_builder
+        cols = [Question.question_text, Question.answer, Question.topic, Question.subtopic, Question.visual_clues,
+                func.cast(Question.tags, String), Slide.extracted_text]
+        clauses = []
+        for w in words:
+            like = "%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            clauses.extend(c.ilike(like, escape="\\") for c in cols)
+        return query_builder.filter(or_(*clauses))
 
     def _apply_grade_filter(self, query_builder, grade_min: Optional[int], grade_max: Optional[int]):
         if grade_min is not None and grade_max is not None:
@@ -386,9 +443,11 @@ class HybridRetriever:
 
         clean_tags = [t.strip().lstrip("#").lower() for t in (tags or []) if isinstance(t, str) and t.strip()]
 
+        use_pg_ann = bool(is_postgres and PG_VECTOR_AVAILABLE and query_emb)
+
         def _scoped_query():
             return apply_question_scope_filters(
-                self._join_query(),
+                self._join_query(skip_question_embedding=use_pg_ann),
                 document_id=document_id,
                 document_ids=document_ids,
                 document_title=document_title,
@@ -401,12 +460,12 @@ class HybridRetriever:
                 question_format=question_format,
             )
 
-        use_pg_ann = is_postgres and PG_VECTOR_AVAILABLE and query_emb
         candidate_distances: Dict[str, float] = {}
 
         if use_pg_ann:
             # Step 2 (Postgres): let the database find the nearest questions --
             # nothing else is loaded into this process.
+            tune_vector_scan(self.db)
             distance_col = Question.embedding.cosine_distance(query_emb)
             query_builder = self._apply_topic_filter(
                 self._apply_grade_filter(_scoped_query(), grade_min, grade_max),
@@ -428,14 +487,25 @@ class HybridRetriever:
             # Step 2 (fallback): no pgvector available -- score matching rows
             # in Python. Cap at 2000 to avoid OOM on large vaults.
             _FALLBACK_CAP = 2000
-            query_builder = self._apply_topic_filter(
+            if not query_emb:
+                # No query embedding at all (the embedding call failed): ranking is keyword-only, so only rows holding
+                # a search word can rank, and a small cap keeps this as fast as an exact search.
+                _FALLBACK_CAP = max(1, SMART_FALLBACK_CAP)
+                _words = self._expand_query(query)
+
+                def _narrow(qb):
+                    return self._keyword_prefilter(qb, _words)
+            else:
+                def _narrow(qb):
+                    return qb
+            query_builder = _narrow(self._apply_topic_filter(
                 self._apply_grade_filter(_scoped_query(), grade_min, grade_max),
                 topic
-            )
+            ))
             candidates = query_builder.limit(_FALLBACK_CAP).all()
 
             if not candidates and allow_relax:
-                candidates = _scoped_query().limit(_FALLBACK_CAP).all()
+                candidates = _narrow(_scoped_query()).limit(_FALLBACK_CAP).all()
 
         if not candidates:
             return []

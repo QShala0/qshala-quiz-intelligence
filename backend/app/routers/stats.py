@@ -20,6 +20,11 @@ def invalidate_stats_cache() -> None:
     global _stats_cache, _stats_cached_at
     _stats_cache = None
     _stats_cached_at = 0.0
+    try:  # decks were added, changed or removed: the search box's deck/topic lists are stale too
+        from backend.app.routers.questions import invalidate_search_scope_cache
+        invalidate_search_scope_cache()
+    except Exception:
+        pass
 
 @router.get("", response_model=DashboardStatsResponse)
 def get_stats(db: Session = Depends(get_db)):

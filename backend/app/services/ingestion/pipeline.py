@@ -219,6 +219,13 @@ def exact_duplicate_indices(db: Session, questions: list) -> set:
     return Deduplicator.tier1_exact_indices(hashes, in_vault)
 
 
+def embedding_text(q: Dict[str, Any]) -> str:
+    """The text a question's vector is made from. Shared with scripts/backfill_embeddings.py so a backfilled vector
+    is built exactly like one made at upload."""
+    return (f"{q.get('primary_topic') or ''} {' '.join(q.get('topics') or [])} {q['question_text']} {q['answer']} "
+            f"{(q.get('visual_clues') or '')[:EMBED_VISUAL_CLUES_CHARS]} {q.get('explanation') or ''}").strip()
+
+
 def _stage_log(document_id: str, stage: str, t0: float) -> float:
     """Log wall-clock + process memory for a finished stage, warn once (soft, non-blocking) if
     memory is getting close to the container's limit, and return a new start time."""
@@ -712,10 +719,7 @@ class IngestionPipeline:
                 "current_step": "6. Generating semantic vector embeddings"
             })
 
-            texts_to_embed = [
-                f"{q.get('primary_topic') or ''} {' '.join(q.get('topics') or [])} {q['question_text']} {q['answer']} {(q.get('visual_clues') or '')[:EMBED_VISUAL_CLUES_CHARS]} {q.get('explanation') or ''}".strip()
-                for q in enriched_questions
-            ]
+            texts_to_embed = [embedding_text(q) for q in enriched_questions]
 
             embeddings = []
             if texts_to_embed:
@@ -726,6 +730,16 @@ class IngestionPipeline:
                     # never rank. The questions are stored without an embedding and can be re-embedded later.
                     logger.warning(f"Embedding generation error ({e}); storing these questions without an embedding")
                     embeddings = [None for _ in texts_to_embed]
+
+            _missing_vec = sum(1 for e in embeddings if not e)
+            if _missing_vec:
+                # Questions without a vector are invisible to smart search until backend/scripts/backfill_embeddings.py
+                # gives them one, so say so where the uploader can see it.
+                logger.warning("ingestion %s: %d of %d questions got no embedding", document_id, _missing_vec,
+                               len(texts_to_embed))
+                progress.event(INGESTION_STATUS_REGISTRY[document_id],
+                               f"Warning: {_missing_vec} of {len(texts_to_embed)} questions could not get a search "
+                               f"vector and won't appear in smart search until the embedding backfill is run")
 
             # Re-align to the full question list: every question keeps its original position (_emb_idx), and the
             # skipped exact repeats get an empty vector (the deduplicator never reads it for an exact match).
