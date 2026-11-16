@@ -24,6 +24,7 @@ import { isPlaceholderIcon } from '../../lib/placeholderIcons';
 function KnowledgeBaseContent() {
   const searchParams = useSearchParams();
   const initialTopic = searchParams.get('topic') || '';
+  const initialDeck = searchParams.get('deck') || '';   // the Upload Center links here while a deck is still being tagged
 
   const [selectedSlide, setSelectedSlide] = useState<{
     document_title?: string | null;
@@ -63,7 +64,7 @@ function KnowledgeBaseContent() {
     retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
     handleQuestionUpdated, handleConfirmFormat,
-  } = useVaultQuestions(initialTopic, setSelectedDuplicateForReview);
+  } = useVaultQuestions(initialTopic, setSelectedDuplicateForReview, initialDeck);
 
   const getImageSrc = useCallback((rawUrl: string | null | undefined) => {
     if (!rawUrl) return '';

@@ -899,6 +899,13 @@ class IngestionPipeline:
             # can no longer roll back the whole ingested deck, and the connection is released.
             db.commit()
             t0 = _stage_log(document_id, "C:dedup+persist", t0)
+            # The questions are durable and searchable now; only the AI tags are still to come. Tell the upload page, so it
+            # can link to them while tagging runs instead of making the uploader wait for the whole deck.
+            INGESTION_STATUS_REGISTRY[document_id]["questions_saved"] = len(question_models)
+            if question_models:
+                progress.event(INGESTION_STATUS_REGISTRY[document_id],
+                               f"Saved {len(question_models)} questions. They can be opened in the question bank now; "
+                               f"AI tags are still being added")
 
             # Tagging (phase C2). Chunked batch calls (one Gemini call per ~12 questions) instead of
             # one call per question: fast, and small enough that no single response overflows the

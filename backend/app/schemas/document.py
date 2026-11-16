@@ -49,6 +49,8 @@ class IngestionStatusResponse(BaseModel):
     current_step: str
     slides_processed: int
     questions_extracted: int
+    # Questions already stored and searchable while AI tagging is still running (None until that point).
+    questions_saved: Optional[int] = None
     error: Optional[str] = None
     detail: Optional[str] = None
     events: Optional[List[Dict[str, Any]]] = None

@@ -981,6 +981,7 @@ def get_ingestion_status(document_id: str, db: Session = Depends(get_db)):
         ),
         "slides_processed": doc.slide_count,
         "questions_extracted": doc.question_count,
+        "questions_saved": pd.get("questions_saved"),
         "error": doc.processing_error or pd.get("error"),
         "detail": pd.get("detail"),
         "events": pd.get("events"),
