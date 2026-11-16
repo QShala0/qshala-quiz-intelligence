@@ -324,7 +324,7 @@ def test_questions_bank_source_filtering_and_scoped_search(source_client):
     assert ids_multi == {"q-ag-radio", "q-ag-banana", "q-ag-bones"}
 
     # 2. Text search WITH document_ids stays strictly inside selected deck (no q-world-radio leak!)
-    res_scoped_q = client.get("/api/v1/questions", params={"document_ids": "doc-ag-s2p", "query": "radio", "limit": 50})
+    res_scoped_q = client.get("/api/v1/questions", params={"document_ids": "doc-ag-s2p", "query": "radio", "match": "smart", "limit": 50})
     assert res_scoped_q.status_code == 200
     items_scoped = res_scoped_q.json()
     assert len(items_scoped) > 0
@@ -341,7 +341,7 @@ def test_questions_bank_source_filtering_and_scoped_search(source_client):
     }
 
     # 4. Compound typo + topic query "aghtya radio" -> strictly Agastya radio hits
-    res_compound = client.get("/api/v1/questions", params={"query": "aghtya radio", "limit": 50})
+    res_compound = client.get("/api/v1/questions", params={"query": "aghtya radio", "match": "smart", "limit": 50})
     assert res_compound.status_code == 200
     items_compound = res_compound.json()
     assert len(items_compound) > 0

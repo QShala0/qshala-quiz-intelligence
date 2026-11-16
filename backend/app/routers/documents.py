@@ -27,6 +27,14 @@ from backend.app.services.ingestion.cancellation import (
 logger = logging.getLogger(__name__)
 
 
+def _queue_all_job_uploads() -> bool:
+    """In cloud_run_job mode every upload goes through the database-backed queue, so INGESTION_MAX_CONCURRENCY (default 1
+    deck at a time) holds for every upload, not only those that arrive with a batch id. This is deliberately NOT done by
+    turning UPLOAD_QUEUE_ENABLED on: that flag also starts a polling loop in every container (a database query every few
+    seconds). QUEUE_ALL_JOB_UPLOADS=0 restores the old behaviour of triggering a job per upload immediately."""
+    return os.getenv("QUEUE_ALL_JOB_UPLOADS", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
 def _schedule_ingestion(
     doc,
     db: Session,
@@ -99,7 +107,7 @@ def _schedule_ingestion(
                 db.commit()
                 return
 
-        if settings.UPLOAD_QUEUE_ENABLED or batch_id:
+        if settings.UPLOAD_QUEUE_ENABLED or batch_id or _queue_all_job_uploads():
             from backend.app.services.ingestion import upload_queue
             job = upload_queue.enqueue_upload(
                 db, document_id=doc.id, filename=doc.filename,
@@ -793,6 +801,17 @@ def cancel_chunked_upload(upload_id: str, db: Session = Depends(get_db)):
     from backend.app.models.upload_session import UploadSession
     from backend.app.services.storage.r2_storage import get_r2_service
     session_rec = db.query(UploadSession).filter(UploadSession.upload_id == upload_id).first()
+    if session_rec is None and settings.INGESTION_MODE == "cloud_run_job" and get_r2_service().is_configured:
+        # The first slice has not been stored yet, so there is no row to mark. The in-memory flag above only exists in
+        # THIS container; leave a cancelled row so any other container refuses the slices that are still on their way.
+        from sqlalchemy.exc import IntegrityError
+        try:
+            db.add(UploadSession(upload_id=upload_id, doc_id=str(uuid.uuid4()), raw_key="", r2_upload_id="",
+                                 filename="(cancelled)", parts={}, total_bytes=0, status="CANCELLED"))
+            db.commit()
+        except IntegrityError:               # a slice created the row at the same moment: cancel that one instead
+            db.rollback()
+            session_rec = db.query(UploadSession).filter(UploadSession.upload_id == upload_id).first()
     if session_rec:
         if session_rec.status == "OPEN" and session_rec.r2_upload_id:
             try:
@@ -904,10 +923,16 @@ def get_document_slides(document_id: str, db: Session = Depends(get_db)):
 
 @router.get("/{document_id}/status", response_model=IngestionStatusResponse)
 def get_ingestion_status(document_id: str, db: Session = Depends(get_db)):
-    if document_id in INGESTION_STATUS_REGISTRY:
+    reg = INGESTION_STATUS_REGISTRY.get(document_id)
+    # In cloud_run_job mode the pipeline runs in another container and the database is the source of truth. A
+    # "running" entry in THIS process's memory can only be stale there (and with several containers, another one may
+    # hold a different copy), so it is ignored. Finished entries (e.g. CANCELLED) are still served.
+    if reg is not None and settings.INGESTION_MODE == "cloud_run_job" and reg.get("status") in ("PROCESSING", "QUEUED"):
+        reg = None
+    if reg is not None:
         from backend.app.services.ingestion import progress as _progress
-        _progress.update(INGESTION_STATUS_REGISTRY[document_id])   # fresh memory reading on every poll
-        return INGESTION_STATUS_REGISTRY[document_id]
+        _progress.update(reg)   # fresh memory reading on every poll
+        return reg
 
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:

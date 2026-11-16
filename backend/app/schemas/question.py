@@ -98,6 +98,9 @@ class QuestionUpdate(BaseModel):
     # them) are touched; format_payload (e.g. the numbered Connect clues) is never read or written.
     question_images: Optional[List[str]] = None
     answer_images: Optional[List[str]] = None
+    # Connect questions only: the numbered clue pictures, in order. Written to the question's format_payload items
+    # (and mirrored into question_images). When given, question_images is ignored.
+    clue_images: Optional[List[str]] = None
 
 
 class ArrangeOrderUpdate(BaseModel):

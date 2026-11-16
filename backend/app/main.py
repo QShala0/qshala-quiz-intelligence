@@ -145,7 +145,10 @@ async def lifespan(app: FastAPI):
         from backend.app.database import startup_maintenance_mode
         mode = startup_maintenance_mode()
         STARTUP_MAINTENANCE["mode"] = mode
-        if mode == "background":
+        if mode == "off":
+            STARTUP_MAINTENANCE["state"] = "skipped"
+            logger.info("Startup maintenance skipped (STARTUP_MAINTENANCE_MODE=off). Set it to 'background' for one deploy to run the repair and heal passes.")
+        elif mode == "background":
             import threading
             threading.Thread(target=_run_startup_maintenance, args=(True,), name="startup-maintenance", daemon=True).start()
         else:

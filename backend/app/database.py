@@ -404,13 +404,20 @@ def inspect_schema_status(target_engine=None) -> dict:
 
 
 def startup_maintenance_mode() -> str:
-    """'background' (default on Cloud Run): whole-vault repair passes run in a thread after the app is already serving.
-    'sync' (default everywhere else, so local dev and tests behave exactly as before): they run before the app starts.
-    Override with STARTUP_MAINTENANCE_MODE=sync|background."""
+    """Whole-vault repair passes (legacy backfill, bilingual repair, specialised-question heal). Each one scans every
+    question, so each start of a process that runs them costs a full read of the table over the network.
+      'off'        (default on Cloud Run, service and Job): they do not run at startup.
+      'background' they run in a thread after the app is already serving.
+      'sync'       (default everywhere else, so local dev and tests behave exactly as before): they run before the app starts.
+    Override with STARTUP_MAINTENANCE_MODE=sync|background|off. To run them once on Cloud Run (for example after
+    importing old data), set STARTUP_MAINTENANCE_MODE=background for one deploy, then remove it."""
     v = (os.environ.get("STARTUP_MAINTENANCE_MODE") or "").strip().lower()
-    if v in ("sync", "background"):
+    if v in ("0", "false", "no", "none"):
+        v = "off"
+    if v in ("sync", "background", "off"):
         return v
-    return "background" if os.environ.get("K_SERVICE") else "sync"
+    # A Cloud Run Job container sets CLOUD_RUN_JOB (not K_SERVICE); without this it would scan the vault on every run.
+    return "off" if (os.environ.get("K_SERVICE") or os.environ.get("CLOUD_RUN_JOB")) else "sync"
 
 
 def schema_is_ensured(target_engine=None) -> bool:

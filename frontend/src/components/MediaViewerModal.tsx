@@ -17,7 +17,7 @@ import {
 import { HistoricalQuestion } from '../lib/types';
 import { api, resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
 import QuestionImageEditor, {
-  ALLOWED_IMAGE_TYPES, DraftImage, MAX_IMAGE_MB, hasClueTiles, initialDraft, newDraftId,
+  ALLOWED_IMAGE_TYPES, DraftImage, MAX_IMAGE_MB, isConnectQuestion, initialDraft, newDraftId,
 } from './knowledge-base/QuestionImageEditor';
 
 interface MediaViewerModalProps {
@@ -36,6 +36,9 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
   const [originalSignature] = useState<string>(() =>
     JSON.stringify((editing && question ? initialDraft(question) : []).map((d) => [d.url, d.role])),
   );
+  const [originalUrls] = useState<string[]>(() =>
+    (editing && question ? initialDraft(question) : []).map((d) => d.url as string),
+  );
   const previewUrls = useRef<string[]>([]);
   React.useEffect(() => {
     const created = previewUrls.current;
@@ -52,6 +55,8 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
 
   const isDirty = JSON.stringify(draft.map((d) => [d.file ? null : d.url, d.role])) !== originalSignature
     || draft.some((d) => d.file);
+  // Pictures that were on the question and are no longer in the draft: removing them also deletes the stored file.
+  const removedCount = originalUrls.filter((u) => !draft.some((d) => d.url === u)).length;
 
   const handleFilesChosen = (files: File[]) => {
     setEditError(null);
@@ -99,7 +104,8 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
       }
       const q = items.filter((d) => d.role === 'question').map((d) => d.url as string);
       const a = items.filter((d) => d.role === 'answer').map((d) => d.url as string);
-      const updated = await api.updateQuestionImages(question.id, q, a);
+      // For a Connect question the "Question" pictures are written into the question's numbered clue pictures.
+      const updated = await api.updateQuestionImages(question.id, q, a, isConnectQuestion(question));
       onQuestionUpdated(updated);
       onClose();
     } catch (e) {
@@ -405,7 +411,9 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
               onRemoved={handleRemoved}
               getImageSrc={getImageSrc}
               onZoom={setFullscreenImage}
-              note={hasClueTiles(question)}
+              onImageError={handleImageError}
+              connect={isConnectQuestion(question)}
+              removedCount={removedCount}
               error={editError}
               busy={saving}
             />

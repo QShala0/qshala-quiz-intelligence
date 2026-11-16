@@ -9,16 +9,37 @@ from backend.app import main as app_main
 from backend.app.database import startup_maintenance_mode
 
 
-def test_mode_defaults_background_on_cloud_run_and_sync_elsewhere(monkeypatch):
+def test_mode_defaults_off_on_cloud_run_service_and_job_and_sync_elsewhere(monkeypatch):
     monkeypatch.delenv("STARTUP_MAINTENANCE_MODE", raising=False)
     monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.delenv("CLOUD_RUN_JOB", raising=False)
     assert startup_maintenance_mode() == "sync"                  # local dev and tests behave exactly as before
     monkeypatch.setenv("K_SERVICE", "qshala-api")
-    assert startup_maintenance_mode() == "background"
+    assert startup_maintenance_mode() == "off"                   # Cloud Run service: no whole-vault scan per start
+    monkeypatch.delenv("K_SERVICE")
+    monkeypatch.setenv("CLOUD_RUN_JOB", "qshala-worker")
+    assert startup_maintenance_mode() == "off"                   # the Job worker no longer scans on every run either
     monkeypatch.setenv("STARTUP_MAINTENANCE_MODE", "sync")
     assert startup_maintenance_mode() == "sync"                  # explicit override wins
+    monkeypatch.setenv("STARTUP_MAINTENANCE_MODE", "background")
+    assert startup_maintenance_mode() == "background"           # how to run the passes once on Cloud Run
+    for off in ("off", "0", "false"):
+        monkeypatch.setenv("STARTUP_MAINTENANCE_MODE", off)
+        assert startup_maintenance_mode() == "off"
     monkeypatch.setenv("STARTUP_MAINTENANCE_MODE", "nonsense")
-    assert startup_maintenance_mode() == "background"            # unknown value falls back to the default
+    assert startup_maintenance_mode() == "off"                   # unknown value falls back to the default
+
+
+def test_off_mode_runs_neither_pass_and_says_so_in_health(monkeypatch):
+    monkeypatch.setenv("STARTUP_MAINTENANCE_MODE", "off")
+    calls = []
+    with patch("backend.app.database.run_startup_repairs", lambda *a, **k: calls.append("repairs")), \
+         patch("backend.app.services.ingestion.heal_specialized.heal_specialized_questions", lambda *a, **k: calls.append("heal")):
+        with TestClient(app_main.app) as c:
+            health = c.get("/health").json()
+            assert health["startup_maintenance"]["state"] == "skipped"
+            assert health["startup_maintenance"]["mode"] == "off"
+    assert calls == []
 
 
 def test_a_slow_repair_does_not_delay_the_app(monkeypatch):
