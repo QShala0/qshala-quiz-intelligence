@@ -10,6 +10,7 @@ import React, {
   useMemo,
 } from 'react';
 import { getClientId } from '../lib/clientId';
+import { useToast } from '../components/ui';
 import { api, isAbortError, UPLOAD_CHUNK_SIZE, VERCEL_SAFE_CHUNK_SIZE, UploadProgressInfo } from '../lib/api';
 import { clearVaultCache } from '../hooks/useVaultQuestions';
 import {
@@ -80,6 +81,7 @@ function generateClientItemId(prefix = 'deck'): string {
 }
 
 export function UploadProvider({ children }: { children: React.ReactNode }) {
+  const toast = useToast();
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [items, setItems] = useState<BatchLocalItem[]>([]);
   const itemsRef = useRef<BatchLocalItem[]>(items);
@@ -607,7 +609,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       setTriggerNextUpload((n) => n + 1);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'Failed to register upload batch';
-      alert(errMsg);
+      toast.error(errMsg);
       console.error('Failed to create upload batch:', err);
     }
   };
