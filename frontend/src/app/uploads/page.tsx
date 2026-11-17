@@ -12,6 +12,7 @@ import {
   Clock,
   X,
 } from 'lucide-react';
+import Link from 'next/link';
 import { api } from '../../lib/api';
 import LoadErrorBanner from '../../components/LoadErrorBanner';
 import { DocumentItem, Slide } from '../../lib/types';
@@ -391,6 +392,17 @@ export default function UploadPage() {
                           ? 'Cancelled by user'
                           : `Waiting in browser queue — next to upload (${fmtMB(item.size)} MB)`}
                       </p>
+
+                      {/* The questions are already stored while AI tagging runs: let the uploader open them now */}
+                      {isItemProcessing && item.docId && (item.savedQuestions ?? 0) > 0 && (
+                        <Link
+                          href={`/knowledge-base?deck=${encodeURIComponent(item.docId)}`}
+                          className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                          data-testid="saved-questions-link"
+                        >
+                          {item.savedQuestions} questions saved — open them now (AI tags are still being added) →
+                        </Link>
+                      )}
 
                       {/* Detailed Progress bar for in-flight uploading or processing */}
                       {(isItemProcessing || isItemUploading) && (

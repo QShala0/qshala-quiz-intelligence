@@ -479,6 +479,7 @@ export interface IngestionStatus {
   current_step: string;
   slides_processed: number;
   questions_extracted: number;
+  questions_saved?: number | null;   // stored and searchable while AI tagging is still running
   error?: string | null;
   detail?: string | null;
   events?: { ts: number; msg: string }[] | null;
@@ -659,6 +660,7 @@ export interface BatchLocalItem {
   queuePosition?: number | null;
   slides?: number;
   questions?: number;
+  savedQuestions?: number;   // already searchable while AI tagging is still running
   step?: string | null;
   percentage: number;
   error?: string | null;

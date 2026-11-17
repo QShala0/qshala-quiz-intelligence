@@ -11,6 +11,7 @@ import React, {
 } from 'react';
 import { getClientId } from '../lib/clientId';
 import { api, isAbortError, UPLOAD_CHUNK_SIZE, VERCEL_SAFE_CHUNK_SIZE, UploadProgressInfo } from '../lib/api';
+import { clearVaultCache } from '../hooks/useVaultQuestions';
 import {
   DocumentItem,
   BatchLocalItem,
@@ -395,6 +396,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                   step: status.current_step,
                   slides: status.slides_processed,
                   questions: status.questions_extracted,
+                  savedQuestions: status.questions_saved ?? it.savedQuestions,
                   error: status.error || it.error,
                 }
               : it
@@ -402,6 +404,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         );
 
         if (status.status === 'COMPLETED' || status.status === 'FAILED' || status.status === 'CANCELLED') {
+          clearVaultCache();   // the question bank must not show a remembered list from before this deck
           setActiveDocId(null);
           setVersion((v) => v + 1);
           return;

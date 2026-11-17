@@ -231,15 +231,55 @@ def ensure_question_metadata(
     doc: Optional[Document] = None,
 ) -> QshalaQuestionMetadata:
     """Create the effective-metadata row for a question (or refresh the non-manual fields of an existing one)."""
-    qmeta = qmeta or {}
     row = db.query(QshalaQuestionMetadata).filter(QshalaQuestionMetadata.question_id == question.id).first()
+    values = _metadata_values(question, qmeta, deck, doc)
+    if row is None:
+        row = QshalaQuestionMetadata(question_id=question.id, manual_fields=[], **values)
+        db.add(row)
+        db.flush()
+        return row
+    manual = set(row.manual_fields or [])
+    for k, v in values.items():
+        if k in manual:
+            continue
+        if v is None and getattr(row, k, None) is not None and k in ("quiz_name", "college_institution", "city_name"):
+            continue
+        setattr(row, k, v)
+    db.flush()
+    return row
+
+
+def add_new_question_metadata(
+    db: Session,
+    questions_and_meta: Iterable[tuple],
+    deck: Optional[DeckMetadata],
+    doc: Optional[Document] = None,
+) -> int:
+    """Queue metadata rows for questions that were created a moment ago (so no row can exist yet).
+
+    The same values as `ensure_question_metadata`, but without a lookup and a flush per question: the rows are added
+    together and written by the caller's next flush or commit, in one batch.
+    """
+    rows = [QshalaQuestionMetadata(question_id=q.id, manual_fields=[], **_metadata_values(q, qmeta, deck, doc))
+            for q, qmeta in questions_and_meta]
+    db.add_all(rows)
+    return len(rows)
+
+
+def _metadata_values(
+    question: Question,
+    qmeta: Optional[Dict[str, Any]],
+    deck: Optional[DeckMetadata],
+    doc: Optional[Document],
+) -> Dict[str, Any]:
+    qmeta = qmeta or {}
     deck_date = None
     if deck and deck.deck_date:
         try:
             deck_date = datetime.fromisoformat(deck.deck_date).replace(tzinfo=timezone.utc)
         except ValueError:
             deck_date = None
-    values: Dict[str, Any] = {
+    return {
         "question_number": qmeta.get("question_number"),
         "round_number": qmeta.get("round_number", question.round_number),
         "question_in_round": qmeta.get("question_in_round"),
@@ -258,27 +298,9 @@ def ensure_question_metadata(
         "source_presentation": (deck.source_presentation if deck else None) or (doc.filename if doc else None),
         "source_date": deck_date,
     }
-    if row is None:
-        row = QshalaQuestionMetadata(question_id=question.id, manual_fields=[], **values)
-        db.add(row)
-        db.flush()
-        return row
-    manual = set(row.manual_fields or [])
-    for k, v in values.items():
-        if k in manual:
-            continue
-        if v is None and getattr(row, k, None) is not None and k in ("quiz_name", "college_institution", "city_name"):
-            continue
-        setattr(row, k, v)
-    db.flush()
-    return row
 
 
-def apply_tag_to_meta(db: Session, question_id: str, tag_row: Any) -> None:
-    """Copy the tagger's geography and relevant year onto the question's metadata (unless a person set them)."""
-    meta = db.query(QshalaQuestionMetadata).filter(QshalaQuestionMetadata.question_id == question_id).first()
-    if meta is None or tag_row is None:
-        return
+def _copy_tag_to_meta(meta: QshalaQuestionMetadata, tag_row: Any) -> None:
     manual = set(meta.manual_fields or [])
     if "geo_region" not in manual and getattr(tag_row, "geo_region", None):
         meta.geo_region = tag_row.geo_region
@@ -287,7 +309,40 @@ def apply_tag_to_meta(db: Session, question_id: str, tag_row: Any) -> None:
         meta.india_international = v if v in ("IN", "INTL", "NA") else "NA"
     if "relevant_year" not in manual:
         meta.relevant_year = getattr(tag_row, "relevant_year", None)
+
+
+def apply_tag_to_meta(db: Session, question_id: str, tag_row: Any) -> None:
+    """Copy the tagger's geography and relevant year onto the question's metadata (unless a person set them)."""
+    meta = db.query(QshalaQuestionMetadata).filter(QshalaQuestionMetadata.question_id == question_id).first()
+    if meta is None or tag_row is None:
+        return
+    _copy_tag_to_meta(meta, tag_row)
     db.flush()
+
+
+_BULK_IN_CHUNK = 500
+
+
+def apply_latest_tags_to_meta(db: Session, question_ids: List[str]) -> int:
+    """`apply_tag_to_meta` for many questions: the newest tag of each one, found with one query per 500 questions, and
+    the metadata rows loaded the same way, instead of two queries per question. Returns how many rows were updated."""
+    from backend.app.models.qshala_tag import QshalaTag
+    updated = 0
+    ids = list(question_ids)
+    for i in range(0, len(ids), _BULK_IN_CHUNK):
+        part = ids[i:i + _BULK_IN_CHUNK]
+        latest: Dict[str, Any] = {}
+        for tag in (db.query(QshalaTag).filter(QshalaTag.question_id.in_(part))
+                    .order_by(QshalaTag.created_at.desc())):
+            latest.setdefault(tag.question_id, tag)          # newest first, so the first one seen is the latest
+        if not latest:
+            continue
+        metas = db.query(QshalaQuestionMetadata).filter(QshalaQuestionMetadata.question_id.in_(list(latest))).all()
+        for meta in metas:
+            _copy_tag_to_meta(meta, latest[meta.question_id])
+            updated += 1
+    db.flush()
+    return updated
 
 
 def update_question_metadata(db: Session, question_id: str, changes: Dict[str, Any], actor: Optional[str] = None) -> QshalaQuestionMetadata:

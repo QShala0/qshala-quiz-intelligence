@@ -40,13 +40,41 @@ def get_quiz(quiz_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Quiz not found")
     return quiz
 
+def _generated_picture_urls(questions) -> set:
+    """Every picture a quiz's questions point at (they normally share the bank question's own pictures)."""
+    urls = set()
+    for q in questions:
+        for col in ("question_images", "answer_images", "image_refs"):
+            urls.update(u for u in (getattr(q, col, None) or []) if isinstance(u, str) and u)
+        payload = getattr(q, "format_payload", None)
+        if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+            urls.update(it["image"] for it in payload["items"]
+                        if isinstance(it, dict) and isinstance(it.get("image"), str) and it["image"])
+    return urls
+
+
+def _cleanup_pictures(db: Session, urls: set) -> None:
+    """After a delete has been committed: remove a stored picture only if nothing else uses it any more. A picture a
+    bank question, slide or other quiz still shows is kept; this only catches files the quiz was the last user of
+    (for example a picture removed from its bank question earlier while this quiz still showed it)."""
+    if not urls:
+        return
+    try:
+        from backend.app.services import media_cleanup
+        media_cleanup.delete_unreferenced(db, urls)
+    except Exception:
+        pass
+
+
 @router.delete("/{quiz_id}")
 def delete_quiz(quiz_id: str, db: Session = Depends(get_db)):
     quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
+    urls = _generated_picture_urls(quiz.questions)
     db.delete(quiz)
     db.commit()
+    _cleanup_pictures(db, urls)
     return {"message": "Quiz deleted successfully"}
 
 @router.patch("/questions/{question_id}", response_model=GeneratedQuestionResponse)
@@ -89,9 +117,10 @@ def delete_question(question_id: str, db: Session = Depends(get_db)):
     gen_q = db.query(GeneratedQuestion).filter(GeneratedQuestion.id == question_id).first()
     if not gen_q:
         raise HTTPException(status_code=404, detail="Question not found")
-    
+    urls = _generated_picture_urls([gen_q])
     db.delete(gen_q)
     db.commit()
+    _cleanup_pictures(db, urls)
     return {"message": "Question deleted successfully"}
 
 @router.get("/{quiz_id}/export")
