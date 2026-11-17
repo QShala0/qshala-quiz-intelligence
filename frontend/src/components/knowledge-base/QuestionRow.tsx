@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   AlertTriangle, Star, Play, Volume2, Image as ImageIcon, Video, Layers,
-  CheckCircle, Tag, ExternalLink, Pencil,
+  CheckCircle, Tag, ExternalLink, Pencil, Trash2,
 } from 'lucide-react';
 import { HistoricalQuestion } from '../../lib/types';
 import { isPlaceholderIcon } from '../../lib/placeholderIcons';
 import QuestionFormatDisplay from './QuestionFormatDisplay';
 import FormatReviewBar from '../formats/FormatReviewBar';
 import { formatStyle, playModeLabel } from '../../lib/formatPayloads';
+import { api } from '../../lib/api';
+import { useConfirm, useToast } from '../ui';
 
 // A single question's <tr> in the Knowledge Base table (QShala priority plan P3-1). Named
 // QuestionRow rather than the plan's suggested "QuestionCard" since it renders a table row, not a
@@ -27,6 +29,7 @@ export interface QuestionRowProps {
   handleAcceptReview: (id: string) => void;
   handleConfirmFormat: (id: string) => void;
   onQuestionUpdated: (q: HistoricalQuestion) => void;
+  onQuestionDeleted?: (id: string) => void;
   resolvingId: string | null;
   tagFilter: string;
   setTagFilter: (v: string) => void;
@@ -47,11 +50,39 @@ function QuestionRow({
   handleAcceptReview,
   handleConfirmFormat,
   onQuestionUpdated,
+  onQuestionDeleted,
   resolvingId,
   tagFilter,
   setTagFilter,
   highlight,
 }: QuestionRowProps) {
+  const confirm = useConfirm();
+  const toast = useToast();
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    const confirmed = await confirm({
+      title: 'Delete this question?',
+      message: 'This question will be permanently removed from the question bank. This cannot be undone.',
+      confirmLabel: 'Delete question',
+      cancelLabel: 'Keep question',
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      setIsDeleting(true);
+      await api.deleteQuestionFromBank(q.id);
+      toast.success('Question deleted from bank');
+      onQuestionDeleted?.(q.id);
+    } catch (err) {
+      console.error('Failed to delete question:', err);
+      toast.error('Failed to delete question. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const rawQImgs = (q.question_images && q.question_images.length > 0 ? q.question_images : q.image_refs || []);
   const cleanQImgs = rawQImgs.filter(x => !isPlaceholderIcon(x));
   const cleanAnsImgs = (q.answer_images || []).filter(x => !isPlaceholderIcon(x));
@@ -368,12 +399,35 @@ function QuestionRow({
     <td className="py-3.5 px-4 text-right align-top">
       <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
         {q.duplicate_status === 'POSSIBLE_DUPLICATE' ? (
-          <button
-            onClick={() => setSelectedDuplicateForReview(q)}
-            className="inline-flex items-center gap-1 rounded bg-amber-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-amber-700 cursor-pointer"
-          >
-            <span>Resolve</span>
-          </button>
+          <>
+            <button
+              onClick={() => setSelectedDuplicateForReview(q)}
+              className="inline-flex items-center gap-1 rounded bg-amber-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-amber-700 cursor-pointer"
+            >
+              <span>Resolve</span>
+            </button>
+            <div className="flex flex-col items-end gap-0.5">
+              <button
+                type="button"
+                onClick={() => handleViewSlide(q)}
+                className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
+              >
+                <span>View slide</span>
+                <ExternalLink className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-rose-600 transition-colors cursor-pointer group disabled:opacity-50 pt-0.5"
+                title="Delete question from question bank"
+                aria-label="Delete question"
+              >
+                <Trash2 className="h-3 w-3 text-slate-400 group-hover:text-rose-600 transition-colors" />
+                <span className="text-[10px] leading-none">Delete</span>
+              </button>
+            </div>
+          </>
         ) : (
           <>
             {activeTab === 'review' && (
@@ -395,13 +449,27 @@ function QuestionRow({
               <Tag className="h-3 w-3" />
               <span>{activeTab === 'review' ? 'Correct' : 'Edit tags'}</span>
             </button>
-            <button
-              onClick={() => handleViewSlide(q)}
-              className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
-            >
-              <span>View slide</span>
-              <ExternalLink className="h-3 w-3" />
-            </button>
+            <div className="flex flex-col items-end gap-0.5">
+              <button
+                type="button"
+                onClick={() => handleViewSlide(q)}
+                className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
+              >
+                <span>View slide</span>
+                <ExternalLink className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-rose-600 transition-colors cursor-pointer group disabled:opacity-50 pt-0.5"
+                title="Delete question from question bank"
+                aria-label="Delete question"
+              >
+                <Trash2 className="h-3 w-3 text-slate-400 group-hover:text-rose-600 transition-colors" />
+                <span className="text-[10px] leading-none">Delete</span>
+              </button>
+            </div>
           </>
         )}
       </div>

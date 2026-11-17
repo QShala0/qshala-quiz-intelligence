@@ -64,7 +64,7 @@ function KnowledgeBaseContent() {
     total, hasMore, loadingMore, loadMoreError, loadMore,
     retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
-    handleQuestionUpdated, handleConfirmFormat,
+    handleQuestionUpdated, handleConfirmFormat, handleQuestionDeleted,
   } = useVaultQuestions(initialTopic, setSelectedDuplicateForReview, initialDeck);
 
   const getImageSrc = useCallback((rawUrl: string | null | undefined) => {
@@ -288,6 +288,7 @@ function KnowledgeBaseContent() {
                       handleAcceptReview={handleAcceptReview}
                       handleConfirmFormat={handleConfirmFormat}
                       onQuestionUpdated={handleQuestionUpdated}
+                      onQuestionDeleted={handleQuestionDeleted}
                       resolvingId={resolvingId}
                       tagFilter={tagFilter}
                       setTagFilter={setTagFilter}

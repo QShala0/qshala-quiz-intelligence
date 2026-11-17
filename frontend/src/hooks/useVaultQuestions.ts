@@ -371,6 +371,17 @@ export function useVaultQuestions(
     }
   };
 
+  const handleQuestionDeleted = (questionId: string) => {
+    clearVaultCache();
+    setQuestions((prev) => prev.filter((q) => q.id !== questionId));
+    setTotal((prev) => (prev !== null ? Math.max(0, prev - 1) : null));
+    if (activeTab === 'duplicates') {
+      setDuplicateCount((prev) => Math.max(0, prev - 1));
+    } else if (activeTab === 'review') {
+      setReviewCount((prev) => Math.max(0, prev - 1));
+    }
+  };
+
   return {
     activeTab, setActiveTab,
     duplicateCount, setDuplicateCount,
@@ -392,7 +403,7 @@ export function useVaultQuestions(
     total, hasMore, loadingMore, loadMoreError, loadMore,
     fetchQuestions, retryLoad, handleSearch,
     handleQuestionTagsSaved, handleAcceptReview, handleResolveDuplicate,
-    handleQuestionUpdated, handleConfirmFormat,
+    handleQuestionUpdated, handleConfirmFormat, handleQuestionDeleted,
   };
 }
 
