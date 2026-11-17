@@ -339,6 +339,15 @@ def _expected_extra_columns(eng_is_postgres: bool) -> dict[str, list[tuple[str, 
             ("relevant_year", "INTEGER"),
             ("cached_tokens", "INTEGER"),
         ],
+        "sharepoint_files": [
+            ("drive_id", "VARCHAR(255)"),
+            ("folder_path", "TEXT"),
+            ("quick_xor_hash", "VARCHAR(128)"),
+            ("file_sha256", "VARCHAR(64)"),
+            ("match_document_id", "VARCHAR(36)"),
+            ("batch_id", "VARCHAR(36)"),
+            ("selected_at", "TIMESTAMP WITH TIME ZONE" if eng_is_postgres else "DATETIME"),
+        ],
     }
 
 

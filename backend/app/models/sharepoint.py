@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, BigInteger, Text, DateTime
+from sqlalchemy import Column, String, Integer, BigInteger, Text, DateTime, Index
 from backend.app.database import Base
 
 class SharePointSyncState(Base):
@@ -28,7 +28,17 @@ class SharePointFile(Base):
     file_size_bytes = Column(BigInteger, default=0)
     last_modified_date_time = Column(DateTime(timezone=True), nullable=True)
     blob_url = Column(Text, nullable=True)
-    sync_status = Column(String(50), default="DISCOVERED")  # DISCOVERED, QUEUED, COMPLETED, FAILED, DELETED
+    # DISCOVERED (delta sync), SELECTED (chosen in the importer, waiting for transfer), TRANSFERRING, QUEUED (job created),
+    # COMPLETED, FAILED, DELETED, SKIPPED_DUPLICATE (identical file already in QShala)
+    sync_status = Column(String(50), default="DISCOVERED")
     error_message = Column(Text, nullable=True)
+    drive_id = Column(String(255), nullable=True)
+    folder_path = Column(Text, nullable=True)
+    quick_xor_hash = Column(String(128), nullable=True)      # Graph's content hash of the SharePoint copy
+    file_sha256 = Column(String(64), nullable=True)           # sha256 of the bytes we downloaded (matches documents.file_sha256)
+    match_document_id = Column(String(36), nullable=True)     # existing document this file duplicates, when found
+    batch_id = Column(String(36), nullable=True)               # one importer click = one batch
+    selected_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    __table_args__ = (Index("ix_sharepoint_files_batch_id", "batch_id"), Index("ix_sharepoint_files_sync_status", "sync_status"))

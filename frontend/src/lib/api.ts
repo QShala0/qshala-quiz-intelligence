@@ -16,6 +16,7 @@ import {
   SharePointFileItem,
   IngestionJobItem,
   SharePointSyncResponse,
+  SpConfig, SpDrive, SpBrowse, SpSelection, SpPlan, SpStage, SpTransfer, SpImportStatus,
   RequeueResponse,
   JobActionResponse,
   JobRetryResponse,
@@ -292,7 +293,38 @@ function buildQuestionSearchQuery(params: QuestionSearchParams): string {
   return searchParams.toString();
 }
 
+// SharePoint importer calls: surface the API's own message (e.g. "ask an admin to grant the app access") instead of raw JSON.
+async function spJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${getApiBase()}/sharepoint${path}`, { cache: 'no-store', ...init });
+  if (!res.ok) {
+    let msg = `SharePoint request failed (HTTP ${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === 'string') msg = body.detail;
+    } catch { /* keep the generic message */ }
+    throw new Error(msg);
+  }
+  return res.json() as Promise<T>;
+}
+const spPost = <T,>(path: string, body: unknown) =>
+  spJson<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
 export const api = {
+  // SharePoint selective importer
+  spConfig: () => spJson<SpConfig>('/config'),
+  spDrives: () => spJson<{ drives: SpDrive[] }>('/drives'),
+  spBrowse: (driveId: string, folderId?: string | null, nextUrl?: string | null) => {
+    const q = new URLSearchParams({ drive_id: driveId });
+    if (folderId) q.set('folder_id', folderId);
+    if (nextUrl) q.set('next_url', nextUrl);
+    return spJson<SpBrowse>(`/browse?${q.toString()}`);
+  },
+  spPlan: (sel: SpSelection) => spPost<SpPlan>('/plan', sel),
+  spImport: (sel: SpSelection) => spPost<SpStage>('/import', sel),
+  spTransferNext: (batchId?: string, limit = 3) => spPost<SpTransfer>(`/transfer-next?limit=${limit}${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`, {}),
+  spImportStatus: (batchId?: string) => spJson<SpImportStatus>(batchId ? `/import-status?batch_id=${encodeURIComponent(batchId)}` : '/import-status'),
+
+
   // Stats
   getStats: async (): Promise<DashboardStats> => {
     const res = await fetch(`${getApiBase()}/stats`, { cache: 'no-store' });
