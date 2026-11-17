@@ -23,7 +23,7 @@ import {
 import { GeneratedQuestion, RetrievalSource } from '../lib/types';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
 import { hasStructuredView } from '../lib/formatPayloads';
-import { PawIcon } from './mascot/QCat';
+import { PawIcon } from './ui/QT';
 import StructuredFormatBody from './formats/StructuredFormatBody';
 
 interface Props {

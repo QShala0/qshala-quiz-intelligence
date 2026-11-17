@@ -18,8 +18,7 @@ import LoadErrorBanner from '../../components/LoadErrorBanner';
 import { DocumentItem, Slide } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
 import { useUpload } from '../../context/UploadContext';
-import { useConfirm, useToast } from '../../components/ui';
-import QCat from '../../components/mascot/QCat';
+import { useConfirm, useToast, QT } from '../../components/ui';
 
 export default function UploadPage() {
   const confirm = useConfirm();
@@ -185,8 +184,21 @@ export default function UploadPage() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white p-10 text-center hover:border-blue-500 transition-colors cursor-pointer group shadow-sm shadow-slate-100/50"
+        className="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white p-10 text-center hover:border-amber-400 transition-colors cursor-pointer group shadow-sm shadow-slate-100/50"
       >
+        {/* Fishbowl Cat perched at the corner of the dropzone */}
+        <div className="absolute top-3 right-4 select-none opacity-85 group-hover:opacity-100 transition-opacity">
+          <QT
+            pose="fishbowl"
+            height={44}
+            interactive={true}
+            motion="breathe"
+            speechBubble="Drop decks into the pool! I'm watching the slides."
+            bubblePosition="top-left"
+            alt="QT looking curiously into the fishbowl"
+          />
+        </div>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -522,18 +534,26 @@ export default function UploadPage() {
             </div>
           </div>
 
-          <div className="relative pt-6 pb-1">
-            {/* Mascot walking along the progress bar, curling up asleep when done */}
+          <div className="relative pt-7 pb-1">
+            {/* Mascot chasing the progress ball along the bar, curling up asleep when done */}
             <div
-              className="absolute top-0 -translate-x-1/2 pointer-events-none transition-all duration-300 select-none"
+              className="absolute top-0 -translate-x-1/2 select-none transition-all duration-300 z-10"
               style={{
-                left: `${Math.max(4, Math.min(96, pipelineProgress.percentage))}%`,
+                left: `${Math.max(6, Math.min(94, pipelineProgress.percentage))}%`,
               }}
             >
-              <QCat
-                pose={pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100 ? 'sleep' : 'paw'}
-                size={26}
-                alt={pipelineProgress.status === 'COMPLETED' ? 'Cat sleeping after upload' : 'Cat walking along progress bar'}
+              <QT
+                pose={pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100 ? 'sleepy' : 'chase-blue'}
+                height={34}
+                interactive={true}
+                motion={pipelineProgress.status === 'COMPLETED' ? 'breathe' : 'pounce'}
+                speechBubble={
+                  pipelineProgress.status === 'COMPLETED'
+                    ? 'All decks indexed! Time for a catnap.'
+                    : 'Pouncing through slides!'
+                }
+                bubblePosition="top"
+                alt={pipelineProgress.status === 'COMPLETED' ? 'QT sleeping after upload' : 'QT chasing the progress ball'}
               />
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import QCat from '../components/mascot/QCat';
+import QT from '../components/ui/QT';
 
 export default function NotFound() {
   return (
@@ -18,9 +18,17 @@ export default function NotFound() {
             </svg>
           </div>
 
-          {/* Innocent Cat sitting on shelf */}
-          <div className="absolute right-8 bottom-4">
-            <QCat pose="paw" size={80} alt="Cat sitting on knocked shelf" />
+          {/* Innocent Cat lounging on shelf */}
+          <div className="absolute right-4 bottom-3">
+            <QT
+              pose="sprawl"
+              height={56}
+              interactive={true}
+              motion="breathe"
+              speechBubble="It wasn't me! I was just loafing here..."
+              bubblePosition="top"
+              alt="QT sprawled on the shelf looking innocent"
+            />
           </div>
 
           {/* Wooden Shelf */}

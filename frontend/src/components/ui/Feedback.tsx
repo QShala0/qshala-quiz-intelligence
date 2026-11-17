@@ -8,11 +8,10 @@
  */
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
-import QT, { type QTPose } from './QT';
+import QT, { type QTPose, PawIcon } from './QT';
 import Modal from './Modal';
 import Button from './Button';
 import Confetti from './Confetti';
-import { PawIcon } from '../mascot/QCat';
 
 type ToastKind = 'success' | 'error' | 'info';
 interface ToastItem {

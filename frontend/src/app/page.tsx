@@ -15,6 +15,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import StatsOverview from '../components/StatsOverview';
+import { QT } from '../components/ui';
 import { api } from '../lib/api';
 import { DashboardStats } from '../lib/types';
 
@@ -49,10 +50,25 @@ export default function DashboardPage() {
     <div className="p-6 sm:p-8 lg:p-10 max-w-7xl mx-auto space-y-8">
       {/* Header with Executive Title and Quick Navigation Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-100">
-        <div>
+        <div className="flex items-center gap-3">
           <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900 leading-tight">
             Dashboard Overview
           </h1>
+          <div className="hidden sm:inline-block">
+            <QT
+              pose="yarn-green"
+              height={42}
+              interactive={true}
+              motion="breathe"
+              speechBubble={[
+                'Batting around some new quiz ideas!',
+                'Tip: Pair 5 questions for a quick classroom warmup.',
+                'Curiosity is the engine of learning!',
+              ]}
+              bubblePosition="top-right"
+              alt="QT playing with yarn"
+            />
+          </div>
         </div>
 
         {/* Top Direct Actions */}
@@ -172,8 +188,16 @@ export default function DashboardPage() {
                   </Link>
                 ))
               ) : (
-                <div className="p-8 text-center">
-                  <p className="text-[13px] text-slate-500 font-normal">No quizzes generated yet.</p>
+                <div className="p-8 text-center flex flex-col items-center">
+                  <QT
+                    pose="box-yellow"
+                    height={48}
+                    motion="bob"
+                    interactive={true}
+                    speechBubble="If it fits, I sits! Make a quiz to fill this space."
+                    alt="QT in a yellow box"
+                  />
+                  <p className="text-[13px] text-slate-500 font-normal mt-2">No quizzes generated yet.</p>
                   <Link
                     href="/generate"
                     className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-blue-600 hover:underline"
@@ -233,8 +257,15 @@ export default function DashboardPage() {
                   </div>
                 ))
               ) : (
-                <div className="p-8 text-center text-[13px] text-slate-400">
-                  No quizzes uploaded yet.
+                <div className="p-8 text-center flex flex-col items-center">
+                  <QT
+                    pose="fishbowl"
+                    height={40}
+                    interactive={true}
+                    speechBubble="Waiting for your PPTX decks to dive in!"
+                    alt="QT looking at fishbowl"
+                  />
+                  <p className="text-[13px] text-slate-400 mt-2">No quizzes uploaded yet.</p>
                 </div>
               )}
             </div>

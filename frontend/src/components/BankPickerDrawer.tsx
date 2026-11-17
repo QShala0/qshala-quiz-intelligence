@@ -7,6 +7,7 @@ import { HistoricalQuestion, SourceCatalog } from '../lib/types';
 import { FORMAT_FILTER_OPTIONS, formatStyle } from '../lib/formatPayloads';
 import SourceMultiPicker from './SourceMultiPicker';
 import Highlight from './Highlight';
+import { QT } from './ui';
 
 const PAGE = 30;
 
@@ -149,7 +150,17 @@ export default function BankPickerDrawer({
         <div className="flex-1 overflow-y-auto px-5 py-3">
           {error && <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</p>}
           {!loading && !error && items.length === 0 && (
-            <p className="py-10 text-center text-[14px] text-slate-500">No question contains {applied ? <>“{applied}”</> : 'those filters'}. Try fewer words.</p>
+            <div className="py-10 text-center flex flex-col items-center">
+              <QT
+                pose="box-yellow"
+                height={48}
+                motion="bob"
+                interactive={true}
+                speechBubble="Looked in every drawer — nothing matches!"
+                alt="QT in a yellow box"
+              />
+              <p className="mt-2 text-[14px] text-slate-500">No question contains {applied ? <>“{applied}”</> : 'those filters'}. Try fewer words.</p>
+            </div>
           )}
           <ul className="space-y-2">
             {items.map((q) => {
