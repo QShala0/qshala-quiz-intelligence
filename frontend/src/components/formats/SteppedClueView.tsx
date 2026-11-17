@@ -40,7 +40,7 @@ export default function SteppedClueView({ payload, getImageSrc, handleImgError, 
               </div>
               {c.images.slice(0, 2).map((img) => (
                 <button key={img} type="button" onClick={() => setPreviewImage(img)} className="shrink-0 overflow-hidden rounded-md border border-amber-300 bg-white cursor-pointer">
-                  <img src={getImageSrc(img)} onError={() => handleImgError(img)} alt={`Clue ${c.step}`} className="h-14 w-20 object-contain" />
+                  <img loading="lazy" decoding="async" src={getImageSrc(img)} onError={() => handleImgError(img)} alt={`Clue ${c.step}`} className="h-14 w-20 object-contain" />
                 </button>
               ))}
             </li>

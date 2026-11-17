@@ -58,7 +58,7 @@ export default function QuestionFormatDisplay({
                 className="relative rounded-lg overflow-hidden border border-blue-200 bg-slate-50 aspect-video hover:border-blue-400 hover:shadow-xs transition-all cursor-pointer group"
                 title={`Clue ${i + 1}: click to view`}
               >
-                <img
+                <img loading="lazy" decoding="async"
                   src={getImageSrc(imgUrl)}
                   onError={() => handleImgError(imgUrl)}
                   alt={`Clue ${i + 1}`}
@@ -107,7 +107,7 @@ export default function QuestionFormatDisplay({
                       className="shrink-0 rounded-md overflow-hidden border border-amber-300 bg-white hover:border-amber-500 transition cursor-pointer"
                       title="Click to preview clue image"
                     >
-                      <img
+                      <img loading="lazy" decoding="async"
                         src={getImageSrc(imgUrl)}
                         onError={() => handleImgError(imgUrl)}
                         alt={`Clue ${i + 1}`}

@@ -166,7 +166,7 @@ function QuestionRow({
                 className="relative rounded-md overflow-hidden border border-slate-200 hover:border-blue-400 bg-white transition-all cursor-pointer group shadow-xs"
                 title="Question image: click to view"
               >
-                <img
+                <img loading="lazy" decoding="async"
                   src={getImageSrc(imgUrl)}
                   onError={() => handleImgError(imgUrl)}
                   alt={`Question image ${i + 1}`}
@@ -183,7 +183,7 @@ function QuestionRow({
                 className="relative rounded-md overflow-hidden border border-emerald-300 ring-1 ring-emerald-400/50 hover:border-emerald-500 bg-white transition-all cursor-pointer group shadow-xs"
                 title="Answer image: click to view"
               >
-                <img
+                <img loading="lazy" decoding="async"
                   src={getImageSrc(imgUrl)}
                   onError={() => handleImgError(imgUrl)}
                   alt={`Answer image ${i + 1}`}

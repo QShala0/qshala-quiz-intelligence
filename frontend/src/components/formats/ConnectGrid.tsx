@@ -29,7 +29,7 @@ export default function ConnectGrid({ payload, hasVideo, getImageSrc, handleImgE
                 className="relative block w-full aspect-video overflow-hidden rounded-lg border border-blue-200 bg-slate-50 hover:border-blue-400 cursor-pointer group"
                 title={`Picture ${it.order}`}
               >
-                <img
+                <img loading="lazy" decoding="async"
                   src={getImageSrc(it.image)}
                   onError={() => handleImgError(it.image)}
                   alt={`Picture ${it.order}`}
