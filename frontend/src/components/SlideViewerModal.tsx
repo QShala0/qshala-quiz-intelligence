@@ -6,6 +6,7 @@ import { resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
 import { HistoricalQuestion } from '../lib/types';
 import { hasStructuredView, formatStyle } from '../lib/formatPayloads';
 import StructuredFormatBody from './formats/StructuredFormatBody';
+import { QT } from './ui';
 
 interface Props {
   isOpen: boolean;
@@ -47,8 +48,29 @@ export default function SlideViewerModal({ isOpen, onClose, slide }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm animate-in fade-in">
-      <div className="relative w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-        {/* Header */}
+      <div className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-xl">
+        {/* Door-peeking mascot on the modal top-right edge */}
+        <div
+          className="pointer-events-auto absolute -top-11 right-8 hidden sm:block z-20 select-none drop-shadow-md cursor-pointer transition-transform duration-200 hover:scale-105 active:scale-95"
+          title="QT is inspecting the original slide!"
+        >
+          <QT
+            pose="door-blue"
+            height={82}
+            interactive
+            speechBubble={[
+              "Original tournament presentation slide!",
+              "Checking the source slide!",
+              "Curious where this question came from?",
+            ]}
+            bubblePosition="top-left"
+            alt="QT peeking around a blue door"
+          />
+        </div>
+
+        {/* Inner Content with clipped corners */}
+        <div className="overflow-hidden rounded-xl">
+          {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
@@ -154,6 +176,7 @@ export default function SlideViewerModal({ isOpen, onClose, slide }: Props) {
           >
             Close
           </button>
+        </div>
         </div>
       </div>
     </div>

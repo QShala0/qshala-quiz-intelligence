@@ -108,6 +108,25 @@ export default function BankPickerDrawer({
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Add questions from the question bank">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-slate-900/30 cursor-default" />
       <div className="relative flex h-full w-full max-w-xl flex-col bg-white shadow-2xl border-l border-slate-200">
+        {/* Door-peeking mascot on the drawer's left edge */}
+        <div
+          className="pointer-events-auto absolute -left-[32px] top-6 hidden sm:block z-20 select-none drop-shadow-md cursor-pointer transition-transform duration-200 hover:scale-105 active:scale-95"
+          title="QT is curious about your quiz questions!"
+        >
+          <QT
+            pose="door-yellow"
+            height={92}
+            interactive
+            speechBubble={[
+              "Curious what questions you'll pick!",
+              "Looking through the vault!",
+              "Psst! Need more questions for your quiz?",
+            ]}
+            bubblePosition="top-left"
+            alt="QT peeking around the drawer door"
+          />
+        </div>
+
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
             <h2 className="text-[16px] font-semibold text-slate-900">Add from question bank</h2>

@@ -17,6 +17,10 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: 'QShala AI — Quiz Intelligence Platform',
   description: 'Create engaging quizzes using your trusted QShala knowledge base.',
+  icons: {
+    icon: '/icon.png',
+    apple: '/icon.png',
+  },
 };
 
 export default function RootLayout({
