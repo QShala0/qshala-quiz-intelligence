@@ -93,7 +93,7 @@ export default function QuizzesLibraryPage() {
 
         <Link
           href="/generate"
-          className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-[13px] sm:text-[14px] font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
+          className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-[13px] sm:text-[14px] font-semibold text-white hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
         >
           <Plus className="h-3.5 w-3.5" />
           <span>New Quiz</span>

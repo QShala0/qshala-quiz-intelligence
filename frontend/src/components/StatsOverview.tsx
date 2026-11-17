@@ -40,7 +40,7 @@ export default function StatsOverview({ stats, loading }: Props) {
       value: loading ? '-' : (stats?.total_topics ?? 0).toLocaleString(),
       sub: 'Categorized topics',
       icon: Tag,
-      iconBg: 'bg-rose-50 text-rose-600',
+      iconBg: 'bg-amber-50 text-amber-600',
       href: '/knowledge-base',
     },
   ];

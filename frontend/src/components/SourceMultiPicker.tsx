@@ -206,7 +206,7 @@ export default function SourceMultiPicker({
                 onChange={(e) => setFilterText(e.target.value)}
                 placeholder="Search source series or deck (e.g. Agastya)..."
                 autoFocus
-                className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-7 py-1.5 text-[12.5px] text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+                className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-7 py-1.5 text-[12.5px] text-slate-800 placeholder:text-slate-400 focus:outline-none"
               />
               {filterText && (
                 <button

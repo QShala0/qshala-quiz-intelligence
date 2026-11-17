@@ -210,7 +210,7 @@ export default function ExportQuizModal({
                   value={customTitle}
                   onChange={(e) => setCustomTitle(e.target.value)}
                   placeholder="e.g., Annual Science & Nature Quiz 2026"
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none bg-white"
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
                   Rendered centrally in 44pt Bold Causten Round on the QShala signature 16:9 backdrop.
@@ -227,7 +227,7 @@ export default function ExportQuizModal({
                   value={customSubtitle}
                   onChange={(e) => setCustomSubtitle(e.target.value)}
                   placeholder="e.g., Grades 6 - 8 • Middle School Assembly"
-                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none bg-white"
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
                   Centered 24pt subtitle text below main title.
@@ -323,10 +323,10 @@ export default function ExportQuizModal({
                       value={campusEdition}
                       onChange={(e) => setCampusEdition(e.target.value)}
                       placeholder="e.g., Bangalore Campus Edition, Mumbai Campus Edition"
-                      className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 bg-white"
+                      className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none bg-white"
                     />
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Rendered centrally on cover slide: <span className="font-semibold text-orange-700">— {campusEdition || 'Bangalore Campus Edition'} —</span>
+                      Rendered centrally on cover slide: <span className="font-semibold text-slate-700">— {campusEdition || 'Bangalore Campus Edition'} —</span>
                     </p>
                   </div>
 
@@ -344,7 +344,7 @@ export default function ExportQuizModal({
                         value={prizeMoney}
                         onChange={(e) => setPrizeMoney(e.target.value)}
                         placeholder="e.g., 3.5 lakh, 50,000, 10,000"
-                        className="w-full rounded-xl border border-slate-300 pl-9 pr-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 bg-white"
+                        className="w-full rounded-xl border border-slate-300 pl-9 pr-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none bg-white"
                       />
                     </div>
                     <p className="mt-1 text-[11px] text-slate-500">
@@ -359,7 +359,7 @@ export default function ExportQuizModal({
                         type="checkbox"
                         checked={includeSocialSlides}
                         onChange={(e) => setIncludeSocialSlides(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                        className="h-4 w-4 rounded border-slate-300 text-amber-500"
                       />
                       <div className="text-xs text-slate-700">
                         <span className="font-semibold text-slate-900 flex items-center gap-1.5">
@@ -385,7 +385,7 @@ export default function ExportQuizModal({
                       value={customTitle}
                       onChange={(e) => setCustomTitle(e.target.value)}
                       placeholder="e.g., Corporate Finance Challenge 2026"
-                      className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                      className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none bg-white"
                     />
                   </div>
 
@@ -398,7 +398,7 @@ export default function ExportQuizModal({
                       value={campusEdition}
                       onChange={(e) => setCampusEdition(e.target.value)}
                       placeholder="e.g., Executive Track, FinTech Edition"
-                      className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                      className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none bg-white"
                     />
                   </div>
                 </>

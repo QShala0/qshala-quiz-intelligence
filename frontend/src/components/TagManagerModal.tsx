@@ -77,7 +77,7 @@ const LANGUAGES = ['English', 'Hindi', 'Kannada', 'Tamil', 'Telugu', 'Malayalam'
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
 
 const inputCls =
-  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500';
+  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-800 placeholder-slate-400 focus:outline-none';
 const labelCls = 'block text-[11.5px] font-bold uppercase tracking-wider text-slate-600 mb-1';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {

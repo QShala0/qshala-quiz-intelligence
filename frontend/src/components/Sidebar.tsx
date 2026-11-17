@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { useSidebar } from '../context/SidebarContext';
 import { Logo, QT, useToast } from './ui';
+import Confetti from './ui/Confetti';
+import QCat from './mascot/QCat';
 
 // QT's one-liners: shown when you click the logo while already on the dashboard.
 const QUIPS = [
@@ -40,36 +42,58 @@ export default function Sidebar() {
   const { isCollapsed, toggleSidebar } = useSidebar();
   const toast = useToast();
   const quipIndex = useRef(0);
+  const [clickCount, setClickCount] = useState(0);
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  const handleLogoClick = (e: React.MouseEvent) => {
+    const next = clickCount + 1;
+    setClickCount(next);
+    if (next >= 5) {
+      setClickCount(0);
+      setShowConfetti(true);
+      toast.success('Purr-fect! You found the secret paw celebration! 🐾', { celebrate: true });
+      setTimeout(() => setShowConfetti(false), 2200);
+    } else if (pathname === '/') {
+      e.preventDefault();
+      toast.info(QUIPS[quipIndex.current++ % QUIPS.length]);
+    }
+  };
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r-2 border-ink bg-white transition-all duration-300 ease-in-out ${
+      className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out ${
         isCollapsed ? 'w-16' : 'w-52'
       }`}
     >
       {/* Brand header */}
       <div className={`flex h-16 items-center ${isCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}>
-        <Link
-          href="/"
-          className="overflow-hidden"
-          title="QShala"
-          aria-label="QShala home"
-          onClick={(e) => {
-            // Already home? Let QT say something instead of a no-op navigation.
-            if (pathname === '/') {
-              e.preventDefault();
-              toast.info(QUIPS[quipIndex.current++ % QUIPS.length]);
-            }
-          }}
-        >
-          <Logo collapsed={isCollapsed} />
-        </Link>
+        <div className="relative flex items-center">
+          <Link
+            href="/"
+            className="flex items-center shrink-0"
+            title="QShala"
+            aria-label="QShala home"
+            onClick={handleLogoClick}
+          >
+            <Logo collapsed={isCollapsed} />
+          </Link>
+          {!isCollapsed && (
+            <div className="ml-1 -mt-1 opacity-70 hover:opacity-100 transition-opacity" title="Curious cat">
+              <QCat pose="peek" size={24} alt="QCat peek" />
+            </div>
+          )}
+          {showConfetti && (
+            <div className="absolute top-2 left-6 pointer-events-none z-50">
+              <Confetti pieces={24} />
+            </div>
+          )}
+        </div>
 
         {!isCollapsed && (
           <button
             onClick={toggleSidebar}
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/45 transition-colors hover:bg-sun-50 hover:text-ink"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-amber-100/50 hover:text-slate-900"
             title="Collapse sidebar (Ctrl+B)"
             aria-label="Collapse sidebar"
           >
@@ -79,7 +103,7 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className={`flex-1 space-y-1.5 py-4 ${isCollapsed ? 'px-2' : 'px-3'}`} aria-label="Main">
+      <nav className={`flex-1 space-y-1 py-4 ${isCollapsed ? 'px-2' : 'px-3'}`} aria-label="Main">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive =
@@ -91,17 +115,17 @@ export default function Sidebar() {
               href={item.href}
               title={isCollapsed ? item.label : undefined}
               aria-current={isActive ? 'page' : undefined}
-              className={`group flex items-center rounded-pill border-2 transition-all ${
+              className={`group flex items-center rounded-xl border transition-all ${
                 isCollapsed ? 'h-10 w-full justify-center px-0' : 'gap-2.5 px-3 py-2 text-[13.5px] whitespace-nowrap'
               } ${
                 isActive
-                  ? 'border-ink bg-sun font-bold text-ink shadow-sticker-sm'
-                  : 'border-transparent font-semibold text-ink/70 hover:border-ink/15 hover:bg-sun-50 hover:text-ink'
+                  ? 'border-amber-400 bg-amber-100/70 font-bold text-slate-900 shadow-xs'
+                  : 'border-transparent font-medium text-slate-700 hover:bg-amber-50 hover:text-slate-900'
               }`}
             >
               <Icon
-                className={`h-4 w-4 shrink-0 transition-transform group-hover:animate-wiggle ${
-                  isActive ? 'text-ink' : 'text-ink/50 group-hover:text-ink'
+                className={`h-4 w-4 shrink-0 transition-transform group-hover:scale-105 ${
+                  isActive ? 'text-slate-900' : 'text-slate-500 group-hover:text-slate-900'
                 }`}
               />
               {!isCollapsed && <span className="truncate">{item.label}</span>}
@@ -115,7 +139,7 @@ export default function Sidebar() {
           <button
             onClick={toggleSidebar}
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/45 transition-colors hover:bg-sun-50 hover:text-ink"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-amber-100/50 hover:text-slate-900"
             title="Expand sidebar (Ctrl+B)"
             aria-label="Expand sidebar"
           >
@@ -125,10 +149,10 @@ export default function Sidebar() {
       )}
 
       {/* Footer: a sleepy QT and the tagline */}
-      <div className={`border-t-2 border-ink/10 ${isCollapsed ? 'flex justify-center p-2' : 'flex items-end gap-2 px-4 py-3'}`}>
+      <div className={`border-t border-slate-200 ${isCollapsed ? 'flex justify-center p-2' : 'flex items-end gap-2 px-4 py-3'}`}>
         <QT pose="sleepy" height={isCollapsed ? 24 : 38} motion="breathe" />
         {!isCollapsed && (
-          <p className="pb-0.5 text-[11px] font-bold leading-tight text-ink/60">
+          <p className="pb-0.5 text-[11px] font-bold leading-tight text-slate-500">
             Questions<br />
             Quriosity<br />
             Quests
