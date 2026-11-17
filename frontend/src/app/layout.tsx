@@ -40,8 +40,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`h-full bg-cream text-ink antialiased ${causten.variable} ${plusJakartaSans.variable}`}>
-      <body className="min-h-full flex bg-cream font-sans">
+    <html lang="en" className={`h-full bg-slate-50 text-slate-900 antialiased ${causten.variable} ${plusJakartaSans.variable}`}>
+      <body className="min-h-full flex bg-slate-50 font-sans">
         <FeedbackProvider>
           <UploadProvider>
             <SidebarProvider>

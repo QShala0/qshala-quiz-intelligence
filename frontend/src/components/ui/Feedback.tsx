@@ -12,6 +12,7 @@ import QT, { type QTPose } from './QT';
 import Modal from './Modal';
 import Button from './Button';
 import Confetti from './Confetti';
+import { PawIcon } from '../mascot/QCat';
 
 type ToastKind = 'success' | 'error' | 'info';
 interface ToastItem {
@@ -95,16 +96,22 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             role={t.kind === 'error' ? 'alert' : 'status'}
-            className={`pointer-events-auto relative flex items-center gap-3 rounded-card border-2 border-ink px-3 py-2.5 shadow-sticker animate-toast-in ${KIND_STYLE[t.kind].bg}`}
+            className="pointer-events-auto relative flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-md shadow-slate-200/50 animate-toast-in"
           >
             {t.celebrate && <Confetti />}
-            <QT pose={KIND_STYLE[t.kind].pose} height={34} />
-            <p className="flex-1 text-sm font-semibold">{t.message}</p>
+            {t.kind === 'success' ? (
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-100/70 text-amber-600 shrink-0">
+                <PawIcon className="h-4 w-4 fill-amber-500" />
+              </span>
+            ) : (
+              <QT pose={KIND_STYLE[t.kind].pose} height={34} />
+            )}
+            <p className="flex-1 text-sm font-semibold text-slate-800">{t.message}</p>
             <button
               type="button"
               onClick={() => dismiss(t.id)}
               aria-label="Dismiss"
-              className="rounded-full p-1 text-ink/60 hover:bg-white/60 hover:text-ink"
+              className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
             >
               <X className="h-4 w-4" />
             </button>

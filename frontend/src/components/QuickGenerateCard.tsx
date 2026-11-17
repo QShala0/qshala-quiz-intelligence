@@ -277,7 +277,7 @@ export default function QuickGenerateCard() {
                 onChange={(e) => handleTopicInputChange(e.target.value)}
                 onFocus={() => setShowTopicDropdown(true)}
                 placeholder="e.g. Australian History, World Geography, Science & Nature"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[14px] font-normal text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[14px] font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none"
               />
 
               {showTopicDropdown && filteredTopics.length > 0 && (
@@ -374,7 +374,7 @@ export default function QuickGenerateCard() {
                   onChange={(e) => setTagInput(e.target.value)}
                   onKeyDown={handleAddCustomTag}
                   placeholder="Type concept tag (e.g. Captain Cook, Botany, Maritime) and press Enter..."
-                  className="w-full rounded-md border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-[12.5px] text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-md border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-[12.5px] text-slate-800 placeholder:text-slate-400 focus:outline-none"
                 />
               </div>
               <button

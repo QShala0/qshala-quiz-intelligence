@@ -126,7 +126,7 @@ export default function BankPickerDrawer({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Type a word, or “a phrase in quotes”…"
-              className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-[14px] text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-[14px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">

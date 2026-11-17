@@ -20,22 +20,22 @@ export default function Topbar() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-20 flex h-16 w-full items-center justify-between border-b-2 border-ink/10 bg-cream/85 px-6 backdrop-blur-md sm:px-8">
+    <header className="sticky top-0 z-20 flex h-16 w-full items-center justify-between border-b border-slate-200 bg-slate-50/85 px-6 backdrop-blur-md sm:px-8">
       <div className="flex items-center gap-2.5">
         {isCollapsed && (
           <button
             onClick={toggleSidebar}
             type="button"
-            className="-ml-1 mr-1 flex h-8 w-8 items-center justify-center rounded-lg text-ink/55 transition-colors hover:bg-sun-50 hover:text-ink"
+            className="-ml-1 mr-1 flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-amber-100/50 hover:text-slate-900"
             title="Expand sidebar (Ctrl+B)"
             aria-label="Expand sidebar"
           >
             <PanelLeftOpen className="h-4 w-4" />
           </button>
         )}
-        <span className="text-[13px] font-medium text-ink/50">QShala</span>
-        <span className="text-[13px] text-ink/30">/</span>
-        <span className="text-[13px] font-extrabold text-ink">{currentSection(pathname)}</span>
+        <span className="text-[13px] font-medium text-slate-500">QShala</span>
+        <span className="text-[13px] text-slate-400">/</span>
+        <span className="text-[13px] font-extrabold text-slate-900">{currentSection(pathname)}</span>
       </div>
 
       <div className="flex items-center gap-4">

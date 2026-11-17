@@ -1,49 +1,130 @@
 @import "tailwindcss";
 
 /* ───────────────────────────── QShala brand tokens ─────────────────────────────
-   Palette sampled from the official QT artwork:
-   yellow #FDB913 · blue #30B2E7 · green #75B543 · black ink.                    */
+   A soothing, warm paper & cream palette:
+   - Page background: warm oat (#FBF7EE)
+   - Card surface: warm paper (#FFFCF5), never pure #FFFFFF
+   - Text: soft ink (#232733), never harsh #000000
+   - Accent 1: sunny yellow (#F8B42C) with soft tint (#FFF0C7)
+   - Accent 2: softened sky (#5BB4DE) with light tint (#E4F3FA) & sky ink (#1F6F96)
+   - Primary actions: warm ink (#2B3040) with cream text (#FFF9EA)
+   - Success: muted emerald (#2D8054), Danger: muted brick red (#C24138)
+────────────────────────────────────────────────────────────────────────────── */
 :root {
-  --background: #fffbf0; /* soft cream page */
-  --foreground: #111111;
+  --background: #fbf7ee; /* warm oat page background */
+  --foreground: #232733; /* soft ink body text */
+  --surface: #fffcf5;    /* warm paper card surface */
+  --surface-hover: #fff6e0; /* warm hover tint */
   --font-sans-stack: var(--font-causten), "Causten Round", var(--font-plus-jakarta), "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+@theme {
+  --color-white: #fffcf5;
+  --color-black: #1e222d;
+
+  /* Remapped slate ramp -> warm neutrals & sand */
+  --color-slate-50: #fbf7ee;
+  --color-slate-100: #f6f0e2;
+  --color-slate-200: #e9dfc9;
+  --color-slate-300: #d8cbb0;
+  --color-slate-400: #9c9fa8;
+  --color-slate-500: #686d7b;
+  --color-slate-600: #545967;
+  --color-slate-700: #4b5263;
+  --color-slate-800: #333846;
+  --color-slate-900: #232733;
+  --color-slate-950: #1a1d26;
+
+  /* Remapped blue ramp -> softened sky */
+  --color-blue-50: #e4f3fa;
+  --color-blue-100: #cdebf7;
+  --color-blue-200: #9bd4ed;
+  --color-blue-300: #74c3e6;
+  --color-blue-400: #5bb4de;
+  --color-blue-500: #3ea4d3;
+  --color-blue-600: #2a90c0;
+  --color-blue-700: #1f6f96;
+  --color-blue-800: #195878;
+  --color-blue-900: #14445d;
+  --color-blue-950: #0d2e3f;
+
+  /* Remapped gray ramp */
+  --color-gray-50: #fbf7ee;
+  --color-gray-100: #f6f0e2;
+  --color-gray-200: #e9dfc9;
+  --color-gray-300: #d8cbb0;
+  --color-gray-400: #9c9fa8;
+  --color-gray-500: #686d7b;
+  --color-gray-600: #545967;
+  --color-gray-700: #4b5263;
+  --color-gray-800: #333846;
+  --color-gray-900: #232733;
+
+  /* Brand core tokens */
+  --color-ink: #232733;
+  --color-ink-primary: #2b3040;
+  --color-cream: #fbf7ee;
+  --color-paper: #fffcf5;
+  --color-hover-tint: #fff6e0;
+
+  /* QShala Sunny Yellow (~#F8B42C) */
+  --color-sun: #f8b42c;
+  --color-sun-50: #fff9ea;
+  --color-sun-100: #fff0c7;
+  --color-sun-200: #ffe28a;
+  --color-sun-600: #d99411;
+
+  --color-amber-50: #fff9ea;
+  --color-amber-100: #fff0c7;
+  --color-amber-200: #ffe28a;
+  --color-amber-300: #fcd068;
+  --color-amber-400: #f9c043;
+  --color-amber-500: #f8b42c;
+  --color-amber-600: #d99411;
+
+  /* Softened Sky (~#5BB4DE, #E4F3FA, #1F6F96) */
+  --color-sky: #5bb4de;
+  --color-sky-50: #e4f3fa;
+  --color-sky-100: #cdebf7;
+  --color-sky-200: #9bd4ed;
+  --color-sky-400: #5bb4de;
+  --color-sky-600: #2a90c0;
+  --color-sky-700: #1f6f96;
+
+  /* Muted Emerald (Success) */
+  --color-emerald-50: #f0f7f2;
+  --color-emerald-100: #dcefe2;
+  --color-emerald-200: #b5e0c2;
+  --color-emerald-300: #88cfa0;
+  --color-emerald-400: #57b77e;
+  --color-emerald-500: #3b9b68;
+  --color-emerald-600: #2d8054;
+  --color-emerald-700: #226341;
+
+  /* Muted Brick Red (Danger) */
+  --color-red-50: #fdf2f0;
+  --color-red-100: #f9e0dc;
+  --color-red-200: #f3c2bb;
+  --color-red-300: #e99b91;
+  --color-red-400: #db7064;
+  --color-red-500: #d9534f;
+  --color-red-600: #c24138;
+  --color-red-700: #9e2d25;
+
+  /* Typography */
   --font-sans: var(--font-sans-stack);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  /* brand */
-  --color-ink: #111111;
-  --color-cream: #fffbf0;
-  --color-sun: #fdb913;
-  --color-sun-50: #fff8e1;
-  --color-sun-100: #ffefb8;
-  --color-sun-200: #ffe082;
-  --color-sun-600: #e9a200;
-  --color-sky: #30b2e7;
-  --color-sky-50: #e8f7fd;
-  --color-sky-100: #c9ecfa;
-  --color-sky-200: #96dcf4;
-  --color-sky-600: #1a93c6;
-  --color-leaf: #75b543;
-  --color-leaf-50: #eff7e8;
-  --color-leaf-100: #d9eec8;
-  --color-leaf-600: #5a9630;
-  --color-berry: #e5484d; /* danger, warmed to sit with the palette */
-  --color-berry-50: #fff0f0;
-
-  /* shape */
+  /* Shape & Shadow */
   --radius-card: 1.25rem;
   --radius-pill: 9999px;
-  --shadow-sticker: 3px 3px 0 0 #111111;
-  --shadow-sticker-sm: 2px 2px 0 0 #111111;
-  --shadow-sticker-lg: 5px 5px 0 0 #111111;
-  --shadow-soft: 0 6px 24px -8px rgba(17, 17, 17, 0.18);
+  --shadow-sticker: 3px 3px 0 0 #232733;
+  --shadow-sticker-sm: 2px 2px 0 0 #232733;
+  --shadow-sticker-lg: 5px 5px 0 0 #232733;
+  --shadow-soft: 0 6px 24px -8px rgba(35, 39, 51, 0.10);
+  --shadow-warm-focus: 0 0 0 4px rgba(248, 180, 44, 0.22);
 
-  /* motion */
+  /* Motion */
   --animate-wiggle: qt-wiggle 0.6s ease-in-out;
   --animate-bob: qt-bob 2.4s ease-in-out infinite;
   --animate-breathe: qt-breathe 4s ease-in-out infinite;
@@ -73,19 +154,57 @@ input, button, select, textarea, optgroup {
   font-family: inherit;
 }
 
-/* Keyboard focus: brand blue ring everywhere */
+/* ───────────────────────────── Shared Warm Focus System ─────────────────────────
+   Replaces harsh default blue rings with a soft warm amber outline (#F2C265)
+   and ambient warm glow (rgba(248, 180, 44, 0.20)) across all inputs, selects,
+   textareas, buttons, and links.
+────────────────────────────────────────────────────────────────────────────── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
+textarea,
+select {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]):focus,
+textarea:focus,
+select:focus,
+.focus-warm:focus,
+.focus-warm:focus-within {
+  border-color: #f2c265 !important;
+  box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20) !important;
+  outline: none !important;
+}
+
+/* For nested inputs like the prompt bar where container handles focus glow */
+input.focus-none:focus,
+textarea.focus-none:focus {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Brand warm yellow for checkboxes and radio toggles */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: #f8b42c;
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
 :focus-visible {
-  outline: 3px solid var(--color-sky);
-  outline-offset: 2px;
+  outline: 2px solid #f2c265 !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20) !important;
   border-radius: 6px;
 }
 
 ::selection {
-  background: var(--color-sun-200);
-  color: #111;
+  background: #fff0c7;
+  color: #232733;
 }
 
-/* Custom subtle scrollbar */
+/* Custom subtle warm scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -94,11 +213,11 @@ input, button, select, textarea, optgroup {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #e4dcc5;
+  background: #e9dfc9;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #cfc39d;
+  background: #d8cbb0;
 }
 
 /* ───────────────────────────── Motion ─────────────────────────────
@@ -154,9 +273,130 @@ input, button, select, textarea, optgroup {
 }
 
 .qt-shimmer {
-  background: linear-gradient(90deg, #f3ecd5 25%, #fff8e1 50%, #f3ecd5 75%);
+  background: linear-gradient(90deg, #f6f0e2 25%, #fff9ea 50%, #f6f0e2 75%);
   background-size: 200% 100%;
   animation: qt-shimmer 1.6s linear infinite;
+}
+
+/* ───────────────────────────── QCat Mascot Keyframes ───────────────────────── */
+@keyframes qcat-breathe {
+  0%, 100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(-1.5px) scaleY(1.02);
+  }
+}
+
+@keyframes qcat-blink {
+  0%, 92%, 97%, 100% {
+    transform: scaleY(1);
+  }
+  94.5% {
+    transform: scaleY(0.1);
+  }
+}
+
+@keyframes qcat-tail-swish {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+
+@keyframes qcat-happy-wag {
+  0%, 100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+
+@keyframes qcat-happy-hop {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-5px);
+  }
+  55% {
+    transform: translateY(-1.5px);
+  }
+}
+
+@keyframes qcat-float-question {
+  0% {
+    opacity: 0;
+    transform: translateY(2px) scale(0.7);
+  }
+  25% {
+    opacity: 0.95;
+    transform: translateY(-4px) scale(1);
+  }
+  75% {
+    opacity: 0.75;
+    transform: translateY(-12px) scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scale(1.1);
+  }
+}
+
+@keyframes qcat-paw-wave {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-14deg);
+  }
+}
+
+@keyframes qcat-sleep-breathe {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.025, 0.98);
+  }
+}
+
+.qcat-breathe {
+  animation: qcat-breathe 4s ease-in-out infinite;
+}
+.qcat-blink {
+  animation: qcat-blink 5.2s ease-in-out infinite;
+}
+.qcat-tail {
+  animation: qcat-tail-swish 3.6s ease-in-out infinite;
+}
+.qcat-wag {
+  animation: qcat-happy-wag 0.8s ease-in-out infinite;
+}
+.qcat-happy {
+  animation: qcat-happy-hop 1.6s ease-in-out infinite;
+}
+.qcat-question {
+  animation: qcat-float-question 2.4s ease-out infinite;
+}
+.qcat-wave {
+  animation: qcat-paw-wave 1.8s ease-in-out infinite;
+}
+.qcat-sleep {
+  animation: qcat-sleep-breathe 4.8s ease-in-out infinite;
+}
+
+/* Warm focus utility */
+.focus-warm {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.focus-warm:focus, .focus-warm:focus-within {
+  border-color: #f2c265 !important;
+  box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20) !important;
+  outline: none !important;
 }
 
 /* Sticker-style press feel for brand buttons */
@@ -168,7 +408,7 @@ input, button, select, textarea, optgroup {
 }
 .qt-press:active:not(:disabled) {
   transform: translate(2px, 2px);
-  box-shadow: 0 0 0 0 #111111;
+  box-shadow: 0 0 0 0 #232733;
 }
 
 @media (prefers-reduced-motion: reduce) {

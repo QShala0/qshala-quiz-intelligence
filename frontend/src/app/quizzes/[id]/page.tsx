@@ -23,6 +23,7 @@ import ExportQuizModal from '../../../components/ExportQuizModal';
 import { Quiz, GeneratedQuestion, RetrievalSource } from '../../../lib/types';
 import { getLocalQuiz, saveLocalQuiz } from '../../../lib/quizStorage';
 import QuestionCard from '../../../components/QuestionCard';
+import QCat from '../../../components/mascot/QCat';
 import SlideViewerModal from '../../../components/SlideViewerModal';
 import LoadErrorBanner from '../../../components/LoadErrorBanner';
 import { useConfirm, useToast } from '../../../components/ui';
@@ -250,9 +251,9 @@ export default function QuizReviewStudioPage() {
                 setCurrentSlideIndex(0);
                 setIsPresenting(true);
               }}
-              className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-[13px] font-semibold text-slate-800 hover:bg-slate-100 transition-colors shadow-xs cursor-pointer"
             >
-              <Play className="h-3.5 w-3.5 fill-current" />
+              <Play className="h-3.5 w-3.5 text-emerald-600 fill-current" />
               <span>Present Slide Deck</span>
             </button>
           )}
@@ -260,7 +261,7 @@ export default function QuizReviewStudioPage() {
           {approvedQuestions.length > 0 && (
             <button
               onClick={() => setIsStageOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer"
+              className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
             >
               <Presentation className="h-3.5 w-3.5" />
               <span>Present Live</span>
@@ -270,7 +271,7 @@ export default function QuizReviewStudioPage() {
           <button
             onClick={() => setIsExportModalOpen(true)}
             disabled={!!isExporting}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-60 cursor-pointer"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-[13px] font-semibold text-slate-800 hover:bg-slate-100 transition-colors shadow-xs disabled:opacity-60 cursor-pointer"
             title="Download authentic QShala tournament presentation deck"
           >
             {isExporting === 'pptx' ? (
@@ -362,16 +363,29 @@ export default function QuizReviewStudioPage() {
 
       {/* Questions Stream */}
       <div className="space-y-4">
-        {quiz.questions.map((q) => (
-          <QuestionCard
-            key={q.id}
-            question={q}
-            onUpdate={handleUpdateQuestion}
-            onAction={handleQuestionAction}
-            onDelete={handleDeleteQuestion}
-            onViewSource={handleViewSource}
-          />
-        ))}
+        {quiz.questions.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
+            <div className="relative mx-auto mb-3 w-20 h-16 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-lg border-2 border-slate-300 bg-slate-50 opacity-60" />
+              <QCat pose="sleep" size={56} alt="Cat sleeping on empty binder" />
+            </div>
+            <h3 className="text-[16px] font-semibold text-slate-800">No questions added yet.</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Start by generating or picking from the bank.
+            </p>
+          </div>
+        ) : (
+          quiz.questions.map((q) => (
+            <QuestionCard
+              key={q.id}
+              question={q}
+              onUpdate={handleUpdateQuestion}
+              onAction={handleQuestionAction}
+              onDelete={handleDeleteQuestion}
+              onViewSource={handleViewSource}
+            />
+          ))
+        )}
       </div>
 
       {/* Slide Viewer Modal */}
@@ -535,7 +549,7 @@ export default function QuizReviewStudioPage() {
               <button
                 onClick={nextSlide}
                 disabled={currentSlideIndex === totalSlides - 1}
-                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
                 <span>{!isAnswerSlide ? 'Reveal Answer' : 'Next Question'}</span>
                 <ChevronRight className="h-4 w-4" />
