@@ -124,11 +124,9 @@ export default function YarnPlayCat({
         </div>
       )}
 
-      {/* Layer 1: Cat on the Yellow Mat (swats paws up) */}
+      {/* Layer 1: Cat on the Yellow Mat (Completely stable on the border) */}
       <div
-        className={`absolute inset-0 transition-transform duration-200 ${
-          isSquishing ? 'animate-squish' : active ? 'animate-cat-swat-fast' : 'animate-cat-swat'
-        }`}
+        className="absolute inset-0"
         style={{
           top: '25.12%',
           left: 0,
