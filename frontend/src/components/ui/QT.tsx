@@ -63,7 +63,7 @@ const DEFAULT_QUIPS: string[] = [
   'Every great quiz starts with a spark!',
 ];
 
-export type Motion = 'none' | 'bob' | 'breathe' | 'wiggle' | 'pounce' | 'squish';
+export type Motion = 'none' | 'bob' | 'breathe' | 'wiggle' | 'pounce' | 'squish' | 'play';
 
 export interface QTProps {
   pose: QTPose;
@@ -90,6 +90,7 @@ const MOTION_CLASS: Record<Motion, string> = {
   wiggle: 'hover:animate-wiggle',
   pounce: 'animate-pounce',
   squish: 'animate-squish',
+  play: 'animate-ball-play',
 };
 
 /** Paw icon for ratings, progress stages, and decorative touches */
