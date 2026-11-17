@@ -39,9 +39,9 @@ export async function GET(
   ];
 
   const candidatePaths = rootDirs.map(root => {
-    const joined = path.join(root, relativePath);
-    const resolved = path.resolve(joined);
-    const resolvedRoot = path.resolve(root);
+    const joined = path.join(/*turbopackIgnore: true*/ root, relativePath);
+    const resolved = path.resolve(/*turbopackIgnore: true*/ joined);
+    const resolvedRoot = path.resolve(/*turbopackIgnore: true*/ root);
     // Containment check: resolved path must stay inside its root
     if (!resolved.startsWith(resolvedRoot + path.sep) && resolved !== resolvedRoot) {
       return null;

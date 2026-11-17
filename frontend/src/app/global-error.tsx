@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect } from 'react';
-import * as Sentry from '@sentry/nextjs';
 
 // Root-level error boundary (QShala priority plan P2-2). error.tsx only catches errors
 // thrown inside the root layout's children -- if the root layout ITSELF throws (a provider,
@@ -17,7 +16,6 @@ export default function GlobalError({
   useEffect(() => {
     // eslint-disable-next-line no-console
     console.error('[GlobalErrorBoundary]', error);
-    Sentry.captureException(error);
   }, [error]);
 
   return (

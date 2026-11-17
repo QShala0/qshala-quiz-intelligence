@@ -1,4 +1,4 @@
-import JSZip from 'jszip';
+// jszip is loaded when a deck is actually optimized, not with the page that imports this file.
 
 // 1x1 base64 transparent GIF stub for oversized animations
 const TINY_GIF_BASE64 = 'R0lGODlhAQABAIAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
@@ -125,6 +125,7 @@ export async function optimizeDeckInBrowser(
 
   onStatusUpdate?.(`Optimizing deck (${originalMb} MB) in browser...`);
 
+  const { default: JSZip } = await import('jszip');
   const zip = await JSZip.loadAsync(file);
 
   // 1. Strip embedded fonts (ppt/fonts/) and revision histories (ppt/changesInfos/)
