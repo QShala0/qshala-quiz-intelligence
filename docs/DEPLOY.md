@@ -25,15 +25,15 @@ The frontend deploys separately on Vercel and is not affected.
 Fastest (seconds, no rebuild) - send traffic back to the previous revision:
 
 ```bash
-gcloud run revisions list --service qshala-quiz-intelligence --region asia-south1
-gcloud run services update-traffic qshala-quiz-intelligence --region asia-south1 --to-revisions=<PREVIOUS_REVISION>=100
+gcloud run revisions list --service qshala-quiz-intelligence --region asia-southeast1
+gcloud run services update-traffic qshala-quiz-intelligence --region asia-southeast1 --to-revisions=<PREVIOUS_REVISION>=100
 ```
 
 Also point the worker back, or uploads will run newer code than the API:
 
 ```bash
-gcloud run jobs update qshala-ingestion-worker --region asia-south1 \
-  --image asia-south1-docker.pkg.dev/<PROJECT>/cloud-run-source-deploy/qshala-quiz-intelligence:<GOOD_COMMIT_SHA>
+gcloud run jobs update qshala-ingestion-worker --region asia-southeast1 \
+  --image asia-southeast1-docker.pkg.dev/<PROJECT>/cloud-run-source-deploy/qshala-quiz-intelligence:<GOOD_COMMIT_SHA>
 ```
 
 Then fix forward on a branch; do not leave `main` on the bad commit.

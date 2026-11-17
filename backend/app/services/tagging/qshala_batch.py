@@ -29,6 +29,7 @@ import asyncio
 import logging
 import os
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -124,10 +125,38 @@ def _batch_user_prompt(items: List[Dict[str, Any]], exemplars: List[Dict[str, st
 
 # --------------------------------------------------------------------- writing results
 
+_PREFETCH_CHUNK = 500
+
+
+def _prefetch(db: Session, question_ids: List[str]) -> Dict[str, Any]:
+    """What `_write_item` would otherwise look up one question at a time, loaded with a few queries for the whole
+    deck: each question's newest confirmed tag, which questions have hand-made topic paths, and every question's
+    current topic-path rows."""
+    from backend.app.models.question_meta import QuestionTopicPath
+    existing: Dict[str, QshalaTag] = {}
+    human: set = set()
+    paths: Dict[str, List[Any]] = {qid: [] for qid in question_ids}
+    for i in range(0, len(question_ids), _PREFETCH_CHUNK):
+        part = question_ids[i:i + _PREFETCH_CHUNK]
+        for tag in (db.query(QshalaTag).filter(QshalaTag.status == "confirmed", QshalaTag.question_id.in_(part))
+                    .order_by(QshalaTag.created_at.desc())):
+            existing.setdefault(tag.question_id, tag)          # newest first
+        for row in (db.query(QuestionTopicPath).filter(QuestionTopicPath.question_id.in_(part))
+                    .order_by(QuestionTopicPath.position, QuestionTopicPath.created_at)):
+            paths.setdefault(row.question_id, []).append(row)
+            if row.source == "HUMAN":
+                human.add(row.question_id)
+    return {"existing": existing, "human": human, "paths": paths}
+
+
 def _write_item(db: Session, q: Dict[str, Any], llm_out: Dict[str, Any], model: str,
-                latency_ms: int, actor: str, usage: Optional[Dict[str, int]] = None) -> QshalaTag:
+                latency_ms: int, actor: str, usage: Optional[Dict[str, int]] = None,
+                pre: Optional[Dict[str, Any]] = None) -> QshalaTag:
     """Persist one routed result. Mirrors QshalaTagger._finish_v6 so draft/confirmed behaviour and
-    topic-path writing are identical to the single-question path."""
+    topic-path writing are identical to the single-question path.
+
+    With `pre` (from `_prefetch`) nothing is read and nothing is flushed per question: the caller flushes once for the
+    whole deck. Without it, every question does its own lookups and flushes, as before."""
     rules = q["rules"]
     paths = _v6_paths(llm_out)
     first = paths[0] if paths else {}
@@ -139,13 +168,17 @@ def _write_item(db: Session, q: Dict[str, Any], llm_out: Dict[str, Any], model: 
         status, confidence, reason = "draft", 0.30, "model returned no usable topic"
     geo = llm_out.get("india_international")
 
-    existing = (db.query(QshalaTag)
-                .filter(QshalaTag.status == "confirmed", QshalaTag.question_id == q["question_id"])
-                .order_by(QshalaTag.created_at.desc()).first())
+    if pre is not None:
+        existing = pre["existing"].get(q["question_id"])
+    else:
+        existing = (db.query(QshalaTag)
+                    .filter(QshalaTag.status == "confirmed", QshalaTag.question_id == q["question_id"])
+                    .order_by(QshalaTag.created_at.desc()).first())
     if existing and existing.source == "HUMAN":
         return existing                           # never re-tag over a human-confirmed row
 
     row = QshalaTag(
+        id=str(uuid.uuid4()) if pre is not None else None,
         question_id=q["question_id"], taxonomy_version=TAXONOMY_VERSION, model_version=model,
         source="LLM", topic_l1=first.get("l1"), subtopic_l2=first.get("l2"),
         keywords_l3=first.get("keywords", []),
@@ -163,7 +196,8 @@ def _write_item(db: Session, q: Dict[str, Any], llm_out: Dict[str, Any], model: 
         verification_notes=f"auto-routed (batch): {reason}",
     )
     db.add(row)
-    db.flush()
+    if pre is None:
+        db.flush()
     if status == "confirmed":
         if existing:
             existing.status = "superseded"
@@ -171,9 +205,12 @@ def _write_item(db: Session, q: Dict[str, Any], llm_out: Dict[str, Any], model: 
                                    to_tag_id=row.id, change_type="SUPERSEDE", actor=actor, reason=reason))
         db.add(QshalaTagChange(question_id=q["question_id"], from_tag_id=None, to_tag_id=row.id,
                                change_type="PROMOTE", actor=actor, reason=reason))
-    if paths and not topic_paths.has_human_paths(db, q["question_id"]):
+    has_human = (q["question_id"] in pre["human"]) if pre is not None else (
+        bool(paths) and topic_paths.has_human_paths(db, q["question_id"]))
+    if paths and not has_human:
         topic_paths.replace_paths(db, q["question_id"], paths, source="LLM", actor=actor,
-                                  question=q.get("question_obj"))
+                                  question=q.get("question_obj"),
+                                  existing_rows=pre["paths"].get(q["question_id"], []) if pre is not None else None)
 
     question_obj = q.get("question_obj")
     if not question_obj:
@@ -198,18 +235,23 @@ def _write_item(db: Session, q: Dict[str, Any], llm_out: Dict[str, Any], model: 
     return row
 
 
-def _write_to_review(db: Session, q: Dict[str, Any], model: str, reason: str) -> QshalaTag:
+def _write_to_review(db: Session, q: Dict[str, Any], model: str, reason: str,
+                     pre: Optional[Dict[str, Any]] = None) -> QshalaTag:
     """Park a question in the review queue (draft, confidence 0) when its chunk could not be tagged."""
-    existing = (db.query(QshalaTag)
-                .filter(QshalaTag.status == "confirmed", QshalaTag.question_id == q["question_id"])
-                .order_by(QshalaTag.created_at.desc()).first())
+    if pre is not None:
+        existing = pre["existing"].get(q["question_id"])
+    else:
+        existing = (db.query(QshalaTag)
+                    .filter(QshalaTag.status == "confirmed", QshalaTag.question_id == q["question_id"])
+                    .order_by(QshalaTag.created_at.desc()).first())
     if existing and existing.source == "HUMAN":
         return existing
     row = QshalaTag(question_id=q["question_id"], taxonomy_version=TAXONOMY_VERSION,
                     model_version=model, source="LLM", fit="none", confidence=0.0,
                     status="draft", verification_notes=f"needs review: {reason}")
     db.add(row)
-    db.flush()
+    if pre is None:
+        db.flush()
     return row
 
 
@@ -290,26 +332,44 @@ async def tag_questions_batched(db: Session, questions: List[Question], *, provi
         return got
 
     results = await asyncio.gather(*[run_chunk(c) for c in chunks])
-    for chunk, got in zip(chunks, results):
-        if not got:
-            stats["failed_chunks"] += 1
-        for q in chunk:
-            res = got.get(q["n"])
-            try:
-                if res is None:
-                    _write_to_review(db, q, model, "batch chunk failed; parked for review")
-                    stats["draft"] += 1
-                else:
-                    llm_out, latency, usage_share = res
-                    row = _write_item(db, q, llm_out, model, latency, actor, usage=usage_share)
-                    stats["confirmed" if row.status == "confirmed" else "draft"] += 1
-            except Exception as e:
-                logger.error("tag write failed for %s: %s", q["question_id"], safe_error(e))
+    stats["failed_chunks"] = sum(1 for got in results if not got)
+
+    def write_all(pre: Optional[Dict[str, Any]]) -> Dict[str, int]:
+        counts = {"confirmed": 0, "draft": 0}
+        for chunk, got in zip(chunks, results):
+            for q in chunk:
+                res = got.get(q["n"])
                 try:
-                    _write_to_review(db, q, model, f"write error: {safe_error(e)[:120]}")
-                    stats["draft"] += 1
-                except Exception:
-                    pass
+                    if res is None:
+                        _write_to_review(db, q, model, "batch chunk failed; parked for review", pre)
+                        counts["draft"] += 1
+                    else:
+                        llm_out, latency, usage_share = res
+                        row = _write_item(db, q, llm_out, model, latency, actor, usage=usage_share, pre=pre)
+                        counts["confirmed" if row.status == "confirmed" else "draft"] += 1
+                except Exception as e:
+                    logger.error("tag write failed for %s: %s", q["question_id"], safe_error(e))
+                    try:
+                        _write_to_review(db, q, model, f"write error: {safe_error(e)[:120]}", pre)
+                        counts["draft"] += 1
+                    except Exception:
+                        pass
+        return counts
+
+    # Fast path: look everything up once, queue every row, flush once. If that flush is refused (one bad value would
+    # otherwise sink the whole deck's tags), undo and write question by question as before, so only the bad one is parked.
+    counts = None
+    try:
+        counts = write_all(_prefetch(db, [it["question_id"] for it in items]))
+        db.flush()
+    except Exception as e:
+        logger.warning("bulk tag write failed, writing question by question: %s", safe_error(e))
+        db.rollback()
+        counts = None
+    if counts is None:
+        counts = write_all(None)
+    stats["confirmed"] += counts["confirmed"]
+    stats["draft"] += counts["draft"]
 
     logger.info("batch tagging: %s", stats)
     return stats

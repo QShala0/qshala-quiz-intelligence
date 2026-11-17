@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import copy
 import json
 import logging
@@ -292,7 +293,35 @@ async def upload_document(
 _MULTIPART_STATE_FILE = "r2_multipart_state.json"
 
 
-async def _upload_chunk_direct_to_r2(
+# Slices of one upload are handled one at a time inside this process. The row lock in the database already makes them
+# take turns, but a request waiting for that lock used to wait INSIDE the event loop (the query is a blocking call):
+# the request holding the lock was then unable to finish (its next step needs the loop), the lock was never released,
+# and Neon's 5 minute idle-in-transaction timeout finally cut the holder's connection (the 500s seen once slices were
+# sent in parallel). Waiting here is an ordinary await, so the loop stays free and the holder can finish.
+_UPLOAD_SLOTS: dict = {}
+
+
+@contextlib.asynccontextmanager
+async def _upload_slot(upload_id: str):
+    entry = _UPLOAD_SLOTS.get(upload_id)
+    if entry is None:
+        entry = _UPLOAD_SLOTS[upload_id] = [asyncio.Lock(), 0]
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            yield
+    finally:
+        entry[1] -= 1
+        if entry[1] <= 0 and _UPLOAD_SLOTS.get(upload_id) is entry:
+            del _UPLOAD_SLOTS[upload_id]
+
+
+async def _upload_chunk_direct_to_r2(chunk_dir, chunk: UploadFile, upload_id: str, *args, **kwargs):
+    async with _upload_slot(upload_id):
+        return await _upload_chunk_direct_to_r2_locked(chunk_dir, chunk, upload_id, *args, **kwargs)
+
+
+async def _upload_chunk_direct_to_r2_locked(
     chunk_dir, chunk: UploadFile, upload_id: str, chunk_index: int, total_chunks: int,
     ext: str, filename: str, title: Optional[str], year: Optional[int],
     r2, db: Session, background_tasks: BackgroundTasks,
@@ -309,7 +338,10 @@ async def _upload_chunk_direct_to_r2(
     query = db.query(UploadSession).filter(UploadSession.upload_id == upload_id)
     if is_postgres:
         query = query.with_for_update()
-    session_rec = query.first()
+        # The lock may be held by another server instance: wait for it off the event loop, never on it.
+        session_rec = await asyncio.to_thread(query.first)
+    else:
+        session_rec = query.first()
 
     # 1. Idempotency: if already COMPLETED, return the created document
     if session_rec and session_rec.status == "COMPLETED":
@@ -668,11 +700,14 @@ async def upload_document_chunk(
             pass
 
     chunk_path = chunk_dir / f"chunk_{chunk_index:05d}.part"
+    tmp_path = chunk_dir / f"chunk_{chunk_index:05d}.part.tmp"
 
-    # Stream chunk to disk
-    with open(chunk_path, "wb") as f:
+    # Stream chunk to disk under a temporary name, then rename it into place in one step. Slices can arrive at the same
+    # time, and a slice that is still being written must never be counted (or stitched) as if it were complete.
+    with open(tmp_path, "wb") as f:
         while content := await chunk.read(64 * 1024):
             f.write(content)
+    os.replace(tmp_path, chunk_path)
 
     # A cancel may have landed while this slice was still streaming in: drop everything.
     if upload_cancel_requested(upload_id):
@@ -688,7 +723,21 @@ async def upload_document_chunk(
             "progress_percentage": round(((len(parts)) / total_chunks) * 100)
         }
 
-    # All chunks received! Stitch them together
+    # All chunks received. With several slices in flight at once, more than one request can reach this point together;
+    # exactly one of them (the one that creates the marker file) stitches and registers the deck, the others just report
+    # that their slice arrived. The client takes the deck from whichever response carries it.
+    try:
+        with open(chunk_dir / ".stitching", "x"):
+            pass
+    except FileExistsError:
+        return {
+            "status": "CHUNK_RECEIVED",
+            "chunk_index": chunk_index,
+            "total_chunks": total_chunks,
+            "progress_percentage": 100,
+        }
+
+    # Stitch them together
     doc_id = str(uuid.uuid4())
     save_filename = f"{doc_id}{ext}"
     settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -704,7 +753,14 @@ async def upload_document_chunk(
         return total
 
     # Joining up to hundreds of MB of slices is blocking disk work: keep it off the event loop.
-    file_size = await asyncio.to_thread(_stitch)
+    try:
+        file_size = await asyncio.to_thread(_stitch)
+    except Exception:
+        try:
+            (chunk_dir / ".stitching").unlink(missing_ok=True)   # let a retried slice try again
+        except Exception:
+            pass
+        raise
 
     # Enforce the same ceiling as the direct path (chunked bypasses Vercel's limit but
     # must still respect MAX_UPLOAD_MB so a runaway upload can't fill the disk).
@@ -957,6 +1013,7 @@ def get_ingestion_status(document_id: str, db: Session = Depends(get_db)):
         ),
         "slides_processed": doc.slide_count,
         "questions_extracted": doc.question_count,
+        "questions_saved": pd.get("questions_saved"),
         "error": doc.processing_error or pd.get("error"),
         "detail": pd.get("detail"),
         "events": pd.get("events"),

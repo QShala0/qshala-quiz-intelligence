@@ -12,7 +12,7 @@ import time
 import requests
 from typing import Dict, Any, List, Optional, Tuple
 
-BASE_URL = os.environ.get("API_BASE_URL", "https://qshala-quiz-intelligence-238470261844.asia-south1.run.app").rstrip("/")
+BASE_URL = os.environ.get("API_BASE_URL", "https://qshala-quiz-intelligence-238470261844.asia-southeast1.run.app").rstrip("/")
 DRAFT_URL = f"{BASE_URL}/api/v1/prompt-quiz/draft"
 
 results: List[Dict[str, Any]] = []

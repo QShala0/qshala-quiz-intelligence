@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react';
 import { AlertTriangle, RefreshCcw } from 'lucide-react';
-import * as Sentry from '@sentry/nextjs';
 
 // Next.js App Router error boundary: catches any uncaught error thrown while rendering
 // a page or its children, instead of taking down the whole app with a blank white screen
@@ -18,7 +17,6 @@ export default function Error({
   useEffect(() => {
     // eslint-disable-next-line no-console
     console.error('[ErrorBoundary]', error);
-    Sentry.captureException(error);
   }, [error]);
 
   return (

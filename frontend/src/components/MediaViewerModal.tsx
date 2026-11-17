@@ -20,6 +20,7 @@ import { api, resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
 import QuestionImageEditor, {
   ALLOWED_IMAGE_TYPES, DraftImage, MAX_IMAGE_MB, isConnectQuestion, initialDraft, newDraftId,
 } from './knowledge-base/QuestionImageEditor';
+import ImageEditCanvas from './knowledge-base/ImageEditCanvas';
 
 interface MediaViewerModalProps {
   question: HistoricalQuestion | null;
@@ -46,6 +47,8 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
     const created = previewUrls.current;
     return () => created.forEach((u) => URL.revokeObjectURL(u));
   }, []);
+  // The picture open in the picture editor: edited in place, or a copy that is added as a new Question picture.
+  const [canvasTarget, setCanvasTarget] = useState<{ item: DraftImage; mode: 'edit' | 'copy' } | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
@@ -58,7 +61,10 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
   const isDirty = JSON.stringify(draft.map((d) => [d.file ? null : d.url, d.role])) !== originalSignature
     || draft.some((d) => d.file);
   // Pictures that were on the question and are no longer in the draft: removing them also deletes the stored file.
-  const removedCount = originalUrls.filter((u) => !draft.some((d) => d.url === u)).length;
+  // A picture replaced by its edited version is counted separately (it is replaced, not just removed).
+  const replacedUrls = new Set(draft.map((d) => d.replaces).filter((u): u is string => Boolean(u)));
+  const removedCount = originalUrls.filter((u) => !draft.some((d) => d.url === u) && !replacedUrls.has(u)).length;
+  const editedCount = originalUrls.filter((u) => replacedUrls.has(u) && !draft.some((d) => d.url === u)).length;
 
   const handleFilesChosen = (files: File[]) => {
     setEditError(null);
@@ -82,6 +88,40 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
   const handleRemoved = (item: DraftImage) => {
     setEditError(null);
     setDraft((prev) => prev.filter((d) => d.id !== item.id));
+  };
+
+  // The picture editor gets the original bytes: a file chosen in this draft is used as it is; a stored picture is
+  // fetched through the API (see api.getQuestionImageSource).
+  const loadForCanvas = React.useCallback((): Promise<Blob> => {
+    const target = canvasTarget;
+    if (!target || !question) return Promise.reject(new Error('Nothing to edit'));
+    if (target.item.file) return Promise.resolve(target.item.file);
+    if (!target.item.url) return Promise.reject(new Error('This picture has no stored file'));
+    return api.getQuestionImageSource(question.id, target.item.url);
+  }, [canvasTarget, question]);
+
+  const handleCanvasSave = (file: File) => {
+    const target = canvasTarget;
+    setCanvasTarget(null);
+    if (!target) return;
+    setEditError(null);
+    const preview = URL.createObjectURL(file);
+    previewUrls.current.push(preview);
+    if (target.mode === 'edit') {
+      // Same place, same role. Remember which stored picture it replaces (an edit of an edit keeps the first one).
+      setDraft((prev) => prev.map((d) => (d.id === target.item.id
+        ? { ...d, url: null, file, preview, replaces: d.replaces ?? d.url ?? null }
+        : d)));
+    } else {
+      // A new Question picture right after the one it was copied from; the original is untouched.
+      const copy: DraftImage = { id: newDraftId(), url: null, file, preview, role: 'question', replaces: null };
+      setDraft((prev) => {
+        const i = prev.findIndex((d) => d.id === target.item.id);
+        const next = [...prev];
+        next.splice(i < 0 ? next.length : i + 1, 0, copy);
+        return next;
+      });
+    }
   };
 
   const handleCancel = async () => {
@@ -411,11 +451,14 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
               onChange={setDraft}
               onFilesChosen={handleFilesChosen}
               onRemoved={handleRemoved}
+              onEdit={(item) => setCanvasTarget({ item, mode: 'edit' })}
+              onCopy={(item) => setCanvasTarget({ item, mode: 'copy' })}
               getImageSrc={getImageSrc}
               onZoom={setFullscreenImage}
               onImageError={handleImageError}
               connect={isConnectQuestion(question)}
               removedCount={removedCount}
+              editedCount={editedCount}
               error={editError}
               busy={saving}
             />
@@ -677,6 +720,17 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
           )}
         </div>
       </div>
+
+      {canvasTarget && (
+        <ImageEditCanvas
+          title={canvasTarget.mode === 'edit' ? 'Edit picture' : 'Edit a copy (added as a new Question picture)'}
+          load={loadForCanvas}
+          maxBytes={MAX_IMAGE_MB * 1024 * 1024}
+          requireChange={canvasTarget.mode === 'edit'}
+          onCancel={() => setCanvasTarget(null)}
+          onSave={handleCanvasSave}
+        />
+      )}
 
       {/* Fullscreen image overlay */}
       {fullscreenImage && (

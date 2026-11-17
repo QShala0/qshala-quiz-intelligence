@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef } from 'react';
-import { Image as ImageIcon, Plus, X, AlertTriangle, Info, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Image as ImageIcon, Plus, X, AlertTriangle, Info, ChevronLeft, ChevronRight, Pencil, Copy } from 'lucide-react';
 import { HistoricalQuestion } from '../../lib/types';
 import { isPlaceholderIcon } from '../../lib/placeholderIcons';
 import { isConnect } from '../../lib/formatPayloads';
@@ -21,6 +21,7 @@ export interface DraftImage {
   file: File | null;        // chosen from disk, not uploaded yet
   preview: string | null;   // local preview for a chosen file
   role: 'question' | 'answer';
+  replaces?: string | null; // an edited picture: the stored picture it replaces (deleted on save if nothing else uses it)
 }
 
 let draftCounter = 0;
@@ -54,17 +55,21 @@ interface Props {
   onChange: (items: DraftImage[]) => void;
   onFilesChosen: (files: File[]) => void;
   onRemoved: (item: DraftImage) => void;
+  onEdit: (item: DraftImage) => void;     // edit this picture in place
+  onCopy: (item: DraftImage) => void;     // edit a copy, added as a new Question picture
   getImageSrc: (url: string) => string;
   onImageError?: (url: string) => void;   // lets the popup try the backend's /api/v1/static path for a local file
   onZoom: (src: string) => void;
   connect: boolean;       // a Connect question: "Question" pictures are the numbered clue pictures
   removedCount: number;   // stored pictures taken off the question in this draft
+  editedCount: number;    // stored pictures replaced by an edited version in this draft
   error: string | null;
   busy: boolean;
 }
 
 export default function QuestionImageEditor({
-  items, onChange, onFilesChosen, onRemoved, getImageSrc, onImageError, onZoom, connect, removedCount, error, busy,
+  items, onChange, onFilesChosen, onRemoved, onEdit, onCopy, getImageSrc, onImageError, onZoom, connect, removedCount,
+  editedCount, error, busy,
 }: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -107,12 +112,14 @@ export default function QuestionImageEditor({
         </div>
       )}
 
-      {removedCount > 0 && (
+      {(removedCount > 0 || editedCount > 0) && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900" data-testid="delete-warning">
           <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
           <span>
-            {removedCount} picture{removedCount === 1 ? '' : 's'} will be removed. When you save, the stored file is
-            deleted too, unless another question, quiz or slide still uses it. This cannot be undone.
+            {removedCount > 0 && <>{removedCount} picture{removedCount === 1 ? '' : 's'} will be removed. </>}
+            {editedCount > 0 && <>{editedCount} picture{editedCount === 1 ? '' : 's'} will be replaced by the edited version. </>}
+            When you save, the old stored file is deleted too, unless another question, quiz or slide still uses it. This
+            cannot be undone.
           </span>
         </div>
       )}
@@ -153,6 +160,31 @@ export default function QuestionImageEditor({
               >
                 <X className="h-3.5 w-3.5" />
               </button>
+              <div className="absolute right-9 top-1.5 flex gap-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onEdit(it)}
+                  className="rounded-full bg-black/65 p-1 text-white hover:bg-blue-600 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Edit this picture (blank out or erase parts of it)"
+                  aria-label={`Edit image ${idx + 1}`}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onCopy(it)}
+                  className="rounded-full bg-black/65 p-1 text-white hover:bg-blue-600 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Copy and edit: the edited copy is added as a new Question picture, the original stays"
+                  aria-label={`Copy and edit image ${idx + 1}`}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {it.replaces && (
+                <span className="absolute left-1.5 top-[5.3rem] rounded bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">Edited</span>
+              )}
               {clueNumber(it.id) !== null && (
                 <span
                   className="absolute left-1.5 top-1.5 rounded bg-blue-700/90 px-1.5 py-0.5 text-[10px] font-bold text-white"
@@ -162,7 +194,7 @@ export default function QuestionImageEditor({
                   {clueNumber(it.id)}
                 </span>
               )}
-              {it.file && (
+              {it.file && !it.replaces && (
                 <span className="absolute left-1.5 top-[5.3rem] rounded bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">New</span>
               )}
               <div className="absolute right-1.5 top-[5.3rem] flex gap-1">

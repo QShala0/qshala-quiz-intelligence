@@ -81,19 +81,24 @@ function QuestionRow({
           </div>
         )}
 
-        <div className="flex items-start gap-1.5">
-          {q.question_label && (
-            <span className="mt-0.5 shrink-0 rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10.5px] font-bold text-slate-600">
-              {q.question_label}
-            </span>
-          )}
-          {q.question_format && (
-            <span
-              className={`mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[10.5px] font-bold ${formatStyle(q.question_format).chip}`}
-              title={`Format: ${q.question_format}`}
-            >
-              {formatStyle(q.question_format).label}
-            </span>
+        <div className="flex items-start gap-2.5">
+          {/* The question number and format stack in a narrow column, so the question itself keeps the width. */}
+          {(q.question_label || q.question_format) && (
+            <div className="flex shrink-0 flex-col items-start gap-1 pt-0.5">
+              {q.question_label && (
+                <span className="rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10.5px] font-bold text-slate-600 whitespace-nowrap">
+                  {q.question_label}
+                </span>
+              )}
+              {q.question_format && (
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[10.5px] font-bold whitespace-nowrap ${formatStyle(q.question_format).chip}`}
+                  title={`Format: ${q.question_format}`}
+                >
+                  {formatStyle(q.question_format).label}
+                </span>
+              )}
+            </div>
           )}
           <div className="flex-1 min-w-0">
             <QuestionFormatDisplay
@@ -161,7 +166,7 @@ function QuestionRow({
                 className="relative rounded-md overflow-hidden border border-slate-200 hover:border-blue-400 bg-white transition-all cursor-pointer group shadow-xs"
                 title="Question image: click to view"
               >
-                <img
+                <img loading="lazy" decoding="async"
                   src={getImageSrc(imgUrl)}
                   onError={() => handleImgError(imgUrl)}
                   alt={`Question image ${i + 1}`}
@@ -178,7 +183,7 @@ function QuestionRow({
                 className="relative rounded-md overflow-hidden border border-emerald-300 ring-1 ring-emerald-400/50 hover:border-emerald-500 bg-white transition-all cursor-pointer group shadow-xs"
                 title="Answer image: click to view"
               >
-                <img
+                <img loading="lazy" decoding="async"
                   src={getImageSrc(imgUrl)}
                   onError={() => handleImgError(imgUrl)}
                   alt={`Answer image ${i + 1}`}
@@ -320,7 +325,7 @@ function QuestionRow({
     </td>
 
     {/* Topics */}
-    <td className="py-3.5 px-4 align-top">
+    <td className="py-3.5 pl-9 pr-4 align-top">
       <div className="flex flex-col gap-2">
         {(q.topic_paths && q.topic_paths.length > 0) ? (
           <>
@@ -361,7 +366,7 @@ function QuestionRow({
     </td>
 
     <td className="py-3.5 px-4 text-right align-top">
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
         {q.duplicate_status === 'POSSIBLE_DUPLICATE' ? (
           <button
             onClick={() => setSelectedDuplicateForReview(q)}
@@ -384,7 +389,7 @@ function QuestionRow({
             )}
             <button
               onClick={() => setSelectedQuestionForTags(q)}
-              className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 cursor-pointer"
+              className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 cursor-pointer"
               title={activeTab === 'review' ? 'Correct the tag (confirms a human label)' : 'View and edit every tag on this question'}
             >
               <Tag className="h-3 w-3" />
@@ -392,7 +397,7 @@ function QuestionRow({
             </button>
             <button
               onClick={() => handleViewSlide(q)}
-              className="inline-flex items-center gap-1 text-[12px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
+              className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
             >
               <span>View slide</span>
               <ExternalLink className="h-3 w-3" />

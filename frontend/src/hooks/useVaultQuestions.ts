@@ -16,13 +16,54 @@ import { isPlaceholderIcon } from '../lib/placeholderIcons';
 // parameter and call it itself, instead of trying to return a signal the page would act on.
 export const PAGE_SIZE = 100;
 
+// M7: what the question bank showed last time is remembered for this browser tab, so coming back to it (or switching a
+// filter back) paints at once while the fresh answer is fetched in the background and replaces it. Module scope, so it
+// survives moving to another page and back. The list is ALWAYS re-fetched; the remembered copy only fills the gap.
+const REMEMBER_MS = 10 * 60 * 1000;
+const REMEMBER_MAX_LISTS = 24;
+interface RememberedList { at: number; items: HistoricalQuestion[]; total: number | null; hasMore: boolean }
+interface RememberedMeta {
+  at: number; topics: TopicItem[]; docs: DocumentItem[]; sources: SourceCatalog | null; dups: number; review: number;
+}
+const rememberedLists = new Map<string, RememberedList>();
+let rememberedMeta: RememberedMeta | null = null;
+
+/** Forget everything remembered (a deck was added, changed or removed, or a question was edited). */
+export function clearVaultCache(): void {
+  rememberedLists.clear();
+  rememberedMeta = null;
+}
+
+function recall(key: string): RememberedList | null {
+  const hit = rememberedLists.get(key);
+  if (!hit || Date.now() - hit.at > REMEMBER_MS) return null;
+  rememberedLists.delete(key);       // re-insert: most recently used last
+  rememberedLists.set(key, hit);
+  return hit;
+}
+
+function remember(key: string, value: Omit<RememberedList, 'at'>): void {
+  rememberedLists.delete(key);
+  rememberedLists.set(key, { ...value, at: Date.now() });
+  while (rememberedLists.size > REMEMBER_MAX_LISTS) {
+    const oldest = rememberedLists.keys().next().value;
+    if (oldest === undefined) break;
+    rememberedLists.delete(oldest);
+  }
+}
+
+function sameList(a: HistoricalQuestion[], b: HistoricalQuestion[]): boolean {
+  return a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function useVaultQuestions(
   initialTopic: string,
-  setSelectedDuplicateForReview: (q: HistoricalQuestion | null) => void
+  setSelectedDuplicateForReview: (q: HistoricalQuestion | null) => void,
+  initialDeckId: string = ''
 ) {
   const [activeTab, setActiveTab] = useState<'all' | 'duplicates' | 'review'>('all');
-  const [duplicateCount, setDuplicateCount] = useState<number>(0);
-  const [reviewCount, setReviewCount] = useState<number>(0);
+  const [duplicateCount, setDuplicateCount] = useState<number>(() => rememberedMeta?.dups ?? 0);
+  const [reviewCount, setReviewCount] = useState<number>(() => rememberedMeta?.review ?? 0);
 
   const [query, setQuery] = useState('');
   // exact: every typed word must appear in the question. smart: semantic ranking (can return loosely related questions).
@@ -35,14 +76,14 @@ export function useVaultQuestions(
   const [difficulty, setDifficulty] = useState('');
   const [formatFilter, setFormatFilter] = useState('');
   const [slotFilter, setSlotFilter] = useState('');
-  const [selectedDeckIds, setSelectedDeckIds] = useState<string[]>([]);
+  const [selectedDeckIds, setSelectedDeckIds] = useState<string[]>(() => (initialDeckId ? [initialDeckId] : []));
   const [gradeMin, setGradeMin] = useState<number | ''>('');
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
-  const [topicsList, setTopicsList] = useState<TopicItem[]>([]);
-  const [documentsList, setDocumentsList] = useState<DocumentItem[]>([]);
-  const [sourceCatalog, setSourceCatalog] = useState<SourceCatalog | null>(null);
+  const [topicsList, setTopicsList] = useState<TopicItem[]>(() => rememberedMeta?.topics ?? []);
+  const [documentsList, setDocumentsList] = useState<DocumentItem[]>(() => rememberedMeta?.docs ?? []);
+  const [sourceCatalog, setSourceCatalog] = useState<SourceCatalog | null>(() => rememberedMeta?.sources ?? null);
   const [availableSubtopics, setAvailableSubtopics] = useState<string[]>([]);
   const [questions, setQuestions] = useState<HistoricalQuestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +112,16 @@ export function useVaultQuestions(
       api.getDuplicateCount(),
       api.getReviewCount(),
     ]);
+
+    // Keep what came back for next time (a failed part keeps its previously remembered value).
+    rememberedMeta = {
+      at: Date.now(),
+      topics: topicsResult.status === 'fulfilled' ? topicsResult.value : rememberedMeta?.topics ?? [],
+      docs: docsResult.status === 'fulfilled' ? docsResult.value : rememberedMeta?.docs ?? [],
+      sources: sourcesResult.status === 'fulfilled' ? sourcesResult.value : rememberedMeta?.sources ?? null,
+      dups: dupsResult.status === 'fulfilled' ? dupsResult.value.count : rememberedMeta?.dups ?? 0,
+      review: reviewResult.status === 'fulfilled' ? reviewResult.value : rememberedMeta?.review ?? 0,
+    };
 
     if (topicsResult.status === 'fulfilled') {
       setTopicsList(topicsResult.value);
@@ -175,7 +226,18 @@ export function useVaultQuestions(
     const controller = new AbortController();
     inFlightRequest.current = controller;
 
-    setLoading(true);
+    // A remembered copy of this exact list fills the screen at once; the fresh answer below replaces it.
+    const listKey = activeTab === 'review' ? null : JSON.stringify({ ...searchParams(0, controller.signal), signal: undefined });
+    const remembered = listKey ? recall(listKey) : null;
+    if (remembered) {
+      setAppliedQuery(query.trim());
+      setQuestions(remembered.items);
+      setTotal(remembered.total);
+      setHasMore(remembered.hasMore);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setLoadError(null);
     setLoadMoreError(null);
     setLoadingMore(false);
@@ -189,10 +251,14 @@ export function useVaultQuestions(
         return;
       }
       const { items, total: matches } = await api.searchQuestionsPage(searchParams(0, controller.signal));
+      if (inFlightRequest.current !== controller) return;
+      const more = matches !== null ? items.length < matches : items.length === PAGE_SIZE;
+      if (listKey) remember(listKey, { items, total: matches, hasMore: more });
       setAppliedQuery(query.trim());
-      setQuestions(items);
+      // Identical to what is already on screen (the remembered copy was still right): leave it, no re-render flicker.
+      if (!remembered || !sameList(remembered.items, items)) setQuestions(items);
       setTotal(matches);
-      setHasMore(matches !== null ? items.length < matches : items.length === PAGE_SIZE);
+      setHasMore(more);
     } catch (err) {
       // A superseded request aborting itself is expected traffic, not a failure -- don't log it
       // or flip off the loading state on behalf of the request that replaced it.
@@ -239,6 +305,7 @@ export function useVaultQuestions(
   };
 
   const handleQuestionTagsSaved = (updated: HistoricalQuestion) => {
+    clearVaultCache();
     // Editing tags confirms a human label, so the question leaves the review queue.
     if (activeTab === 'review') {
       setQuestions((prev) => prev.filter((item) => item.id !== updated.id));
@@ -253,6 +320,7 @@ export function useVaultQuestions(
   // A question was changed in place (e.g. its Arrange order was entered by hand): show the saved version, and in the
   // Needs Review tab refetch so it leaves the queue if nothing else is outstanding.
   const handleQuestionUpdated = (updated: HistoricalQuestion) => {
+    clearVaultCache();
     setQuestions((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
     if (activeTab === 'review') {
       fetchQuestions();
@@ -264,6 +332,7 @@ export function useVaultQuestions(
     setResolvingId(questionId);
     try {
       await api.acceptFormatReview(questionId);
+      clearVaultCache();
       await fetchQuestions();
       try { setReviewCount(await api.getReviewCount()); } catch { /* best-effort */ }
     } catch (err) {
@@ -277,6 +346,7 @@ export function useVaultQuestions(
     setResolvingId(questionId);
     try {
       await api.acceptReview(questionId);
+      clearVaultCache();
       setQuestions((prev) => prev.filter((q) => q.id !== questionId));
       setReviewCount((prev) => Math.max(0, prev - 1));
     } catch (err) {
@@ -290,6 +360,7 @@ export function useVaultQuestions(
     setResolvingId(questionId);
     try {
       await api.resolveDuplicate(questionId, action);
+      clearVaultCache();
       setQuestions((prev) => prev.filter((q) => q.id !== questionId));
       setDuplicateCount((prev) => Math.max(0, prev - 1));
       setSelectedDuplicateForReview(null);

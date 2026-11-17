@@ -32,7 +32,7 @@ export default function ImageRevealView({ payload, getImageSrc, handleImgError, 
         <div className="relative aspect-square max-w-[320px] w-full overflow-hidden rounded-lg border border-slate-300 bg-slate-100">
           {full ? (
             <button type="button" className="absolute inset-0 cursor-zoom-in" onClick={() => setPreviewImage?.(full)} title="View full picture">
-              <img
+              <img loading="lazy" decoding="async"
                 src={getImageSrc(full)}
                 onError={() => handleImgError(full)}
                 alt="Reveal picture"

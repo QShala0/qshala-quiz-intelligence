@@ -1,10 +1,14 @@
 import asyncio
 import logging
 import os
+import threading
+import time
 import uuid
+from pathlib import Path
 from typing import List, Optional, Dict, Any
+from urllib.parse import unquote
 from fastapi import APIRouter, Depends, Query, HTTPException, Response, UploadFile, File
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, defer, load_only
 from sqlalchemy import or_, and_, func, desc, asc, String
 from backend.app.database import get_db
 from backend.app.models.question import Question
@@ -60,12 +64,47 @@ def _enrich(db: Session, responses: List[QuestionResponse]) -> List[QuestionResp
 def _enrich_one(db: Session, response: QuestionResponse) -> QuestionResponse:
     return _enrich(db, [response])[0]
 
+# The search box's deck-name resolver needs every deck's title and every topic word. They change only when a deck is
+# ingested, edited or removed, so they are kept for a short while instead of being re-read on every search. Each
+# container keeps its own copy; invalidate_search_scope_cache() (called with the stats cache) empties this one.
+SEARCH_SCOPE_CACHE_SECONDS: float = float(os.getenv("SEARCH_SCOPE_CACHE_SECONDS", "60"))
+_scope_cache: Dict[str, Any] = {"at": 0.0, "docs": None, "topic_words": None}
+_scope_lock = threading.Lock()
+
+
+def invalidate_search_scope_cache() -> None:
+    with _scope_lock:
+        _scope_cache.update({"at": 0.0, "docs": None, "topic_words": None})
+
+
+def _search_scope_lists(db: Session):
+    """(all decks as id/title/filename dicts, set of topic and subtopic words), from the cache when fresh."""
+    now = time.monotonic()
+    with _scope_lock:
+        if (SEARCH_SCOPE_CACHE_SECONDS > 0 and _scope_cache["docs"] is not None
+                and now - _scope_cache["at"] < SEARCH_SCOPE_CACHE_SECONDS):
+            return _scope_cache["docs"], _scope_cache["topic_words"]
+    from backend.app.services.prompt_quiz.retrieval import tokenize as pq_tokenize
+    docs = [{"id": d.id, "title": d.title or "", "filename": d.filename or ""}
+            for d in db.query(Document.id, Document.title, Document.filename).all()]
+    topic_words = set()
+    for t_val, st_val in db.query(Question.topic, Question.subtopic).distinct().all():
+        topic_words.update(pq_tokenize(t_val or ""))
+        topic_words.update(pq_tokenize(st_val or ""))
+    with _scope_lock:
+        _scope_cache.update({"at": time.monotonic(), "docs": docs, "topic_words": topic_words})
+    return docs, topic_words
+
+
 def to_question_response(q: Question, doc: Optional[Document], slide: Optional[Slide]) -> QuestionResponse:
     dup_text = None
     dup_ans = None
-    if getattr(q, "duplicate_of", None):
-        dup_text = q.duplicate_of.question_text
-        dup_ans = q.duplicate_of.answer
+    # Only use the duplicate's row when it was loaded with the question. Touching an unloaded relationship here would
+    # run one extra query per row; _enrich fills the text for the whole page in one query instead.
+    dup_row = q.__dict__.get("duplicate_of")
+    if dup_row is not None:
+        dup_text = dup_row.question_text
+        dup_ans = dup_row.answer
 
     # Resolve video refs: check column or fallback to raw_media_refs with .mp4
     raw_refs = getattr(q, "raw_media_refs", []) or []
@@ -417,8 +456,13 @@ async def search_questions(
 
     def _filtered_search(override_doc_ids: Optional[List[str]] = None, keywords: Optional[str] = None):
         target_doc_ids = override_doc_ids if override_doc_ids is not None else doc_ids_list
+        # A list row only shows the deck title and slide number, and never the vector, so only those are loaded
+        # (the deck's progress log and the slide's text and vector made each row about 5 KB). The duplicate's text
+        # is filled for the whole page by _enrich in one query.
         q_builder = db.query(Question, Document, Slide).\
-            options(selectinload(Question.duplicate_of)).\
+            options(defer(Question.embedding),
+                    load_only(Document.id, Document.title),
+                    load_only(Slide.id, Slide.slide_number)).\
             outerjoin(Document, Question.document_id == Document.id).\
             outerjoin(Slide, Question.slide_id == Slide.id)
 
@@ -471,23 +515,17 @@ async def search_questions(
             from backend.app.services.prompt_quiz.retrieval import SYNONYMS, tokenize as pq_tokenize
             from backend.app.services.prompt_quiz.interpreter_llm import V6_THEMES
 
-            doc_q = db.query(Document.id, Document.title, Document.filename)
+            all_docs, topic_words = _search_scope_lists(db)
             if doc_ids_list:
-                doc_q = doc_q.filter(Document.id.in_(doc_ids_list))
-            docs_rows = [
-                {"id": d.id, "title": d.title or "", "filename": d.filename or ""}
-                for d in doc_q.all()
-            ]
+                wanted = set(doc_ids_list)
+                docs_rows = [d for d in all_docs if d["id"] in wanted]
+            else:
+                docs_rows = list(all_docs)
             if not docs_rows:
                 return None
 
             extra_excl = set(SYNONYMS.keys()) | {w for t in V6_THEMES for w in pq_tokenize(t)}
             # Don't hijack single-word global searches when the word is an actual Question topic/subtopic outside matched decks
-            topic_rows = db.query(Question.topic, Question.subtopic).distinct().all()
-            topic_words = set()
-            for t_val, st_val in topic_rows:
-                topic_words.update(pq_tokenize(t_val or ""))
-                topic_words.update(pq_tokenize(st_val or ""))
 
             resolved = resolve_deck_query(
                 query_str,
@@ -1032,6 +1070,86 @@ def upload_question_images(question_id: str, files: List[UploadFile] = File(...)
         (dest_dir / name).write_bytes(data)
         urls.append(f"/static/slides/questions/{question_id}/{name}")
     return {"urls": urls}
+
+
+def _source_max_bytes() -> int:
+    try:
+        return int(os.getenv("QUESTION_IMAGE_SOURCE_MAX_BYTES", str(25 * 1024 * 1024)))
+    except ValueError:
+        return 25 * 1024 * 1024
+
+
+def _local_media_path(url: str):
+    """The file on this server's disk for a /static/... picture path, or None. Never leaves the media folders."""
+    from backend.app.config import settings
+    path = url.split("?")[0]
+    if path.startswith("/api/v1/static/"):
+        path = path[len("/api/v1"):]
+    for prefix, root in (("/static/slides/", settings.SLIDES_DIR), ("/static/", settings.STORAGE_DIR)):
+        if path.startswith(prefix):
+            root = Path(root).resolve()
+            cand = (root / unquote(path[len(prefix):])).resolve()
+            try:
+                cand.relative_to(root)
+            except ValueError:
+                return None
+            return cand if cand.is_file() else None
+    return None
+
+
+@router.get("/{question_id}/image-source")
+def question_image_source(question_id: str, url: str = Query(..., min_length=1), db: Session = Depends(get_db)):
+    """The bytes of one of THIS question's pictures, served from the API's own address. The picture editor needs them:
+    a browser refuses to export a canvas that drew a picture from another site (the R2 CDN), so the editor loads the
+    picture through here instead. Only URLs the question itself lists are served, so this cannot fetch anything else."""
+    q = db.query(Question).filter(Question.id == question_id).first()
+    if q is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    if url not in _picture_urls(q):
+        raise HTTPException(status_code=400, detail="That picture is not on this question")
+    limit = _source_max_bytes()
+    data: Optional[bytes] = None
+
+    local = _local_media_path(url) if url.startswith("/") else None
+    if local is not None:
+        data = local.read_bytes()[: limit + 1]
+    if data is None:
+        from backend.app.services.storage.r2_storage import get_media_storage
+        r2 = get_media_storage()
+        base = getattr(r2, "public_base_url", "") if r2 is not None else ""
+        key = None
+        if base and url.startswith(base + "/"):
+            key = unquote(url[len(base) + 1:].split("?")[0])
+        elif url.startswith("/static/") and r2 is not None:
+            key = media_cleanup.storage_key(url)
+        if key:
+            try:
+                data = r2.download(key)
+            except Exception as e:
+                logger.warning("[image-source] R2 read failed for %s: %s", key, type(e).__name__)
+    if data is None and url.startswith(("http://", "https://")):
+        import httpx
+        try:
+            with httpx.Client(timeout=20.0, follow_redirects=True,
+                              headers={"User-Agent": "Mozilla/5.0 (compatible; QShalaImageEditor/1.0)"}) as http:
+                with http.stream("GET", url) as resp:
+                    resp.raise_for_status()
+                    buf = bytearray()
+                    for chunk in resp.iter_bytes():
+                        buf.extend(chunk)
+                        if len(buf) > limit:
+                            break
+                    data = bytes(buf)
+        except Exception as e:
+            logger.warning("[image-source] download failed: %s", type(e).__name__)
+    if data is None:
+        raise HTTPException(status_code=404, detail="The picture file could not be found")
+    if len(data) > limit:
+        raise HTTPException(status_code=413, detail=f"The picture is larger than {limit // (1024 * 1024)} MB")
+    kind = _sniff_image(data)
+    if kind is None:
+        raise HTTPException(status_code=415, detail="Only PNG, JPEG or WebP pictures can be edited")
+    return Response(content=data, media_type=kind[1], headers={"Cache-Control": "private, max-age=300"})
 
 
 ALLOWED_SLOTS = {"LIVE", "RESERVE", "EXAMPLE"}

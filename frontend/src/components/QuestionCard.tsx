@@ -232,7 +232,7 @@ export default function QuestionCard({
                     onClick={() => setActiveImageModal(imgUrl)}
                     className="relative group rounded-lg overflow-hidden border border-slate-200 bg-white hover:border-blue-400 shadow-sm transition-all cursor-pointer"
                   >
-                    <img
+                    <img loading="lazy" decoding="async"
                       src={getImageSrc(imgUrl)}
                       onError={() => handleImgError(imgUrl)}
                       alt={`Question Clue ${i + 1}`}
@@ -413,7 +413,7 @@ export default function QuestionCard({
                     onClick={() => setActiveImageModal(imgUrl)}
                     className="relative group rounded-lg overflow-hidden border border-emerald-200 bg-white hover:border-emerald-500 shadow-sm transition-all cursor-pointer"
                   >
-                    <img
+                    <img loading="lazy" decoding="async"
                       src={getImageSrc(imgUrl)}
                       onError={() => handleImgError(imgUrl)}
                       alt={`Answer Image ${i + 1}`}

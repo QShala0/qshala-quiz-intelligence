@@ -140,12 +140,34 @@ def replace_paths(
     actor: Optional[str] = None,
     record_history: bool = True,
     question: Optional[Any] = None,
+    existing_rows: Optional[List[QuestionTopicPath]] = None,
 ) -> List[Dict[str, Any]]:
     """Replace every path of a question. Writes an edit-history row when something actually changed.
 
     Pass the `Question` object as `question` to also refresh its flat legacy columns.
+
+    Pass `existing_rows` (the question's current path rows, already loaded, in display order) to skip the reads, the
+    delete statement and the flush: the old rows are deleted and the new ones added through the session, and everything
+    is written by the caller's next flush, together with the other questions of a batch.
     """
     new = normalise_paths(paths)
+    if existing_rows is not None:
+        old = [path_row_to_dict(r) for r in existing_rows]
+        old_keywords = [k for p in old for k in (p.get("keywords") or [])]
+        for r in existing_rows:
+            db.delete(r)
+        for i, p in enumerate(new):
+            db.add(QuestionTopicPath(question_id=question_id, position=i, l1=p["l1"], l2=p["l2"],
+                                     keywords=p["keywords"], source=source, is_custom=p["is_custom"]))
+        if record_history and _fmt(old) != _fmt(new) and (old or source == "HUMAN"):
+            db.add(QuestionEditHistory(
+                question_id=question_id, field="topic_paths", old_value=_fmt(old), new_value=_fmt(new),
+                kind="EDIT" if source == "HUMAN" else "RETAG", actor=actor or ("system" if source != "HUMAN" else None)))
+        result = [{"id": None, "position": i, "l1": p["l1"], "l2": p["l2"], "keywords": list(p["keywords"]),
+                   "source": source, "is_custom": bool(p["is_custom"])} for i, p in enumerate(new)]
+        if question is not None:
+            mirror_to_question(question, result, old_keywords=old_keywords)
+        return result
     old = get_paths(db, question_id)
     old_keywords = [k for p in old for k in (p.get("keywords") or [])]
     db.query(QuestionTopicPath).filter(QuestionTopicPath.question_id == question_id).delete(synchronize_session=False)
@@ -161,6 +183,18 @@ def replace_paths(
     if question is not None:
         mirror_to_question(question, result, old_keywords=old_keywords)
     return result
+
+
+def add_new_question_paths(db: Session, question: Any, paths: Iterable[Dict[str, Any]], source: str = "RULES") -> None:
+    """`replace_paths` for a question created a moment ago: it has no paths yet and no history to record, so nothing is
+    read or deleted and nothing is flushed. The rows are written with the caller's next flush, in one batch."""
+    new = normalise_paths(paths)
+    for i, p in enumerate(new):
+        db.add(QuestionTopicPath(question_id=question.id, position=i, l1=p["l1"], l2=p["l2"],
+                                 keywords=p["keywords"], source=source, is_custom=p["is_custom"]))
+    result = [{"position": i, "l1": p["l1"], "l2": p["l2"], "keywords": list(p["keywords"]), "source": source,
+               "is_custom": bool(p["is_custom"])} for i, p in enumerate(new)]
+    mirror_to_question(question, result, old_keywords=[])
 
 
 def mirror_to_question(q: Any, paths: List[Dict[str, Any]], old_keywords: Optional[List[str]] = None) -> None:

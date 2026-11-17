@@ -75,7 +75,7 @@ export default function ArrangeView({ questionId, payload, getImageSrc, handleIm
             </div>
             {it.image && (
               <button type="button" onClick={() => setPreviewImage(it.image as string)} className="mt-1.5 block w-full overflow-hidden rounded border border-purple-200 bg-white cursor-pointer">
-                <img src={getImageSrc(it.image)} onError={() => handleImgError(it.image as string)} alt={it.text} className="h-14 w-full object-contain" />
+                <img loading="lazy" decoding="async" src={getImageSrc(it.image)} onError={() => handleImgError(it.image as string)} alt={it.text} className="h-14 w-full object-contain" />
               </button>
             )}
             {it.value && <div className="mt-1 font-mono text-[11px] text-slate-600">{it.value}</div>}

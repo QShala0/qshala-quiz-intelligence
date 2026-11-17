@@ -22,10 +22,38 @@ os.environ["REQUIRE_POSTGRES"] = "0"
 os.environ.setdefault("EMBEDDING_RETRY_DELAY_S", "0")
 os.environ.setdefault("PROMPT_QUIZ_BANK_TTL_S", "0")     # tests expect the bank to reflect the database at once
 
+# The tests must never reach real services. A developer's .env holds real Gemini and Cloudflare R2 settings, and blank
+# environment variables do not override .env, so they are cleared on the settings object itself: no Gemini key (AI calls
+# take their no-key fallback instead of costing money), and no R2 (media code takes its local-disk path; a test that needs
+# R2 installs its own fake). A test that wants a particular value sets it with monkeypatch as before.
+from backend.app.config import settings as _settings  # noqa: E402
+from backend.app.services.storage import r2_storage as _r2_storage  # noqa: E402
+
+_NO_R2 = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL")
+
+
+def _block_real_services():
+    _settings.GEMINI_API_KEY = None
+    for name in _NO_R2:
+        setattr(_settings, name, None)
+    _r2_storage._global_r2_service = None
+
+
+_block_real_services()
+
 import pytest
+
+@pytest.fixture(autouse=True)
+def _no_real_gemini_or_r2():
+    """Re-applied before every test, so a test that restores settings cannot leave real services switched on."""
+    _block_real_services()
+    yield
+
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_schema(tmp_path_factory):
+    assert _r2_storage.get_media_storage() is None, "tests must not have real R2 storage"
+    assert not _settings.GEMINI_API_KEY, "tests must not have a real Gemini key"
     import backend.app.main  # noqa: F401
     from backend.app.database import Base, engine, ensure_schema_columns, SessionLocal
     from backend.app.models.document import Document
