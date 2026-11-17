@@ -192,7 +192,7 @@ export default function QuestionCard({
               value={qText}
               onChange={(e) => setQText(e.target.value)}
               rows={2}
-              className="w-full rounded-lg border border-slate-200 bg-white p-3 text-[14px] text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-lg border border-slate-200 bg-white p-3 text-[14px] text-slate-900 focus:outline-none"
             />
           ) : (
             <h3 className="text-[15px] sm:text-[16px] font-semibold text-slate-900 leading-relaxed">

@@ -483,7 +483,7 @@ export default function QuizzerHome() {
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); } }}
             placeholder={ph}
             aria-label="Describe your quiz"
-            className="w-full resize-none bg-transparent px-5 pt-4 text-[16px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none"
+            className="w-full resize-none bg-transparent px-5 pt-4 text-[16px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none focus-none"
           />
           <div className="flex flex-wrap items-center gap-2 px-3 pb-3 pt-1">
             {sourceCatalog && sourceCatalog.decks.length > 0 && (
@@ -1013,13 +1013,13 @@ export default function QuizzerHome() {
                             value={cardTopicInput}
                             onChange={(e) => setCardTopicInput(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') swapSingleWithTopic(q.id, i + 1, cardTopicInput); }}
-                            className="flex-1 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none"
+                            className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                           />
                           <button
                             type="button"
                             disabled={!cardTopicInput.trim() || loading}
                             onClick={() => swapSingleWithTopic(q.id, i + 1, cardTopicInput)}
-                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-indigo-700 transition disabled:opacity-40 cursor-pointer"
+                            className="rounded-lg bg-slate-900 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-slate-800 transition disabled:opacity-40 cursor-pointer"
                           >
                             Change
                           </button>
@@ -1103,7 +1103,7 @@ export default function QuizzerHome() {
                 onChange={(e) => setRefineText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleRefine(); }}
                 placeholder="Adjust this quiz… (e.g. make it harder, add 1 question based on Bengaluru)"
-                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
               />
               <button
                 onClick={() => handleRefine()}

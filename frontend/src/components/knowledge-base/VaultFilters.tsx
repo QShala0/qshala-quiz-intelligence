@@ -76,7 +76,7 @@ export default function VaultFilters({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search questions, answers, topics, or presentation deck name..."
-            className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-4 text-[14px] font-normal text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-4 text-[14px] font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none"
           />
         </div>
 
@@ -132,7 +132,7 @@ export default function VaultFilters({
             setTopic(e.target.value);
             setSubtopic('');
           }}
-          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:border-blue-500 focus:outline-none cursor-pointer"
+          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
         >
           <option value="">All Topics ({topicsList.reduce((a, b) => a + b.count, 0)})</option>
           {topicsList.map((t) => (
@@ -147,7 +147,7 @@ export default function VaultFilters({
           <select
             value={subtopic}
             onChange={(e) => setSubtopic(e.target.value)}
-            className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:border-blue-500 focus:outline-none cursor-pointer"
+            className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
           >
             <option value="">All Subtopics</option>
             {availableSubtopics.map((sub) => (
@@ -162,7 +162,7 @@ export default function VaultFilters({
         <select
           value={difficulty}
           onChange={(e) => setDifficulty(e.target.value)}
-          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:border-blue-500 focus:outline-none cursor-pointer"
+          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
         >
           <option value="">All Difficulties</option>
           <option value="Easy">Easy</option>
@@ -174,7 +174,7 @@ export default function VaultFilters({
         <select
           value={formatFilter}
           onChange={(e) => setFormatFilter(e.target.value)}
-          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:border-indigo-500 focus:outline-none cursor-pointer"
+          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
         >
           <option value="">All Formats</option>
           {FORMAT_FILTER_OPTIONS.map((o) => (
@@ -190,7 +190,7 @@ export default function VaultFilters({
         <select
           value={slotFilter}
           onChange={(e) => setSlotFilter(e.target.value)}
-          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:border-indigo-500 focus:outline-none cursor-pointer"
+          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
           aria-label="Slot"
         >
           <option value="">Live + Reserve + Example</option>
@@ -207,7 +207,7 @@ export default function VaultFilters({
             placeholder="Filter by tag..."
             value={tagFilter}
             onChange={(e) => setTagFilter(e.target.value.replace(/^#+/, ''))}
-            className="rounded-md border border-slate-200 bg-white pl-8 pr-6 py-1.5 text-[13px] font-normal text-slate-700 placeholder-slate-400 focus:border-indigo-500 focus:outline-none w-[140px]"
+            className="rounded-md border border-slate-200 bg-white pl-8 pr-6 py-1.5 text-[13px] font-normal text-slate-700 placeholder-slate-400 focus:outline-none w-[140px]"
           />
           {tagFilter && (
             <button
@@ -227,7 +227,7 @@ export default function VaultFilters({
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
-            className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:border-blue-500 focus:outline-none cursor-pointer"
+            className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
           >
             <option value="created_at">Date Added</option>
             <option value="difficulty_score">Difficulty Score</option>

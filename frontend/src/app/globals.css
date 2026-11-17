@@ -154,11 +154,48 @@ input, button, select, textarea, optgroup {
   font-family: inherit;
 }
 
-/* Warm, gentle keyboard focus everywhere - NO harsh blue outline */
+/* ───────────────────────────── Shared Warm Focus System ─────────────────────────
+   Replaces harsh default blue rings with a soft warm amber outline (#F2C265)
+   and ambient warm glow (rgba(248, 180, 44, 0.20)) across all inputs, selects,
+   textareas, buttons, and links.
+────────────────────────────────────────────────────────────────────────────── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
+textarea,
+select {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]):focus,
+textarea:focus,
+select:focus,
+.focus-warm:focus,
+.focus-warm:focus-within {
+  border-color: #f2c265 !important;
+  box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20) !important;
+  outline: none !important;
+}
+
+/* For nested inputs like the prompt bar where container handles focus glow */
+input.focus-none:focus,
+textarea.focus-none:focus {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Brand warm yellow for checkboxes and radio toggles */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: #f8b42c;
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
 :focus-visible {
-  outline: 2px solid #f2c265;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20);
+  outline: 2px solid #f2c265 !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20) !important;
   border-radius: 6px;
 }
 
