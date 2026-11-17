@@ -11,9 +11,11 @@ Flow
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +30,7 @@ from backend.app.config import settings
 from backend.app.models.document import Document
 from backend.app.models.job import IngestionJob
 from backend.app.models.sharepoint import SharePointFile
+from backend.app.services.storage import r2_storage
 
 logger = logging.getLogger(__name__)
 
@@ -338,6 +341,19 @@ def _enqueue_job(db: Session, row: SharePointFile, blob_url: str) -> str:
     return job.id
 
 
+async def _store_deck(client, row: SharePointFile, data: bytes) -> str:
+    """Put the downloaded deck where the ingestion worker (a different container) can read it: R2 when configured, which is
+    how production runs. Only without R2 (local development) does it fall back to local blob storage. An R2 failure is
+    raised, never silently turned into a local file that the worker could not see."""
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", row.name or "deck")
+    key = f"sharepoint/{row.id}/{safe}"
+    r2 = r2_storage.get_media_storage()
+    if r2 is not None:
+        return await asyncio.to_thread(r2.upload_bytes, key, data)
+    blob = await client.blob_service.put(pathname=key, data=data)
+    return blob["url"]
+
+
 def _remaining(db: Session, batch_id: Optional[str]) -> int:
     q = db.query(func.count(SharePointFile.id)).filter(SharePointFile.sync_status.in_(["SELECTED", "TRANSFERRING"]))
     if batch_id:
@@ -380,11 +396,11 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
                 row.error_message = f"Identical file already in QShala as “{twin.title or twin.filename}”"
                 out["skipped_duplicate"] += 1
             else:
-                blob = await client.blob_service.put(pathname=f"sharepoint/{row.id}/{row.name}", data=data)
-                row.blob_url = blob["url"]
+                blob_url = await _store_deck(client, row, data)
+                row.blob_url = blob_url
                 row.sync_status = "QUEUED"
                 row.error_message = None
-                out["job_ids"].append(_enqueue_job(db, row, blob["url"]))
+                out["job_ids"].append(_enqueue_job(db, row, blob_url))
                 out["queued"] += 1
             db.commit()
         except httpx.HTTPStatusError as e:
