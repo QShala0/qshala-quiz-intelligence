@@ -16,7 +16,7 @@ import TableSkeleton from '../../components/TableSkeleton';
 import { Quiz } from '../../lib/types';
 import { getLocalQuizzes, deleteLocalQuiz, syncLocalQuizzesWithServer } from '../../lib/quizStorage';
 import LoadErrorBanner from '../../components/LoadErrorBanner';
-import { useConfirm } from '../../components/ui';
+import { useConfirm, QT } from '../../components/ui';
 
 export default function QuizzesLibraryPage() {
   const confirm = useConfirm();
@@ -83,9 +83,20 @@ export default function QuizzesLibraryPage() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-200/60 pb-5">
         <div>
-          <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900 leading-tight">
-            Generated Quizzes
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900 leading-tight">
+              Generated Quizzes
+            </h1>
+            <QT
+              pose="professor"
+              height={34}
+              interactive={true}
+              motion="breathe"
+              speechBubble="Every quiz in your library is calibrated for tournament play!"
+              bubblePosition="top-right"
+              alt="Professor QT"
+            />
+          </div>
           <p className="mt-1 text-[14px] text-slate-500 font-normal leading-relaxed">
             Browse, review, edit, and export generated quizzes.
           </p>
@@ -207,9 +218,21 @@ export default function QuizzesLibraryPage() {
               {quizzes.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-[13px] text-slate-400 font-normal">
-                    {loadError
-                      ? 'The quiz library could not be loaded. Use Retry above.'
-                      : 'No quizzes generated yet. Click "New Quiz" above to create one.'}
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <QT
+                        pose="box-yellow"
+                        height={52}
+                        interactive={true}
+                        motion="bob"
+                        speechBubble="An empty library! Click 'New Quiz' to fill it up."
+                        alt="QT sitting in a yellow box"
+                      />
+                      <p className="text-[13px] text-slate-500 font-normal mt-2">
+                        {loadError
+                          ? 'The quiz library could not be loaded. Use Retry above.'
+                          : 'No quizzes generated yet. Click "New Quiz" above to create one.'}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               )}

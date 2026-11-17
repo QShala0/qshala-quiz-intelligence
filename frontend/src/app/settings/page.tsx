@@ -19,7 +19,7 @@ import {
 import { api, getApiBase } from '@/lib/api';
 import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem } from '@/lib/types';
 import SharePointImporter from '@/components/SharePointImporter';
-import QCat from '@/components/mascot/QCat';
+import QT from '@/components/ui/QT';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'platform' | 'sharepoint'>('platform');
@@ -191,7 +191,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between py-2.5">
                 <span className="text-slate-600 font-normal">Platform Version</span>
                 <div className="flex items-center gap-2">
-                  <QCat pose="idle" size={26} alt="Professor QCat mascot" />
+                  <QT pose="professor" height={32} interactive={true} motion="breathe" speechBubble="Professor QT has verified your platform configuration!" alt="Professor QT mascot" />
                   <span className="font-mono text-slate-700 text-[12px]">v2.0.0 (QShala Intelligence)</span>
                 </div>
               </div>

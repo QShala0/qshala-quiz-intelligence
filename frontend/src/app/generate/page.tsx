@@ -9,7 +9,7 @@ import BankPickerDrawer from '../../components/BankPickerDrawer';
 import SourceMultiPicker, { summarizeSelectedSources } from '../../components/SourceMultiPicker';
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
-import QCat, { PawIcon } from '../../components/mascot/QCat';
+import QT, { PawIcon } from '../../components/ui/QT';
 
 type DraftQ = {
   id: string;
@@ -501,24 +501,40 @@ export default function QuizzerHome() {
           </h1>
           {draft && (
             <div className="shrink-0 transition-transform duration-300">
-              <QCat
-                pose={showCelebration ? 'happy' : 'idle'}
-                size={46}
-                alt="QShala cat mascot"
+              <QT
+                pose={showCelebration ? 'professor' : 'round'}
+                height={52}
+                motion={showCelebration ? 'bob' : 'breathe'}
+                interactive={true}
+                speechBubble={showCelebration ? 'Your quiz is calibrated and ready, scholar!' : 'Quiz generated successfully!'}
+                alt="Professor QT celebrating your quiz"
               />
             </div>
           )}
         </div>
 
         <div className="relative mt-8 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
-          {/* While idle or typing: QCat peeks curiously over top-right edge */}
+          {/* While idle or typing: Round QT (round.webp) sits perched on top border */}
           {!draft && !loading && (
-            <div className="absolute -top-11 right-6 pointer-events-none select-none z-10 transition-transform duration-200">
-              <QCat
-                pose="peek"
-                size={54}
-                lookingAtText={isFocused || prompt.length > 0}
-                alt="QShala cat companion peeking"
+            <div
+              className={`absolute -top-13 right-6 sm:right-8 z-10 select-none transition-transform duration-300 ${
+                isFocused || prompt.length > 0 ? '-translate-y-1 rotate-[-3deg]' : ''
+              }`}
+            >
+              <QT
+                pose="round"
+                height={54}
+                interactive={true}
+                motion={isFocused || prompt.length > 0 ? 'bob' : 'breathe'}
+                speechBubble={[
+                  'Feed me a quiz prompt!',
+                  'Curiosity didn’t hurt this cat!',
+                  'Purr-fect question incoming...',
+                  'Try: "Grade 6 Space & Solar System quiz"',
+                  'Ask me anything!',
+                ]}
+                bubblePosition="top"
+                alt="Round QShala cat companion"
               />
             </div>
           )}
@@ -566,7 +582,14 @@ export default function QuizzerHome() {
         {loading && (
           <div className="mt-8 flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
             <div className="relative mb-2">
-              <QCat pose="think" size={68} alt="QShala cat thinking" />
+              <QT
+                pose="chase-blue"
+                height={58}
+                motion="pounce"
+                interactive={true}
+                speechBubble="Chasing trivia gems across your sources..."
+                alt="QT pouncing after the blue trivia ball"
+              />
             </div>
             {/* Stage paw-prints 1..6 */}
             <div className="flex items-center gap-2.5 mb-2.5">
@@ -587,7 +610,14 @@ export default function QuizzerHome() {
         )}
         {error && (
           <div className="mt-6 flex flex-col items-center justify-center text-center">
-            <QCat pose="sleep" size={48} className="mb-2 opacity-80" alt="Curled up sleepy cat" />
+            <QT
+              pose="dizzy"
+              height={52}
+              className="mb-2 opacity-85"
+              interactive={true}
+              speechBubble="Oops! Something got tangled up..."
+              alt="Dizzy cat"
+            />
             <p className="text-[14px] text-red-600 font-medium" role="alert">{error}</p>
           </div>
         )}

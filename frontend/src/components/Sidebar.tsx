@@ -16,7 +16,6 @@ import {
 import { useSidebar } from '../context/SidebarContext';
 import { Logo, QT, useToast } from './ui';
 import Confetti from './ui/Confetti';
-import QCat from './mascot/QCat';
 
 // QT's one-liners: shown when you click the logo while already on the dashboard.
 const QUIPS = [
@@ -78,8 +77,16 @@ export default function Sidebar() {
             <Logo collapsed={isCollapsed} />
           </Link>
           {!isCollapsed && (
-            <div className="ml-1 -mt-1 opacity-70 hover:opacity-100 transition-opacity" title="Curious cat">
-              <QCat pose="peek" size={24} alt="QCat peek" />
+            <div className="ml-1 -mt-1 opacity-85 hover:opacity-100 transition-opacity">
+              <QT
+                pose="round"
+                height={26}
+                interactive={true}
+                motion="breathe"
+                speechBubble="Welcome to QShala!"
+                bubblePosition="top-right"
+                alt="Curious round cat"
+              />
             </div>
           )}
           {showConfetti && (
@@ -150,7 +157,7 @@ export default function Sidebar() {
 
       {/* Footer: a sleepy QT and the tagline */}
       <div className={`border-t border-slate-200 ${isCollapsed ? 'flex justify-center p-2' : 'flex items-end gap-2 px-4 py-3'}`}>
-        <QT pose="sleepy" height={isCollapsed ? 24 : 38} motion="breathe" />
+        <QT pose="sleepy" height={isCollapsed ? 24 : 38} motion="breathe" interactive={true} speechBubble="Zzz... dreaming of trivia quests..." />
         {!isCollapsed && (
           <p className="pb-0.5 text-[11px] font-bold leading-tight text-slate-500">
             Questions<br />
