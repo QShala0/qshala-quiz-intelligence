@@ -56,17 +56,17 @@ export default function DashboardPage() {
           </h1>
           <div className="hidden sm:inline-block">
             <QT
-              pose="yarn-green"
-              height={42}
+              pose="round"
+              height={44}
               interactive={true}
               motion="breathe"
               speechBubble={[
-                'Batting around some new quiz ideas!',
+                'Welcome to QShala Quiz Intelligence!',
                 'Tip: Pair 5 questions for a quick classroom warmup.',
                 'Curiosity is the engine of learning!',
               ]}
               bubblePosition="top-right"
-              alt="QT playing with yarn"
+              alt="Round QT companion"
             />
           </div>
         </div>

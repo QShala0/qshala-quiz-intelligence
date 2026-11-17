@@ -495,15 +495,15 @@ export default function QuizzerHome() {
   return (
     <div className="min-h-[calc(100vh-4rem)] px-5 pb-24">
       <div className={`mx-auto max-w-2xl transition-all ${draft ? 'pt-8' : 'pt-[16vh]'}`}>
-        <div className="flex items-center justify-center gap-3">
-          <h1 className="text-center font-serif text-[34px] sm:text-[42px] leading-tight tracking-tight text-slate-900" style={{ fontFamily: 'var(--font-fraunces), ui-serif, Georgia, Cambria, serif' }}>
+        <div className="flex items-center justify-center gap-3 pb-2">
+          <h1 className="text-center text-[30px] sm:text-[38px] font-bold leading-tight tracking-tight text-slate-900">
             {greeting}
           </h1>
           {draft && (
             <div className="shrink-0 transition-transform duration-300">
               <QT
                 pose={showCelebration ? 'professor' : 'round'}
-                height={52}
+                height={48}
                 motion={showCelebration ? 'bob' : 'breathe'}
                 interactive={true}
                 speechBubble={showCelebration ? 'Your quiz is calibrated and ready, scholar!' : 'Quiz generated successfully!'}
@@ -513,28 +513,28 @@ export default function QuizzerHome() {
           )}
         </div>
 
-        <div className="relative mt-8 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
-          {/* While idle or typing: Round QT (round.webp) sits perched on top border */}
+        <div className="relative mt-14 sm:mt-16 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
+          {/* While idle or typing: QT playing with the ball (yarn-mat.webp) perched along top border */}
           {!draft && !loading && (
             <div
-              className={`absolute -top-13 right-6 sm:right-8 z-10 select-none transition-transform duration-300 ${
+              className={`absolute -top-11 sm:-top-12 right-6 sm:right-8 z-10 select-none transition-transform duration-300 ${
                 isFocused || prompt.length > 0 ? '-translate-y-1 rotate-[-3deg]' : ''
               }`}
             >
               <QT
-                pose="round"
-                height={54}
+                pose="yarn-mat"
+                height={50}
                 interactive={true}
-                motion={isFocused || prompt.length > 0 ? 'bob' : 'breathe'}
+                motion="play"
                 speechBubble={[
+                  'Batting around quiz ideas!',
                   'Feed me a quiz prompt!',
-                  'Curiosity didn’t hurt this cat!',
                   'Purr-fect question incoming...',
                   'Try: "Grade 6 Space & Solar System quiz"',
                   'Ask me anything!',
                 ]}
                 bubblePosition="top"
-                alt="Round QShala cat companion"
+                alt="QT playing with green ball of yarn"
               />
             </div>
           )}

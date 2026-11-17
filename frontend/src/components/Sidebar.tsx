@@ -76,19 +76,7 @@ export default function Sidebar() {
           >
             <Logo collapsed={isCollapsed} />
           </Link>
-          {!isCollapsed && (
-            <div className="ml-1 -mt-1 opacity-85 hover:opacity-100 transition-opacity">
-              <QT
-                pose="round"
-                height={26}
-                interactive={true}
-                motion="breathe"
-                speechBubble="Welcome to QShala!"
-                bubblePosition="top-right"
-                alt="Curious round cat"
-              />
-            </div>
-          )}
+
           {showConfetti && (
             <div className="absolute top-2 left-6 pointer-events-none z-50">
               <Confetti pieces={24} />
