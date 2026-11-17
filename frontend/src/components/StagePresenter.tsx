@@ -95,7 +95,7 @@ type StructuredPayload =
 
 type ResolveMedia = (url: string | null | undefined) => string;
 
-const ACCENT = '#2563eb'; // app primary blue
+const ACCENT = '#5bb4de'; // softened sky blue accent
 
 // ---------------------------------------------------------------------------
 // Payload helpers
@@ -213,7 +213,7 @@ function StageImage({
       type="button"
       onClick={onZoom}
       aria-label={`Zoom image: ${alt}`}
-      className="group relative cursor-zoom-in focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 rounded-xl"
+      className="group relative cursor-zoom-in focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40 rounded-xl"
     >
       {img}
       <span className="pointer-events-none absolute right-2 top-2 rounded-md bg-slate-900/60 p-1.5 text-white opacity-0 transition-opacity group-hover:opacity-100">
@@ -618,8 +618,26 @@ function TimerRing({ seconds, duration, warning }: { seconds: number; duration: 
   const r = 26;
   const circ = 2 * Math.PI * r;
   const frac = duration > 0 ? Math.max(0, Math.min(1, seconds / duration)) : 0;
+  const underTen = seconds <= 10 && seconds > 0;
+
   return (
     <div className="relative h-16 w-16">
+      {/* Easter egg: Subtle cat ears appear on the timer ring when under 10 seconds */}
+      {underTen && (
+        <svg
+          viewBox="0 0 64 64"
+          className="absolute -top-3.5 inset-x-0 w-16 h-16 pointer-events-none z-10 transition-opacity duration-300"
+          fill="none"
+          aria-hidden="true"
+        >
+          {/* Left Ear */}
+          <path d="M 18 18 L 13 4 L 26 12 Z" fill="#F8B42C" stroke="#2B3040" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M 18 16 L 15 7 L 23 12 Z" fill="#FFFCF5" opacity="0.6" />
+          {/* Right Ear */}
+          <path d="M 46 18 L 51 4 L 38 12 Z" fill="#F8B42C" stroke="#2B3040" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M 46 16 L 49 7 L 41 12 Z" fill="#FFFCF5" opacity="0.6" />
+        </svg>
+      )}
       <svg viewBox="0 0 64 64" className="h-16 w-16 -rotate-90">
         <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(15,23,42,0.08)" strokeWidth="6" />
         <circle
@@ -1007,7 +1025,7 @@ export default function StagePresenter({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl bg-slate-100 px-6 py-3 font-semibold hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+            className="rounded-xl bg-slate-100 px-6 py-3 font-semibold hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
           >
             Close
           </button>
@@ -1051,7 +1069,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={() => setShowHelp((v) => !v)}
                 aria-label="Keyboard shortcuts"
-                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
               >
                 <Keyboard className="h-5 w-5" />
               </button>
@@ -1059,7 +1077,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={toggleFullscreen}
                 aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
-                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
               >
                 {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
               </button>
@@ -1067,7 +1085,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={onClose}
                 aria-label="Close presenter"
-                className="rounded-lg p-2 text-slate-600 hover:bg-red-500/20 hover:text-red-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                className="rounded-lg p-2 text-slate-600 hover:bg-red-500/20 hover:text-red-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -1115,7 +1133,7 @@ export default function StagePresenter({
                     <button
                       type="button"
                       onClick={() => setStoryOpen((v) => !v)}
-                      className="ml-auto flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                      className="ml-auto flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
                     >
                       <BookOpen className="h-4 w-4" />
                       {storyOpen ? 'Hide story' : 'Story behind the question'}
@@ -1142,7 +1160,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={goPrev}
                 aria-label="Previous"
-                className="rounded-xl bg-slate-100 p-3 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                className="rounded-xl bg-slate-100 p-3 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
               >
                 <ChevronLeft className="h-6 w-6" />
               </button>
@@ -1150,7 +1168,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={goNext}
                 aria-label="Next / reveal"
-                className="flex items-center gap-2 rounded-xl px-5 py-3 font-bold text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                className="flex items-center gap-2 rounded-xl px-5 py-3 font-bold text-slate-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
                 style={{ backgroundColor: ACCENT }}
               >
                 {step < maxSteps ? <ChevronRight className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
@@ -1160,7 +1178,7 @@ export default function StagePresenter({
                 type="button"
                 onClick={resetQuestion}
                 aria-label="Reset this question"
-                className="rounded-xl bg-slate-100 p-3 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                className="rounded-xl bg-slate-100 p-3 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
               >
                 <RotateCcw className="h-5 w-5" />
               </button>
@@ -1187,7 +1205,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={startPauseTimer}
                     aria-label={timerRunning ? 'Pause timer' : 'Start timer'}
-                    className="rounded-lg bg-slate-100 p-2 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                    className="rounded-lg bg-slate-100 p-2 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
                   >
                     {timerRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                   </button>
@@ -1195,7 +1213,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={resetTimer}
                     aria-label="Reset timer"
-                    className="rounded-lg bg-slate-100 p-2 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                    className="rounded-lg bg-slate-100 p-2 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
                   >
                     <RotateCcw className="h-4 w-4" />
                   </button>
@@ -1203,7 +1221,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={() => setMuted((m) => !m)}
                     aria-label={muted ? 'Unmute timer sound' : 'Mute timer sound'}
-                    className="rounded-lg bg-slate-100 p-2 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                    className="rounded-lg bg-slate-100 p-2 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
                   >
                     {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
                   </button>
@@ -1213,14 +1231,14 @@ export default function StagePresenter({
                     type="button"
                     onClick={() => applyDuration(duration - 10)}
                     aria-label="Minus 10 seconds"
-                    className="rounded-lg bg-slate-100 p-1.5 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                    className="rounded-lg bg-slate-100 p-1.5 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
                   >
                     <Minus className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => applyDuration(30)}
-                    className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 ${
+                    className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40 ${
                       duration === 30 ? 'bg-blue-600 text-slate-900' : 'bg-slate-100 hover:bg-slate-200'
                     }`}
                   >
@@ -1229,7 +1247,7 @@ export default function StagePresenter({
                   <button
                     type="button"
                     onClick={() => applyDuration(60)}
-                    className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 ${
+                    className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40 ${
                       duration === 60 ? 'bg-blue-600 text-slate-900' : 'bg-slate-100 hover:bg-slate-200'
                     }`}
                   >
@@ -1239,7 +1257,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={() => applyDuration(duration + 10)}
                     aria-label="Plus 10 seconds"
-                    className="rounded-lg bg-slate-100 p-1.5 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+                    className="rounded-lg bg-slate-100 p-1.5 hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </button>
@@ -1269,7 +1287,7 @@ export default function StagePresenter({
             type="button"
             onClick={() => setLightbox(null)}
             aria-label="Close zoom"
-            className="absolute right-6 top-6 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+            className="absolute right-6 top-6 rounded-full bg-white/10 p-3 text-white hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
           >
             <X className="h-6 w-6" />
           </button>
@@ -1307,7 +1325,7 @@ export default function StagePresenter({
             <button
               type="button"
               onClick={() => setShowHelp(false)}
-              className="mt-5 w-full rounded-xl bg-slate-100 py-2 font-semibold hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+              className="mt-5 w-full rounded-xl bg-slate-100 py-2 font-semibold hover:bg-slate-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
             >
               Close
             </button>

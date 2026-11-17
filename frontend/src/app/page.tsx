@@ -15,6 +15,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import StatsOverview from '../components/StatsOverview';
+import { QT } from '../components/ui';
 import { api } from '../lib/api';
 import { DashboardStats } from '../lib/types';
 
@@ -49,10 +50,25 @@ export default function DashboardPage() {
     <div className="p-6 sm:p-8 lg:p-10 max-w-7xl mx-auto space-y-8">
       {/* Header with Executive Title and Quick Navigation Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-100">
-        <div>
+        <div className="flex items-center gap-3">
           <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900 leading-tight">
             Dashboard Overview
           </h1>
+          <div className="hidden sm:inline-block">
+            <QT
+              pose="yarn-green"
+              height={42}
+              interactive={true}
+              motion="breathe"
+              speechBubble={[
+                'Batting around some new quiz ideas!',
+                'Tip: Pair 5 questions for a quick classroom warmup.',
+                'Curiosity is the engine of learning!',
+              ]}
+              bubblePosition="top-right"
+              alt="QT playing with yarn"
+            />
+          </div>
         </div>
 
         {/* Top Direct Actions */}
@@ -67,7 +83,7 @@ export default function DashboardPage() {
 
           <Link
             href="/generate"
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-[13.5px] font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-700 active:scale-[0.99] transition-all"
+            className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-[13.5px] font-semibold text-white shadow-sm hover:bg-slate-800 active:scale-[0.99] transition-all"
           >
             <Sparkles className="h-4 w-4" />
             <span>Create Quiz</span>
@@ -172,8 +188,16 @@ export default function DashboardPage() {
                   </Link>
                 ))
               ) : (
-                <div className="p-8 text-center">
-                  <p className="text-[13px] text-slate-500 font-normal">No quizzes generated yet.</p>
+                <div className="p-8 text-center flex flex-col items-center">
+                  <QT
+                    pose="box-yellow"
+                    height={48}
+                    motion="bob"
+                    interactive={true}
+                    speechBubble="If it fits, I sits! Make a quiz to fill this space."
+                    alt="QT in a yellow box"
+                  />
+                  <p className="text-[13px] text-slate-500 font-normal mt-2">No quizzes generated yet.</p>
                   <Link
                     href="/generate"
                     className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-blue-600 hover:underline"
@@ -233,8 +257,15 @@ export default function DashboardPage() {
                   </div>
                 ))
               ) : (
-                <div className="p-8 text-center text-[13px] text-slate-400">
-                  No quizzes uploaded yet.
+                <div className="p-8 text-center flex flex-col items-center">
+                  <QT
+                    pose="fishbowl"
+                    height={40}
+                    interactive={true}
+                    speechBubble="Waiting for your PPTX decks to dive in!"
+                    alt="QT looking at fishbowl"
+                  />
+                  <p className="text-[13px] text-slate-400 mt-2">No quizzes uploaded yet.</p>
                 </div>
               )}
             </div>
@@ -339,9 +370,9 @@ export default function DashboardPage() {
           </div>
 
           {/* Need to add new material? Callout card */}
-          <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-5">
+          <div className="rounded-xl border border-amber-200/80 bg-amber-50/40 p-5">
             <div className="flex items-start gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
                 <Lightbulb className="h-4 w-4" />
               </div>
               <div>

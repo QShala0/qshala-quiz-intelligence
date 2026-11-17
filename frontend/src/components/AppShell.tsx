@@ -9,7 +9,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { isCollapsed } = useSidebar();
 
   return (
-    <div className="flex min-h-screen w-full bg-cream">
+    <div className="flex min-h-screen w-full bg-slate-50">
       <Sidebar />
       <div
         className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out ${

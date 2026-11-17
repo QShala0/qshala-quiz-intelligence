@@ -1,4 +1,4 @@
-export { default as QT, QT_POSES } from './QT';
+export { default as QT, QT_POSES, PawIcon } from './QT';
 export type { QTPose } from './QT';
 export { default as Logo } from './Logo';
 export { default as Button } from './Button';

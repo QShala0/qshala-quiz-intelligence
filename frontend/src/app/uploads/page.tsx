@@ -18,7 +18,7 @@ import LoadErrorBanner from '../../components/LoadErrorBanner';
 import { DocumentItem, Slide } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
 import { useUpload } from '../../context/UploadContext';
-import { useConfirm, useToast } from '../../components/ui';
+import { useConfirm, useToast, QT } from '../../components/ui';
 
 export default function UploadPage() {
   const confirm = useConfirm();
@@ -184,8 +184,21 @@ export default function UploadPage() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white p-10 text-center hover:border-blue-500 transition-colors cursor-pointer group shadow-sm shadow-slate-100/50"
+        className="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white p-10 text-center hover:border-amber-400 transition-colors cursor-pointer group shadow-sm shadow-slate-100/50"
       >
+        {/* Fishbowl Cat perched at the corner of the dropzone */}
+        <div className="absolute top-3 right-4 select-none opacity-85 group-hover:opacity-100 transition-opacity">
+          <QT
+            pose="fishbowl"
+            height={44}
+            interactive={true}
+            motion="breathe"
+            speechBubble="Drop decks into the pool! I'm watching the slides."
+            bubblePosition="top-left"
+            alt="QT looking curiously into the fishbowl"
+          />
+        </div>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -521,19 +534,42 @@ export default function UploadPage() {
             </div>
           </div>
 
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="relative pt-7 pb-1">
+            {/* Mascot chasing the progress ball along the bar, curling up asleep when done */}
             <div
-              className={`h-full transition-all duration-300 ${
-                pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100
-                  ? 'bg-emerald-600'
-                  : pipelineProgress.status === 'FAILED'
-                  ? 'bg-rose-600'
-                  : pipelineProgress.status === 'CANCELLED'
-                  ? 'bg-amber-500'
-                  : 'bg-blue-600'
-              }`}
-              style={{ width: `${pipelineProgress.percentage}%` }}
-            />
+              className="absolute top-0 -translate-x-1/2 select-none transition-all duration-300 z-10"
+              style={{
+                left: `${Math.max(6, Math.min(94, pipelineProgress.percentage))}%`,
+              }}
+            >
+              <QT
+                pose={pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100 ? 'sleepy' : 'chase-blue'}
+                height={34}
+                interactive={true}
+                motion={pipelineProgress.status === 'COMPLETED' ? 'breathe' : 'pounce'}
+                speechBubble={
+                  pipelineProgress.status === 'COMPLETED'
+                    ? 'All decks indexed! Time for a catnap.'
+                    : 'Pouncing through slides!'
+                }
+                bubblePosition="top"
+                alt={pipelineProgress.status === 'COMPLETED' ? 'QT sleeping after upload' : 'QT chasing the progress ball'}
+              />
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100
+                    ? 'bg-emerald-600'
+                    : pipelineProgress.status === 'FAILED'
+                    ? 'bg-rose-600'
+                    : pipelineProgress.status === 'CANCELLED'
+                    ? 'bg-amber-500'
+                    : 'bg-amber-500'
+                }`}
+                style={{ width: `${pipelineProgress.percentage}%` }}
+              />
+            </div>
           </div>
 
           {/* Live upload detail: which slice is going up and how many MB have been sent */}

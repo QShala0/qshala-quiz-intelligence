@@ -18,9 +18,9 @@ const TONES: Record<Tone, string> = {
 };
 
 export default function Card({ tone = 'white', interactive = false, outlined = true, className = '', ...rest }: CardProps) {
-  const frame = outlined ? 'border-2 border-ink shadow-sticker' : 'border border-ink/10 shadow-soft';
-  const lift = interactive ? 'transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-sticker-lg cursor-pointer' : '';
-  return <div className={`rounded-card ${TONES[tone]} ${frame} ${lift} ${className}`} {...rest} />;
+  const frame = outlined ? 'border border-slate-200 shadow-xs' : 'border border-slate-200/60 shadow-soft';
+  const lift = interactive ? 'transition-all hover:-translate-y-0.5 hover:shadow-sm hover:border-slate-300 cursor-pointer' : '';
+  return <div className={`rounded-2xl ${TONES[tone]} ${frame} ${lift} ${className}`} {...rest} />;
 }
 
 export function Badge({
