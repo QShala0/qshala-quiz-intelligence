@@ -1,11 +1,14 @@
 import logging
 from typing import Optional, List
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from backend.app.database import get_db
 from backend.app.models.sharepoint import SharePointSyncState, SharePointFile
 from backend.app.models.job import IngestionJob
+from backend.app.config import settings
+from backend.app.services.sharepoint import importer
 from backend.app.services.sharepoint.graph_client import get_sharepoint_client
 
 logger = logging.getLogger(__name__)
@@ -138,3 +141,117 @@ def requeue_sharepoint_file(
     db.refresh(job)
 
     return {"message": "File re-queued successfully", "job_id": job.id}
+
+
+# ------------------------------------------------------------------------------------------------ selective importer
+
+def _graph_error(e: Exception) -> HTTPException:
+    """Turn Graph / validation failures into clear API errors (never leaks tokens or secrets)."""
+    if isinstance(e, ValueError):
+        return HTTPException(status_code=400, detail=str(e))
+    if isinstance(e, httpx.HTTPStatusError):
+        code = e.response.status_code
+        if code in (401, 403):
+            return HTTPException(status_code=403, detail="SharePoint refused access. Ask an admin to grant the app access to this "
+                                                         "site (Sites.Selected) and check the Azure credentials.")
+        if code == 404:
+            return HTTPException(status_code=404, detail="That SharePoint item or library was not found.")
+        if code == 429:
+            return HTTPException(status_code=503, detail="SharePoint is throttling requests. Wait a minute and try again.")
+        return HTTPException(status_code=502, detail=f"SharePoint returned HTTP {code}.")
+    if isinstance(e, httpx.HTTPError):
+        return HTTPException(status_code=502, detail="Could not reach SharePoint.")
+    logger.exception("SharePoint importer error")
+    return HTTPException(status_code=500, detail="SharePoint importer failed.")
+
+
+@router.get("/config")
+def sharepoint_config():
+    """Whether the bridge is configured. Never returns secrets."""
+    return {
+        "configured": bool(settings.AZURE_TENANT_ID and settings.AZURE_CLIENT_ID and settings.AZURE_CLIENT_SECRET
+                           and (settings.SHAREPOINT_SITE_ID or settings.SHAREPOINT_DRIVE_ID)),
+        "has_credentials": bool(settings.AZURE_TENANT_ID and settings.AZURE_CLIENT_ID and settings.AZURE_CLIENT_SECRET),
+        "has_site": bool(settings.SHAREPOINT_SITE_ID),
+        "has_drive": bool(settings.SHAREPOINT_DRIVE_ID),
+        "max_file_mb": int(importer.MAX_FILE_BYTES / (1024 * 1024)),
+        "supported_extensions": sorted(importer.SUPPORTED_EXT),
+    }
+
+
+@router.get("/drives")
+async def sharepoint_drives():
+    try:
+        return {"drives": await get_sharepoint_client().list_drives()}
+    except Exception as e:
+        raise _graph_error(e)
+
+
+@router.get("/browse")
+async def sharepoint_browse(
+    drive_id: str,
+    folder_id: Optional[str] = None,
+    next_url: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """One page of a folder: sub-folders plus the importable decks in it, each tagged with its import status."""
+    client = get_sharepoint_client()
+    try:
+        page = await client.list_children(drive_id, folder_id, next_url=next_url)
+    except Exception as e:
+        raise _graph_error(e)
+    folders, cands, other = [], [], 0
+    for it in page["items"]:
+        if "folder" in it:
+            folders.append({"id": it["id"], "name": it.get("name"), "child_count": (it.get("folder") or {}).get("childCount")})
+        elif "file" in it:
+            if importer._supported(it.get("name") or ""):
+                cands.append(importer.candidate_from_item(it, drive_id))
+            else:
+                other += 1
+    importer.classify(db, cands)
+    return {
+        "drive_id": drive_id, "folder_id": folder_id, "next_url": page["next"], "other_files_hidden": other,
+        "folders": sorted(folders, key=lambda f: (f["name"] or "").lower()),
+        "files": [{
+            "id": c["id"], "name": c["name"], "size": c["size"], "status": c["status"],
+            "modified": c["modified"].isoformat() if c.get("modified") else None,
+            "match_document_id": c.get("match_document_id"),
+        } for c in sorted(cands, key=lambda c: c["name"].lower())],
+    }
+
+
+@router.post("/plan")
+async def sharepoint_plan(sel: importer.Selection, db: Session = Depends(get_db)):
+    """Dry run: what would be imported for this selection? Writes nothing."""
+    try:
+        return await importer.plan_import(db, get_sharepoint_client(), sel)
+    except Exception as e:
+        raise _graph_error(e)
+
+
+@router.post("/import")
+async def sharepoint_import(sel: importer.Selection, db: Session = Depends(get_db)):
+    """Mark the wanted files for import (one batch). Files move in short steps via /transfer-next."""
+    try:
+        return await importer.stage_import(db, get_sharepoint_client(), sel)
+    except Exception as e:
+        raise _graph_error(e)
+
+
+@router.post("/transfer-next")
+async def sharepoint_transfer_next(
+    limit: int = Query(3, ge=1, le=10),
+    batch_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Download and queue up to `limit` selected files. Call repeatedly until `remaining` is 0."""
+    try:
+        return await importer.transfer_next(db, get_sharepoint_client(), limit=limit, batch_id=batch_id)
+    except Exception as e:
+        raise _graph_error(e)
+
+
+@router.get("/import-status")
+def sharepoint_import_status(batch_id: Optional[str] = None, db: Session = Depends(get_db)):
+    return importer.import_status(db, batch_id)

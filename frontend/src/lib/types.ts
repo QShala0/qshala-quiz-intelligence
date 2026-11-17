@@ -665,3 +665,31 @@ export interface BatchLocalItem {
   percentage: number;
   error?: string | null;
 }
+
+// ---- SharePoint selective importer ----
+export type SpItemStatus = 'NEW' | 'CHANGED' | 'RETRY' | 'ALREADY_IMPORTED' | 'IN_PROGRESS' | 'POSSIBLE_DUPLICATE';
+export interface SpConfig { configured: boolean; has_credentials: boolean; has_site: boolean; has_drive: boolean; max_file_mb: number; supported_extensions: string[] }
+export interface SpDrive { id: string; name?: string | null; web_url?: string | null }
+export interface SpFolder { id: string; name: string | null; child_count?: number | null }
+export interface SpBrowseFile { id: string; name: string; size: number; status: SpItemStatus; modified?: string | null; match_document_id?: string | null }
+export interface SpBrowse { drive_id: string; folder_id?: string | null; next_url?: string | null; other_files_hidden: number; folders: SpFolder[]; files: SpBrowseFile[] }
+export interface SpFilters { name_contains?: string; folder_contains?: string; modified_after?: string; modified_before?: string }
+export interface SpSelection {
+  drive_id: string;
+  items: { id: string; kind: 'file' | 'folder' }[];
+  recursive?: boolean;
+  filters?: SpFilters;
+  include_possible_duplicates?: boolean;
+  exclude_ids?: string[];
+}
+export interface SpPlanFile { id: string; name: string; size: number; folder_path: string; modified?: string | null; status: SpItemStatus; will_import: boolean; match_document_id?: string | null }
+export interface SpPlan { total_found: number; truncated: boolean; counts: Record<string, number>; to_import: number; bytes_to_import: number; files: SpPlanFile[] }
+export interface SpStage { batch_id: string; selected: number; counts: Record<string, number>; truncated: boolean; bytes: number }
+export interface SpTransfer { queued: number; skipped_duplicate: number; failed: number; job_ids: string[]; remaining: number }
+export interface SpImportStatus {
+  batch_id?: string | null;
+  counts: Record<string, number>;
+  remaining: number;
+  failed: { id: string; name: string; error?: string | null }[];
+  skipped_duplicates: { id: string; name: string; message?: string | null; match_document_id?: string | null }[];
+}

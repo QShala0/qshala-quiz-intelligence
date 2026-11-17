@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { api, getApiBase } from '@/lib/api';
 import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem } from '@/lib/types';
+import SharePointImporter from '@/components/SharePointImporter';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'platform' | 'sharepoint'>('platform');
@@ -196,6 +197,7 @@ export default function SettingsPage() {
       ) : (
         /* SharePoint Sync & Jobs Admin Dashboard */
         <div className="space-y-6">
+          <SharePointImporter />
           {/* Sync Overview Card */}
           <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm shadow-slate-100/50 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-4">

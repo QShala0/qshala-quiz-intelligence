@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 import logging
@@ -135,6 +136,93 @@ class SharePointClient:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             return resp.content
+        finally:
+            if should_close:
+                await client.aclose()
+
+    # ------------------------------------------------------------------ browsing + resilient reads
+    _SELECT = "id,name,size,eTag,cTag,file,folder,lastModifiedDateTime,webUrl,parentReference"
+
+    async def _sleep(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
+
+    async def _graph_get(self, url: str, *, params: Optional[Dict[str, Any]] = None, max_retries: int = 4) -> Dict[str, Any]:
+        """GET a Graph URL as JSON. Waits out throttling (429/503/504, honouring Retry-After) and refreshes the token once
+        on a 401. Only graph.microsoft.com URLs are ever called, so a crafted `next` link from a browser cannot make this
+        server send its Graph token anywhere else."""
+        if not url.startswith(self.GRAPH_BASE + "/"):
+            raise ValueError("Refusing to call a URL that is not Microsoft Graph")
+        client = await self._get_http_client()
+        should_close = self._custom_http_client is None
+        try:
+            attempt = 0
+            refreshed = False
+            while True:
+                token = await self.get_access_token()
+                resp = await client.get(url, params=params, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+                if resp.status_code == 401 and not refreshed:
+                    self._access_token = None
+                    refreshed = True
+                    continue
+                if resp.status_code in (429, 500, 502, 503, 504) and attempt < max_retries:
+                    try:
+                        wait = float(resp.headers.get("Retry-After") or 0)
+                    except ValueError:
+                        wait = 0.0
+                    attempt += 1
+                    await self._sleep(min(wait or float(2 ** attempt), 30.0))
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+        finally:
+            if should_close:
+                await client.aclose()
+
+    async def list_drives(self) -> List[Dict[str, Any]]:
+        """The document libraries the app can see: the configured drive, or every library of the configured site."""
+        if self.drive_id:
+            d = await self._graph_get(f"{self.GRAPH_BASE}/drives/{self.drive_id}", params={"$select": "id,name,webUrl"})
+            return [{"id": d.get("id") or self.drive_id, "name": d.get("name") or "Documents", "web_url": d.get("webUrl")}]
+        if not self.site_id:
+            raise ValueError("Set SHAREPOINT_SITE_ID (or SHAREPOINT_DRIVE_ID) first")
+        data = await self._graph_get(f"{self.GRAPH_BASE}/sites/{self.site_id}/drives", params={"$select": "id,name,webUrl"})
+        return [{"id": d["id"], "name": d.get("name"), "web_url": d.get("webUrl")} for d in data.get("value", [])]
+
+    async def list_children(self, drive_id: str, item_id: Optional[str] = None, next_url: Optional[str] = None) -> Dict[str, Any]:
+        """One page of a folder's contents (root when item_id is None). Returns {items, next}."""
+        if next_url:
+            data = await self._graph_get(next_url)
+        else:
+            base = f"{self.GRAPH_BASE}/drives/{drive_id}/" + (f"items/{item_id}/children" if item_id else "root/children")
+            data = await self._graph_get(base, params={"$select": self._SELECT, "$top": "200"})
+        return {"items": data.get("value", []), "next": data.get("@odata.nextLink")}
+
+    async def get_item(self, drive_id: str, item_id: str) -> Dict[str, Any]:
+        return await self._graph_get(f"{self.GRAPH_BASE}/drives/{drive_id}/items/{item_id}", params={"$select": self._SELECT})
+
+    async def download_item_capped(self, drive_id: str, item_id: str, max_bytes: int) -> bytes:
+        """Download a file, refusing anything over max_bytes (checked from Content-Length and again while streaming)."""
+        url = f"{self.GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content"
+        client = await self._get_http_client()
+        should_close = self._custom_http_client is None
+        try:
+            token = await self.get_access_token()
+            target, headers, hops = url, {"Authorization": f"Bearer {token}"}, 0
+            while True:
+                async with client.stream("GET", target, headers=headers, follow_redirects=False) as resp:
+                    if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location") and hops < 3:
+                        target, headers, hops = resp.headers["location"], {}, hops + 1   # pre-authenticated URL: send no token
+                        continue
+                    resp.raise_for_status()
+                    declared = int(resp.headers.get("content-length") or 0)
+                    if declared and declared > max_bytes:
+                        raise ValueError(f"File is {declared // (1024 * 1024)} MB, over the {max_bytes // (1024 * 1024)} MB limit")
+                    buf = bytearray()
+                    async for chunk in resp.aiter_bytes():
+                        buf.extend(chunk)
+                        if len(buf) > max_bytes:
+                            raise ValueError(f"File is over the {max_bytes // (1024 * 1024)} MB limit")
+                    return bytes(buf)
         finally:
             if should_close:
                 await client.aclose()
