@@ -19,6 +19,7 @@ import { DocumentItem, Slide } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
 import { useUpload } from '../../context/UploadContext';
 import { useConfirm, useToast } from '../../components/ui';
+import QCat from '../../components/mascot/QCat';
 
 export default function UploadPage() {
   const confirm = useConfirm();
@@ -521,19 +522,34 @@ export default function UploadPage() {
             </div>
           </div>
 
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="relative pt-6 pb-1">
+            {/* Mascot walking along the progress bar, curling up asleep when done */}
             <div
-              className={`h-full transition-all duration-300 ${
-                pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100
-                  ? 'bg-emerald-600'
-                  : pipelineProgress.status === 'FAILED'
-                  ? 'bg-rose-600'
-                  : pipelineProgress.status === 'CANCELLED'
-                  ? 'bg-amber-500'
-                  : 'bg-blue-600'
-              }`}
-              style={{ width: `${pipelineProgress.percentage}%` }}
-            />
+              className="absolute top-0 -translate-x-1/2 pointer-events-none transition-all duration-300 select-none"
+              style={{
+                left: `${Math.max(4, Math.min(96, pipelineProgress.percentage))}%`,
+              }}
+            >
+              <QCat
+                pose={pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100 ? 'sleep' : 'paw'}
+                size={26}
+                alt={pipelineProgress.status === 'COMPLETED' ? 'Cat sleeping after upload' : 'Cat walking along progress bar'}
+              />
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100
+                    ? 'bg-emerald-600'
+                    : pipelineProgress.status === 'FAILED'
+                    ? 'bg-rose-600'
+                    : pipelineProgress.status === 'CANCELLED'
+                    ? 'bg-amber-500'
+                    : 'bg-amber-500'
+                }`}
+                style={{ width: `${pipelineProgress.percentage}%` }}
+              />
+            </div>
           </div>
 
           {/* Live upload detail: which slice is going up and how many MB have been sent */}

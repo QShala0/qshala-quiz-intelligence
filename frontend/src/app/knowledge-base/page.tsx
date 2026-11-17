@@ -3,9 +3,10 @@
 import { useState, useCallback, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
-import { AlertTriangle, Eye, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Eye, RefreshCw, Search, X } from 'lucide-react';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../../lib/api';
 import { HistoricalQuestion } from '../../lib/types';
+import QCat from '../../components/mascot/QCat';
 // Performance backlog item 5 (QSHALA_PERFORMANCE_IDEAS.md): these three only ever render once a
 // user clicks into a slide/tag/media view, but were imported eagerly into the page bundle. All
 // three are already conditionally rendered below ({selected... && <Modal/>}), so swapping to
@@ -241,11 +242,28 @@ function KnowledgeBaseContent() {
                             Retry loading questions
                           </button>
                         </div>
-                      ) : activeTab === 'duplicates'
-                        ? 'No possible duplicates pending review!'
-                        : activeTab === 'review'
-                        ? 'Nothing needs review — every tag is confirmed!'
-                        : 'No questions match your current search and filters.'}
+                      ) : activeTab === 'duplicates' ? (
+                        'No possible duplicates pending review!'
+                      ) : activeTab === 'review' ? (
+                        'Nothing needs review — every tag is confirmed!'
+                      ) : (appliedQuery || query) ? (
+                        <div className="flex flex-col items-center justify-center py-6 text-center space-y-2">
+                          <div className="relative inline-block">
+                            <QCat pose="think" size={56} alt="Cat searching with magnifying glass" />
+                            <span className="absolute -bottom-1 -right-1 text-amber-500 bg-white rounded-full p-1 shadow-xs border border-slate-200">
+                              <Search className="w-3.5 h-3.5" />
+                            </span>
+                          </div>
+                          <p className="text-sm font-semibold text-slate-800">
+                            No questions contain &ldquo;{appliedQuery || query}&rdquo;. The cat looked everywhere.
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Try checking for typos or searching with a broader word.
+                          </p>
+                        </div>
+                      ) : (
+                        'No questions match your current search and filters.'
+                      )}
                     </td>
                   </tr>
                 ) : (

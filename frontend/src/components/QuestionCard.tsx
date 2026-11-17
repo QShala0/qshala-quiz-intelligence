@@ -23,6 +23,7 @@ import {
 import { GeneratedQuestion, RetrievalSource } from '../lib/types';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
 import { hasStructuredView } from '../lib/formatPayloads';
+import { PawIcon } from './mascot/QCat';
 import StructuredFormatBody from './formats/StructuredFormatBody';
 
 interface Props {
@@ -99,10 +100,15 @@ export default function QuestionCard({
 
   return (
     <div
-      className={`rounded-xl border bg-white p-6 transition-all shadow-sm shadow-slate-100/50 ${
+      className={`relative overflow-hidden rounded-xl border bg-white p-6 transition-all shadow-sm shadow-slate-100/50 ${
         question.is_approved ? 'border-slate-200/80' : 'border-slate-200 opacity-60 bg-slate-50/50'
       }`}
     >
+      {/* Subtle paw-print watermark on the corner of the question card */}
+      <div className="absolute -bottom-3 -right-3 pointer-events-none text-slate-800 opacity-[0.035] select-none" aria-hidden="true">
+        <PawIcon className="w-16 h-16" />
+      </div>
+
       {/* Top Meta Bar */}
       <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
         <div className="flex items-center gap-3">

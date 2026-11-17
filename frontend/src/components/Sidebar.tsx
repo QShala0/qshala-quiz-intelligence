@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { useSidebar } from '../context/SidebarContext';
 import { Logo, QT, useToast } from './ui';
+import Confetti from './ui/Confetti';
+import QCat from './mascot/QCat';
 
 // QT's one-liners: shown when you click the logo while already on the dashboard.
 const QUIPS = [
@@ -40,6 +42,22 @@ export default function Sidebar() {
   const { isCollapsed, toggleSidebar } = useSidebar();
   const toast = useToast();
   const quipIndex = useRef(0);
+  const [clickCount, setClickCount] = useState(0);
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  const handleLogoClick = (e: React.MouseEvent) => {
+    const next = clickCount + 1;
+    setClickCount(next);
+    if (next >= 5) {
+      setClickCount(0);
+      setShowConfetti(true);
+      toast.success('Purr-fect! You found the secret paw celebration! 🐾', { celebrate: true });
+      setTimeout(() => setShowConfetti(false), 2200);
+    } else if (pathname === '/') {
+      e.preventDefault();
+      toast.info(QUIPS[quipIndex.current++ % QUIPS.length]);
+    }
+  };
 
   return (
     <aside
@@ -49,21 +67,27 @@ export default function Sidebar() {
     >
       {/* Brand header */}
       <div className={`flex h-16 items-center ${isCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}>
-        <Link
-          href="/"
-          className="overflow-hidden"
-          title="QShala"
-          aria-label="QShala home"
-          onClick={(e) => {
-            // Already home? Let QT say something instead of a no-op navigation.
-            if (pathname === '/') {
-              e.preventDefault();
-              toast.info(QUIPS[quipIndex.current++ % QUIPS.length]);
-            }
-          }}
-        >
-          <Logo collapsed={isCollapsed} />
-        </Link>
+        <div className="relative flex items-center">
+          <Link
+            href="/"
+            className="overflow-hidden"
+            title="QShala"
+            aria-label="QShala home"
+            onClick={handleLogoClick}
+          >
+            <Logo collapsed={isCollapsed} />
+          </Link>
+          {!isCollapsed && (
+            <div className="ml-1 -mt-1 opacity-70 hover:opacity-100 transition-opacity" title="Curious cat">
+              <QCat pose="peek" size={24} alt="QCat peek" />
+            </div>
+          )}
+          {showConfetti && (
+            <div className="absolute top-2 left-6 pointer-events-none z-50">
+              <Confetti pieces={24} />
+            </div>
+          )}
+        </div>
 
         {!isCollapsed && (
           <button

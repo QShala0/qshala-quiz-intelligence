@@ -618,8 +618,26 @@ function TimerRing({ seconds, duration, warning }: { seconds: number; duration: 
   const r = 26;
   const circ = 2 * Math.PI * r;
   const frac = duration > 0 ? Math.max(0, Math.min(1, seconds / duration)) : 0;
+  const underTen = seconds <= 10 && seconds > 0;
+
   return (
     <div className="relative h-16 w-16">
+      {/* Easter egg: Subtle cat ears appear on the timer ring when under 10 seconds */}
+      {underTen && (
+        <svg
+          viewBox="0 0 64 64"
+          className="absolute -top-3.5 inset-x-0 w-16 h-16 pointer-events-none z-10 transition-opacity duration-300"
+          fill="none"
+          aria-hidden="true"
+        >
+          {/* Left Ear */}
+          <path d="M 18 18 L 13 4 L 26 12 Z" fill="#F8B42C" stroke="#2B3040" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M 18 16 L 15 7 L 23 12 Z" fill="#FFFCF5" opacity="0.6" />
+          {/* Right Ear */}
+          <path d="M 46 18 L 51 4 L 38 12 Z" fill="#F8B42C" stroke="#2B3040" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M 46 16 L 49 7 L 41 12 Z" fill="#FFFCF5" opacity="0.6" />
+        </svg>
+      )}
       <svg viewBox="0 0 64 64" className="h-16 w-16 -rotate-90">
         <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(15,23,42,0.08)" strokeWidth="6" />
         <circle

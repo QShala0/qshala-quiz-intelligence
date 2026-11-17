@@ -145,6 +145,17 @@ export default function QuizzerHome() {
     prevDraftRef.current = draft;
   }, [draft]);
 
+  // Tab title Easter egg when generating: "🐾 Generating quiz... | QShala AI"
+  useEffect(() => {
+    if (loading) {
+      const originalTitle = document.title;
+      document.title = '🐾 Generating quiz... | QShala AI';
+      return () => {
+        document.title = originalTitle;
+      };
+    }
+  }, [loading]);
+
   // Brief chips state
   const [editCount, setEditCount] = useState<number>(10);
   const [editDifficulty, setEditDifficulty] = useState<string>('balanced');

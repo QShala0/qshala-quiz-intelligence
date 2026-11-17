@@ -23,6 +23,7 @@ import ExportQuizModal from '../../../components/ExportQuizModal';
 import { Quiz, GeneratedQuestion, RetrievalSource } from '../../../lib/types';
 import { getLocalQuiz, saveLocalQuiz } from '../../../lib/quizStorage';
 import QuestionCard from '../../../components/QuestionCard';
+import QCat from '../../../components/mascot/QCat';
 import SlideViewerModal from '../../../components/SlideViewerModal';
 import LoadErrorBanner from '../../../components/LoadErrorBanner';
 import { useConfirm, useToast } from '../../../components/ui';
@@ -362,16 +363,29 @@ export default function QuizReviewStudioPage() {
 
       {/* Questions Stream */}
       <div className="space-y-4">
-        {quiz.questions.map((q) => (
-          <QuestionCard
-            key={q.id}
-            question={q}
-            onUpdate={handleUpdateQuestion}
-            onAction={handleQuestionAction}
-            onDelete={handleDeleteQuestion}
-            onViewSource={handleViewSource}
-          />
-        ))}
+        {quiz.questions.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
+            <div className="relative mx-auto mb-3 w-20 h-16 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-lg border-2 border-slate-300 bg-slate-50 opacity-60" />
+              <QCat pose="sleep" size={56} alt="Cat sleeping on empty binder" />
+            </div>
+            <h3 className="text-[16px] font-semibold text-slate-800">No questions added yet.</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Start by generating or picking from the bank.
+            </p>
+          </div>
+        ) : (
+          quiz.questions.map((q) => (
+            <QuestionCard
+              key={q.id}
+              question={q}
+              onUpdate={handleUpdateQuestion}
+              onAction={handleQuestionAction}
+              onDelete={handleDeleteQuestion}
+              onViewSource={handleViewSource}
+            />
+          ))
+        )}
       </div>
 
       {/* Slide Viewer Modal */}
