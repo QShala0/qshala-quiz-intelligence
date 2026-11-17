@@ -146,10 +146,10 @@ export default function YarnPlayCat({
         />
       </div>
 
-      {/* Layer 2: Green Yarn Ball & Trailing String (arcs, bounces and floats) */}
+      {/* Layer 2: Green Yarn Ball & Trailing String (gentle, steady, natural float) */}
       <div
         className={`absolute pointer-events-none transition-transform duration-200 ${
-          isSquishing ? 'animate-squish' : active ? 'animate-yarn-ball-fast' : 'animate-yarn-ball'
+          isSquishing ? 'animate-squish' : 'animate-yarn-ball'
         }`}
         style={{
           top: 0,

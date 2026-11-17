@@ -520,7 +520,6 @@ export default function QuizzerHome() {
             <div className="absolute -top-[68px] right-6 sm:right-8 z-10 select-none">
               <YarnPlayCat
                 height={76}
-                active={isFocused || prompt.length > 0}
                 interactive={true}
                 speechBubble={[
                   'Batting around quiz ideas!',
