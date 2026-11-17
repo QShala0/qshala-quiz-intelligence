@@ -37,3 +37,8 @@ The older `POST /sharepoint/sync` (delta sync of a whole library) is unchanged.
 | "SharePoint is throttling requests" | Graph rate limit; the importer already waits and retries, try again in a minute. |
 | "over the N MB limit" | Raise `SHAREPOINT_MAX_FILE_MB` or import that file by hand. |
 | "Identical file already in QShala" | Byte-identical deck exists (same sha256); it was skipped on purpose. |
+
+## Limiting QShala to one folder
+Set `SHAREPOINT_ROOT_FOLDER` (for example `Quizzes`, or `Quizzes/2024`). The importer then starts in that folder, quizmasters cannot
+browse above it, and the server refuses any file or folder outside it (even if someone crafts a request). The old whole-library
+`POST /sharepoint/sync` is switched off while this is set. Use this when the site holds documents other than quizzes.

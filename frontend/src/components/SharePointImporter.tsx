@@ -192,7 +192,7 @@ export default function SharePointImporter() {
         <Cloud className="h-5 w-5 text-blue-600" />
         <div>
           <h2 className="text-[16px] font-bold text-slate-900">Import from SharePoint</h2>
-          <p className="text-[12px] text-slate-500">Pick decks or folders, preview what is new, then import. Nothing is imported until you confirm.</p>
+          <p className="text-[12px] text-slate-500">Pick decks or folders, preview what is new, then import. Nothing is imported until you confirm.{cfg.root_folder ? ` Limited to the “${cfg.root_folder}” folder.` : ''}</p>
         </div>
       </div>
 

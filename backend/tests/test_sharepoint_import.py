@@ -33,7 +33,7 @@ TREE = {
         _file("f2", "Prelims.pptx", len(CONTENT["f2"])),
         _file("f3", "Semis.pdf", len(CONTENT["f3"])),
         _file("t1", "~$Prelims.pptx"),
-        {"id": "fold2", "name": "Archive", "folder": {"childCount": 1}},
+        {"id": "fold2", "name": "Archive", "folder": {"childCount": 1}, "parentReference": {"path": "/drives/D/root:/2024"}},
     ]},
     "fold2": {"value": [_file("f4", "Old.pptx", 50, path="/drives/D/root:/2024/Archive")]},
 }
@@ -53,6 +53,8 @@ def make_handler(state):
                     state["throttled"] = True
                     return httpx.Response(429, headers={"Retry-After": "1"})
                 return httpx.Response(200, json=TREE[fid])
+        if url.startswith(f"{BASE}/drives/D/root:/2024"):
+            return httpx.Response(200, json={"id": "fold1", "name": "2024", "folder": {}, "parentReference": {"path": "/drives/D/root:"}})
         for fid, body in CONTENT.items():
             if url == f"{BASE}/drives/D/items/{fid}/content":
                 return httpx.Response(200, content=state.get("override", {}).get(fid, body))
@@ -217,3 +219,41 @@ async def test_stale_transferring_files_are_given_back(db, client):
     db.commit()
     res = await importer.transfer_next(db, client)
     assert res["queued"] == 1
+
+
+# ---------------------------------------------------------------- folder limit (SHAREPOINT_ROOT_FOLDER)
+
+@pytest.fixture
+def limited(monkeypatch):
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "SHAREPOINT_ROOT_FOLDER", "2024")
+
+
+@pytest.mark.anyio
+async def test_folder_limit_maps_library_root_to_the_limited_folder(db, client, limited):
+    plan = await importer.plan_import(db, client, sel())               # "root" now means the 2024 folder
+    assert {f["name"] for f in plan["files"]} == {"Prelims.pptx", "Semis.pdf", "Old.pptx"}   # Finals.pptx sits outside
+
+
+@pytest.mark.anyio
+async def test_folder_limit_rejects_files_and_folders_outside(db, client, limited):
+    with pytest.raises(ValueError):
+        await importer.plan_import(db, client, sel(items=[{"id": "f1", "kind": "file"}]))     # root-level deck
+    with pytest.raises(httpx.HTTPStatusError):                       # an unknown id is a 404 from Graph, never allowed through
+        await importer.effective_folder(client, "D", "some-other-folder-not-in-tree")
+
+
+@pytest.mark.anyio
+async def test_folder_limit_allows_inside_subfolders(db, client, limited):
+    assert await importer.effective_folder(client, "D", "fold2") == "fold2"
+    ok = await importer.plan_import(db, client, sel(items=[{"id": "f4", "kind": "file"}]))
+    assert [f["name"] for f in ok["files"]] == ["Old.pptx"]
+
+
+@pytest.mark.anyio
+async def test_missing_limited_folder_gives_a_clear_error(db, client, monkeypatch):
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "SHAREPOINT_ROOT_FOLDER", "DoesNotExist")
+    with pytest.raises(ValueError) as e:
+        await importer.plan_import(db, client, sel())
+    assert "DoesNotExist" in str(e.value)

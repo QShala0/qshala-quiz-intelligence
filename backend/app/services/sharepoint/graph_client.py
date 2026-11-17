@@ -200,6 +200,12 @@ class SharePointClient:
     async def get_item(self, drive_id: str, item_id: str) -> Dict[str, Any]:
         return await self._graph_get(f"{self.GRAPH_BASE}/drives/{drive_id}/items/{item_id}", params={"$select": self._SELECT})
 
+    async def get_item_by_path(self, drive_id: str, path: str) -> Dict[str, Any]:
+        """A folder or file addressed by its path inside the library, e.g. "Quizzes/2024"."""
+        from urllib.parse import quote
+        clean = quote(path.strip("/"), safe="/")
+        return await self._graph_get(f"{self.GRAPH_BASE}/drives/{drive_id}/root:/{clean}", params={"$select": self._SELECT})
+
     async def download_item_capped(self, drive_id: str, item_id: str, max_bytes: int) -> bytes:
         """Download a file, refusing anything over max_bytes (checked from Content-Length and again while streaming)."""
         url = f"{self.GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content"

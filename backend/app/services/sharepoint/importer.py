@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.app.config import settings
 from backend.app.models.document import Document
 from backend.app.models.job import IngestionJob
 from backend.app.models.sharepoint import SharePointFile
@@ -61,6 +62,51 @@ class Selection(BaseModel):
     filters: Filters = Field(default_factory=Filters)
     include_possible_duplicates: bool = False
     exclude_ids: List[str] = Field(default_factory=list)
+
+
+# ------------------------------------------------------------------------------------------------ folder limit
+
+async def scope_root(client, drive_id: str) -> Optional[Dict[str, str]]:
+    """When SHAREPOINT_ROOT_FOLDER is set (e.g. "Quizzes"), the folder everything must stay inside; else None."""
+    folder = (getattr(settings, "SHAREPOINT_ROOT_FOLDER", None) or "").strip().strip("/")
+    if not folder:
+        return None
+    cache = client.__dict__.setdefault("_scope_cache", {})
+    key = (drive_id, folder)
+    if key in cache:
+        return cache[key]
+    try:
+        item = await client.get_item_by_path(drive_id, folder)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise ValueError(f"The SharePoint folder “{folder}” set for QShala was not found in this library")
+        raise
+    if "folder" not in item:
+        raise ValueError(f"“{folder}” is not a folder")
+    parent = (item.get("parentReference") or {}).get("path") or ""
+    root = {"id": item["id"], "path": f"{parent}/{item.get('name')}", "name": item.get("name") or folder}
+    cache[key] = root
+    return root
+
+
+def within_scope(item: Dict[str, Any], root: Optional[Dict[str, str]]) -> bool:
+    if root is None or item.get("id") == root["id"]:
+        return True
+    p = (item.get("parentReference") or {}).get("path") or ""
+    return p == root["path"] or p.startswith(root["path"] + "/")
+
+
+async def effective_folder(client, drive_id: str, folder_id: Optional[str]) -> Optional[str]:
+    """The folder id to list. With a folder limit, the library root means the limited folder, and any other folder must be inside it."""
+    root = await scope_root(client, drive_id)
+    if root is None:
+        return folder_id
+    if not folder_id or folder_id == "root" or folder_id == root["id"]:
+        return root["id"]
+    item = await client.get_item(drive_id, folder_id)
+    if not within_scope(item, root):
+        raise ValueError("That folder is outside the folder QShala is allowed to read")
+    return folder_id
 
 
 # ------------------------------------------------------------------------------------------------ helpers
@@ -171,6 +217,7 @@ async def collect_candidates(client, sel: Selection) -> Dict[str, Any]:
     found: Dict[str, Dict[str, Any]] = {}
     state = {"truncated": False}
     excluded = set(sel.exclude_ids)
+    root = await scope_root(client, sel.drive_id)
 
     def add(item: Dict[str, Any]) -> None:
         if "file" not in item or not item.get("id"):
@@ -203,9 +250,12 @@ async def collect_candidates(client, sel: Selection) -> Dict[str, Any]:
         if state["truncated"]:
             break
         if ref.kind == "folder":
-            await walk(None if ref.id == "root" else ref.id, 0)
+            await walk(await effective_folder(client, sel.drive_id, None if ref.id == "root" else ref.id), 0)
         else:
-            add(await client.get_item(sel.drive_id, ref.id))
+            item = await client.get_item(sel.drive_id, ref.id)
+            if not within_scope(item, root):
+                raise ValueError("That file is outside the folder QShala is allowed to read")
+            add(item)
     return {"candidates": list(found.values()), "truncated": state["truncated"]}
 
 

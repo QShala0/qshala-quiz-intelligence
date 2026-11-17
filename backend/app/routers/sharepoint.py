@@ -35,6 +35,9 @@ async def trigger_sharepoint_sync(
     Discovers new/updated .pptx and .pdf decks, streams them to Vercel Blob,
     and enqueues background processing jobs.
     """
+    if (settings.SHAREPOINT_ROOT_FOLDER or "").strip():
+        raise HTTPException(status_code=400, detail="Whole-library sync is switched off while a SharePoint folder limit is set. "
+                                                    "Use Import from SharePoint instead.")
     client = get_sharepoint_client()
     try:
         result = await client.sync_delta(db, drive_id=drive_id, sync_state_id=sync_state_id)
@@ -174,6 +177,7 @@ def sharepoint_config():
         "has_credentials": bool(settings.AZURE_TENANT_ID and settings.AZURE_CLIENT_ID and settings.AZURE_CLIENT_SECRET),
         "has_site": bool(settings.SHAREPOINT_SITE_ID),
         "has_drive": bool(settings.SHAREPOINT_DRIVE_ID),
+        "root_folder": (settings.SHAREPOINT_ROOT_FOLDER or "").strip().strip("/") or None,
         "max_file_mb": int(importer.MAX_FILE_BYTES / (1024 * 1024)),
         "supported_extensions": sorted(importer.SUPPORTED_EXT),
     }
@@ -197,7 +201,12 @@ async def sharepoint_browse(
     """One page of a folder: sub-folders plus the importable decks in it, each tagged with its import status."""
     client = get_sharepoint_client()
     try:
-        page = await client.list_children(drive_id, folder_id, next_url=next_url)
+        eff = await importer.effective_folder(client, drive_id, folder_id)
+        if next_url and await importer.scope_root(client, drive_id) is not None:
+            # a continuation link must belong to the folder just checked, never to a different one
+            if not next_url.startswith(f"{client.GRAPH_BASE}/drives/{drive_id}/items/{eff}/children"):
+                raise ValueError("That page link does not belong to the allowed folder")
+        page = await client.list_children(drive_id, eff, next_url=next_url)
     except Exception as e:
         raise _graph_error(e)
     folders, cands, other = [], [], 0

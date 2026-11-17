@@ -158,6 +158,8 @@ class Settings(BaseSettings):
     AZURE_CLIENT_SECRET: Optional[str] = None
     SHAREPOINT_SITE_ID: Optional[str] = None
     SHAREPOINT_DRIVE_ID: Optional[str] = None
+    # Optional: the importer can only see this folder (and below) inside the library, e.g. "Quizzes".
+    SHAREPOINT_ROOT_FOLDER: Optional[str] = None
     
     # AI Provider: 'gemini', 'openai', 'anthropic', or 'local'
     LLM_PROVIDER: str = "local"
@@ -365,7 +367,7 @@ class Settings(BaseSettings):
 
     @field_validator("GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
                      "BLOB_READ_WRITE_TOKEN", "AZURE_TENANT_ID", "AZURE_CLIENT_ID",
-                     "AZURE_CLIENT_SECRET", "SHAREPOINT_SITE_ID", "SHAREPOINT_DRIVE_ID",
+                     "AZURE_CLIENT_SECRET", "SHAREPOINT_SITE_ID", "SHAREPOINT_DRIVE_ID", "SHAREPOINT_ROOT_FOLDER",
                      "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
                      "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL", "API_KEY_SECRET",
                      "CORS_ORIGINS", "SENTRY_DSN", "GCP_PROJECT_ID", "GCP_REGION",
