@@ -257,3 +257,42 @@ async def test_missing_limited_folder_gives_a_clear_error(db, client, monkeypatc
     with pytest.raises(ValueError) as e:
         await importer.plan_import(db, client, sel())
     assert "DoesNotExist" in str(e.value)
+
+
+@pytest.mark.anyio
+async def test_decks_go_to_r2_when_configured_so_the_worker_can_read_them(db, client, monkeypatch):
+    uploaded = {}
+
+    class FakeR2:
+        def upload_bytes(self, key, data, content_type=None):
+            uploaded["key"], uploaded["size"] = key, len(data)
+            return f"https://r2.example/{key}"
+
+    from backend.app.services.storage import r2_storage
+    monkeypatch.setattr(r2_storage, "get_media_storage", lambda: FakeR2())
+    db.add(SharePointFile(id="f2", name="Prelims & Finals 2024.pptx", etag="e1", drive_id="D", sync_status="SELECTED"))
+    db.commit()
+    res = await importer.transfer_next(db, client)
+    assert res["queued"] == 1
+    row = db.query(SharePointFile).filter_by(id="f2").one()
+    assert row.blob_url == "https://r2.example/sharepoint/f2/Prelims_Finals_2024.pptx"      # safe key, public https URL
+    assert uploaded["size"] == len(CONTENT["f2"])
+    assert not row.blob_url.startswith("/static/blobs")                                    # never a path only one container can see
+    job = db.query(IngestionJob).one()
+    assert job.blob_url == row.blob_url and job.filename == "Prelims & Finals 2024.pptx"
+
+
+@pytest.mark.anyio
+async def test_r2_failure_fails_the_file_instead_of_saving_it_locally(db, client, monkeypatch):
+    class BrokenR2:
+        def upload_bytes(self, key, data, content_type=None):
+            raise RuntimeError("R2 down")
+
+    from backend.app.services.storage import r2_storage
+    monkeypatch.setattr(r2_storage, "get_media_storage", lambda: BrokenR2())
+    db.add(SharePointFile(id="f2", name="Prelims.pptx", etag="e1", drive_id="D", sync_status="SELECTED"))
+    db.commit()
+    res = await importer.transfer_next(db, client)
+    assert res["failed"] == 1 and res["queued"] == 0
+    assert db.query(SharePointFile).filter_by(id="f2").one().sync_status == "FAILED"
+    assert db.query(IngestionJob).count() == 0
