@@ -16,8 +16,10 @@ import TableSkeleton from '../../components/TableSkeleton';
 import { Quiz } from '../../lib/types';
 import { getLocalQuizzes, deleteLocalQuiz, syncLocalQuizzesWithServer } from '../../lib/quizStorage';
 import LoadErrorBanner from '../../components/LoadErrorBanner';
+import { useConfirm } from '../../components/ui';
 
 export default function QuizzesLibraryPage() {
+  const confirm = useConfirm();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportingQuiz, setExportingQuiz] = useState<Quiz | null>(null);
@@ -49,7 +51,7 @@ export default function QuizzesLibraryPage() {
   const handleDeleteQuiz = async (quizId: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm('Delete this quiz for everyone? This cannot be undone.')) return;
+    if (!(await confirm({ title: 'Delete this quiz?', message: 'It will be removed for everyone. This cannot be undone.', danger: true }))) return;
     setActionError(null);
     try {
       await api.deleteQuiz(quizId);

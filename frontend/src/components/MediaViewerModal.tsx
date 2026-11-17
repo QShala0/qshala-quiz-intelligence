@@ -15,6 +15,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { HistoricalQuestion } from '../lib/types';
+import { useConfirm } from './ui';
 import { api, resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
 import QuestionImageEditor, {
   ALLOWED_IMAGE_TYPES, DraftImage, MAX_IMAGE_MB, isConnectQuestion, initialDraft, newDraftId,
@@ -29,6 +30,7 @@ interface MediaViewerModalProps {
 }
 
 export default function MediaViewerModal({ question, onClose, startInEditMode = false, onQuestionUpdated }: MediaViewerModalProps) {
+  const confirm = useConfirm();
   const editing = startInEditMode && Boolean(onQuestionUpdated);
   const [draft, setDraft] = useState<DraftImage[]>(() => (editing && question ? initialDraft(question) : []));
   const [saving, setSaving] = useState(false);
@@ -82,8 +84,8 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
     setDraft((prev) => prev.filter((d) => d.id !== item.id));
   };
 
-  const handleCancel = () => {
-    if (isDirty && !window.confirm('Discard your image changes?')) return;
+  const handleCancel = async () => {
+    if (isDirty && !(await confirm({ title: 'Discard your image changes?', message: 'Your edits to the pictures will be lost.', confirmLabel: 'Discard', cancelLabel: 'Keep editing', danger: true }))) return;
     onClose();
   };
 

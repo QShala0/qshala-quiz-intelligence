@@ -17,8 +17,11 @@ import LoadErrorBanner from '../../components/LoadErrorBanner';
 import { DocumentItem, Slide } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
 import { useUpload } from '../../context/UploadContext';
+import { useConfirm, useToast } from '../../components/ui';
 
 export default function UploadPage() {
+  const confirm = useConfirm();
+  const toast = useToast();
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -115,7 +118,7 @@ export default function UploadPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this deck AND all of its questions and slides from the vault? This cannot be undone from the app.')) return;
+    if (!(await confirm({ title: 'Delete this deck?', message: 'The deck AND all of its questions and slides will be removed from the vault. This cannot be undone from the app.', danger: true }))) return;
     setDeleteError(null);
     try {
       await api.deleteDocument(id);
@@ -133,11 +136,11 @@ export default function UploadPage() {
       return ['.pptx', '.ppt', '.pdf'].includes(ext);
     });
     if (validFiles.length === 0) {
-      alert('Please select PowerPoint (.pptx, .ppt) or PDF files.');
+      toast.error('Please select PowerPoint (.pptx, .ppt) or PDF files.');
       return;
     }
     if (validFiles.length > 25) {
-      alert('Only the first 25 files were accepted.');
+      toast.info('Only the first 25 files were accepted.');
     }
     handleMultiFileUpload(validFiles.slice(0, 25));
   };
@@ -239,8 +242,8 @@ export default function UploadPage() {
               {hasActiveItems && (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (confirm('Cancel upload and processing for all unfinished decks in this batch?')) {
+                  onClick={async () => {
+                    if (await confirm({ title: 'Cancel this batch?', message: 'Upload and processing will stop for all unfinished decks in this batch.', confirmLabel: 'Cancel batch', cancelLabel: 'Keep going', danger: true })) {
                       handleCancelBatch();
                     }
                   }}

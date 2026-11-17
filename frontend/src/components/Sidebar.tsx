@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -9,54 +10,66 @@ import {
   FileText,
   UploadCloud,
   Settings,
-  Layers,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
 import { useSidebar } from '../context/SidebarContext';
+import { Logo, QT, useToast } from './ui';
+
+// QT's one-liners: shown when you click the logo while already on the dashboard.
+const QUIPS = [
+  "Meow-ve over, I'm quizzing.",
+  'Curiosity did not kill this cat.',
+  'Paws for thought…',
+  'I have a purr-fect question for you.',
+  'Fur-tunately, the answer is in the vault.',
+  'Ask me anything. Well, mostly quiz things.',
+];
+
+export const NAV_ITEMS = [
+  { label: 'Dashboard', href: '/', icon: Home },
+  { label: 'Questions', href: '/knowledge-base', icon: BookOpen },
+  { label: 'Create Quiz', href: '/generate', icon: Sparkles },
+  { label: 'Generated Quizzes', href: '/quizzes', icon: FileText },
+  { label: 'Uploads', href: '/uploads', icon: UploadCloud },
+  { label: 'Settings', href: '/settings', icon: Settings },
+];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
-
-  const navItems = [
-    { label: 'Dashboard', href: '/', icon: Home },
-    { label: 'Questions', href: '/knowledge-base', icon: BookOpen },
-    { label: 'Create Quiz', href: '/generate', icon: Sparkles },
-    { label: 'Generated Quizzes', href: '/quizzes', icon: FileText },
-    { label: 'Uploads', href: '/uploads', icon: UploadCloud },
-    { label: 'Settings', href: '/settings', icon: Settings },
-  ];
+  const toast = useToast();
+  const quipIndex = useRef(0);
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-slate-200/80 bg-white transition-all duration-300 ease-in-out ${
+      className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r-2 border-ink bg-white transition-all duration-300 ease-in-out ${
         isCollapsed ? 'w-16' : 'w-52'
       }`}
     >
-      {/* Brand Header */}
+      {/* Brand header */}
       <div className={`flex h-16 items-center ${isCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}>
         <Link
           href="/"
-          className={`flex items-center gap-2.5 group overflow-hidden ${isCollapsed ? 'justify-center' : ''}`}
-          title="QShala AI"
+          className="overflow-hidden"
+          title="QShala"
+          aria-label="QShala home"
+          onClick={(e) => {
+            // Already home? Let QT say something instead of a no-op navigation.
+            if (pathname === '/') {
+              e.preventDefault();
+              toast.info(QUIPS[quipIndex.current++ % QUIPS.length]);
+            }
+          }}
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-500/20 group-hover:bg-blue-700 transition-colors">
-            <Layers className="h-4.5 w-4.5" />
-          </div>
-          {!isCollapsed && (
-            <span className="text-[14.5px] font-bold tracking-tight text-slate-900 whitespace-nowrap transition-opacity duration-200">
-              QSHALA AI
-            </span>
-          )}
+          <Logo collapsed={isCollapsed} />
         </Link>
 
-        {/* Toggle Collapse Button in Header */}
         {!isCollapsed && (
           <button
             onClick={toggleSidebar}
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/45 transition-colors hover:bg-sun-50 hover:text-ink"
             title="Collapse sidebar (Ctrl+B)"
             aria-label="Collapse sidebar"
           >
@@ -65,33 +78,30 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* Navigation Links */}
-      <nav className={`flex-1 space-y-1 py-4 ${isCollapsed ? 'px-2' : 'px-2.5'}`}>
-        {navItems.map((item) => {
+      {/* Navigation */}
+      <nav className={`flex-1 space-y-1.5 py-4 ${isCollapsed ? 'px-2' : 'px-3'}`} aria-label="Main">
+        {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive =
-            item.href === '/'
-              ? pathname === '/'
-              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            item.href === '/' ? pathname === '/' : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
           return (
             <Link
               key={item.href}
               href={item.href}
               title={isCollapsed ? item.label : undefined}
-              className={`flex items-center rounded-lg transition-all ${
-                isCollapsed
-                  ? 'justify-center h-10 w-full px-0'
-                  : 'gap-2.5 px-3 py-2 text-[13px] whitespace-nowrap'
+              aria-current={isActive ? 'page' : undefined}
+              className={`group flex items-center rounded-pill border-2 transition-all ${
+                isCollapsed ? 'h-10 w-full justify-center px-0' : 'gap-2.5 px-3 py-2 text-[13.5px] whitespace-nowrap'
               } ${
                 isActive
-                  ? 'bg-blue-50/90 text-blue-600 font-semibold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'
+                  ? 'border-ink bg-sun font-bold text-ink shadow-sticker-sm'
+                  : 'border-transparent font-semibold text-ink/70 hover:border-ink/15 hover:bg-sun-50 hover:text-ink'
               }`}
             >
               <Icon
-                className={`h-4 w-4 shrink-0 ${
-                  isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
+                className={`h-4 w-4 shrink-0 transition-transform group-hover:animate-wiggle ${
+                  isActive ? 'text-ink' : 'text-ink/50 group-hover:text-ink'
                 }`}
               />
               {!isCollapsed && <span className="truncate">{item.label}</span>}
@@ -100,35 +110,29 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Toggle Expand Button when Collapsed */}
       {isCollapsed && (
         <div className="flex justify-center pb-2">
           <button
             onClick={toggleSidebar}
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/45 transition-colors hover:bg-sun-50 hover:text-ink"
             title="Expand sidebar (Ctrl+B)"
             aria-label="Expand sidebar"
           >
-            <PanelLeftOpen className="h-4.5 w-4.5" />
+            <PanelLeftOpen className="h-4 w-4" />
           </button>
         </div>
       )}
 
-      {/* Bottom Subtle Metadata */}
-      <div className={`border-t border-slate-100 ${isCollapsed ? 'p-2 text-center' : 'p-4'}`}>
-        {isCollapsed ? (
-          <div
-            className="text-[10px] font-bold text-slate-400 py-1 cursor-default"
-            title="QShala Intelligent Questions Repository"
-          >
-            QI
-          </div>
-        ) : (
-          <div className="text-[11.5px] leading-snug text-slate-400 font-medium">
-            QShala Intelligent<br />
-            <span className="text-slate-500 font-normal">Questions Repository</span>
-          </div>
+      {/* Footer: a sleepy QT and the tagline */}
+      <div className={`border-t-2 border-ink/10 ${isCollapsed ? 'flex justify-center p-2' : 'flex items-end gap-2 px-4 py-3'}`}>
+        <QT pose="sleepy" height={isCollapsed ? 24 : 38} motion="breathe" />
+        {!isCollapsed && (
+          <p className="pb-0.5 text-[11px] font-bold leading-tight text-ink/60">
+            Questions<br />
+            Quriosity<br />
+            Quests
+          </p>
         )}
       </div>
     </aside>

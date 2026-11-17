@@ -25,11 +25,14 @@ import { getLocalQuiz, saveLocalQuiz } from '../../../lib/quizStorage';
 import QuestionCard from '../../../components/QuestionCard';
 import SlideViewerModal from '../../../components/SlideViewerModal';
 import LoadErrorBanner from '../../../components/LoadErrorBanner';
+import { useConfirm, useToast } from '../../../components/ui';
 import type { PresenterQuestion } from '../../../components/StagePresenter';
 
 const StagePresenter = dynamic(() => import('../../../components/StagePresenter'), { ssr: false });
 
 export default function QuizReviewStudioPage() {
+  const confirm = useConfirm();
+  const toast = useToast();
   const params = useParams();
   const quizId = params.id as string;
 
@@ -126,12 +129,12 @@ export default function QuizReviewStudioPage() {
       }
     } catch (e: any) {
       console.error(e);
-      alert(e.message || 'Action failed');
+      toast.error(e.message || 'Action failed');
     }
   };
 
   const handleDeleteQuestion = async (qId: string) => {
-    if (!confirm('Remove this question from the quiz for everyone?')) return;
+    if (!(await confirm({ title: 'Remove this question?', message: 'It will be removed from the quiz for everyone.', confirmLabel: 'Remove', danger: true }))) return;
     setSaveError(null);
     try {
       await api.deleteQuestion(qId);
