@@ -5,7 +5,7 @@ Flow
                      IN_PROGRESS, POSSIBLE_DUPLICATE) and report counts. Nothing is written.
   stage_import()     same, then mark the wanted files SELECTED (one batch). Nothing is downloaded yet.
   transfer_next()    take a few SELECTED files, download them (size-capped), skip byte-identical decks that are already in
-                     QShala, store the rest in blob storage and create the same IngestionJob the delta sync creates.
+                     QShala, and hand the rest to the normal upload pipeline (a Document, the raw deck in R2, a queued upload job).
                      Short, repeatable calls: the browser (or a scheduler) calls it until nothing remains, so no single web
                      request has to move a whole library and a crash never loses the queue.
 """
@@ -28,7 +28,6 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import settings
 from backend.app.models.document import Document
-from backend.app.models.job import IngestionJob
 from backend.app.models.sharepoint import SharePointFile
 from backend.app.services.storage import r2_storage
 
@@ -183,6 +182,13 @@ def classify(db: Session, cands: List[Dict[str, Any]]) -> None:
         for d in db.query(Document).filter(func.lower(Document.filename).in_(part)).all():
             docs_by_name.setdefault((d.filename or "").lower(), []).append(d)
 
+    # the deck a previous import created (newest first), so a failed or deleted import can be done again
+    latest_doc: Dict[str, Document] = {}
+    for part in _chunks(ids):
+        for d in (db.query(Document).filter(Document.sharepoint_file_id.in_(part))
+                  .order_by(Document.uploaded_at.asc()).all()):
+            latest_doc[d.sharepoint_file_id] = d
+
     for c in cands:
         t = tracked.get(c["id"])
         c["match_document_id"] = None
@@ -191,7 +197,16 @@ def classify(db: Session, cands: List[Dict[str, Any]]) -> None:
             if t.sync_status in ("SELECTED", "TRANSFERRING") and same:
                 c["status"] = "IN_PROGRESS"
                 continue
-            if t.sync_status in _DONE:
+            if t.sync_status in ("QUEUED", "COMPLETED"):
+                doc = latest_doc.get(c["id"])
+                if doc is None:
+                    c["status"] = "NEW"                      # its deck was deleted: import it again
+                elif doc.processing_status == "FAILED":
+                    c["status"] = "RETRY"
+                else:
+                    c["status"] = "ALREADY_IMPORTED" if same else "CHANGED"
+                continue
+            if t.sync_status == "SKIPPED_DUPLICATE":
                 c["status"] = "ALREADY_IMPORTED" if same else "CHANGED"
                 continue
             if t.sync_status == "FAILED":
@@ -323,35 +338,36 @@ async def stage_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
 
 # ------------------------------------------------------------------------------------------------ transfer
 
-def _enqueue_job(db: Session, row: SharePointFile, blob_url: str) -> str:
-    existing = db.query(IngestionJob).filter(
-        IngestionJob.source_file_id == row.id, IngestionJob.status.in_(["PENDING", "PROCESSING"])).first()
-    if existing:
-        existing.blob_url = blob_url
-        existing.filename = row.name
-        existing.current_step = "DOWNLOAD"
-        existing.status = "PENDING"
-        existing.retry_count = 0
-        existing.error_message = None
-        return existing.id
-    job = IngestionJob(source_type="SHAREPOINT", source_file_id=row.id, filename=row.name, blob_url=blob_url,
-                       status="PENDING", current_step="DOWNLOAD", step_data={"sharepoint_item_id": row.id})
-    db.add(job)
-    db.flush()
-    return job.id
+async def _hand_off_to_pipeline(db: Session, row: SharePointFile, data: bytes, sha: str) -> Dict[str, Optional[str]]:
+    """Hand a downloaded deck to the SAME ingestion path a manual upload uses: a Document row, the raw deck staged in R2 where
+    the Cloud Run worker fetches it (raw-uploads/<document id><ext>), and a queued upload job. Progress then shows on the
+    Uploads page like any other deck. R2 trouble raises, so the file is marked FAILED, never saved where the worker cannot see it."""
+    from backend.app.services.ingestion import upload_queue
+    ext = Path(row.name or "").suffix.lower()
+    doc_id = str(uuid.uuid4())
+    storage_path = str(settings.UPLOAD_DIR / f"{doc_id}{ext}")
+    cloud_worker = settings.INGESTION_MODE == "cloud_run_job"
 
-
-async def _store_deck(client, row: SharePointFile, data: bytes) -> str:
-    """Put the downloaded deck where the ingestion worker (a different container) can read it: R2 when configured, which is
-    how production runs. Only without R2 (local development) does it fall back to local blob storage. An R2 failure is
-    raised, never silently turned into a local file that the worker could not see."""
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", row.name or "deck")
-    key = f"sharepoint/{row.id}/{safe}"
+    raw_url: Optional[str] = None
     r2 = r2_storage.get_media_storage()
     if r2 is not None:
-        return await asyncio.to_thread(r2.upload_bytes, key, data)
-    blob = await client.blob_service.put(pathname=key, data=data)
-    return blob["url"]
+        raw_url = await asyncio.to_thread(r2.upload_bytes, f"raw-uploads/{doc_id}{ext}", data)
+    elif cloud_worker:
+        raise RuntimeError("R2 storage must be configured so the ingestion worker can read the deck")
+    if not cloud_worker:                       # in-process ingestion reads the deck from local disk
+        Path(storage_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(storage_path).write_bytes(data)
+
+    doc = Document(
+        id=doc_id, filename=row.name, title=Path(row.name).stem.replace("_", " ").title(),
+        year=datetime.now(timezone.utc).year, file_type=ext.lstrip("."), storage_path=storage_path, blob_url=raw_url,
+        source="SHAREPOINT", sharepoint_file_id=row.id, file_size_bytes=len(data), file_sha256=sha,
+        processing_status="PROCESSING",
+    )
+    db.add(doc)
+    db.commit()
+    job = upload_queue.enqueue_upload(db, document_id=doc_id, filename=row.name)
+    return {"document_id": doc_id, "job_id": job.id, "raw_url": raw_url}
 
 
 def _remaining(db: Session, batch_id: Optional[str]) -> int:
@@ -376,7 +392,7 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
         q = q.filter(SharePointFile.batch_id == batch_id)
     rows = q.order_by(SharePointFile.selected_at, SharePointFile.id).limit(limit).all()
 
-    out = {"queued": 0, "skipped_duplicate": 0, "failed": 0, "job_ids": []}
+    out = {"queued": 0, "skipped_duplicate": 0, "failed": 0, "job_ids": [], "document_ids": []}
     for row in rows:
         claimed = db.query(SharePointFile).filter(
             SharePointFile.id == row.id, SharePointFile.sync_status == "SELECTED"
@@ -396,11 +412,12 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
                 row.error_message = f"Identical file already in QShala as “{twin.title or twin.filename}”"
                 out["skipped_duplicate"] += 1
             else:
-                blob_url = await _store_deck(client, row, data)
-                row.blob_url = blob_url
+                handoff = await _hand_off_to_pipeline(db, row, data, sha)
+                row.blob_url = handoff["raw_url"]
                 row.sync_status = "QUEUED"
                 row.error_message = None
-                out["job_ids"].append(_enqueue_job(db, row, blob_url))
+                out["job_ids"].append(handoff["job_id"])
+                out["document_ids"].append(handoff["document_id"])
                 out["queued"] += 1
             db.commit()
         except httpx.HTTPStatusError as e:

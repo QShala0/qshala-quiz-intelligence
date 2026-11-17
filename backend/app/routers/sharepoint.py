@@ -250,15 +250,21 @@ async def sharepoint_import(sel: importer.Selection, db: Session = Depends(get_d
 
 @router.post("/transfer-next")
 async def sharepoint_transfer_next(
+    background_tasks: BackgroundTasks,
     limit: int = Query(3, ge=1, le=10),
     batch_id: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    """Download and queue up to `limit` selected files. Call repeatedly until `remaining` is 0."""
+    """Download and queue up to `limit` selected files. Call repeatedly until `remaining` is 0. Queued decks are
+    processed by the normal ingestion worker, exactly like manual uploads."""
     try:
-        return await importer.transfer_next(db, get_sharepoint_client(), limit=limit, batch_id=batch_id)
+        res = await importer.transfer_next(db, get_sharepoint_client(), limit=limit, batch_id=batch_id)
     except Exception as e:
         raise _graph_error(e)
+    if res.get("queued"):
+        from backend.app.services.ingestion import upload_queue
+        background_tasks.add_task(upload_queue.dispatch_available)
+    return res
 
 
 @router.get("/import-status")

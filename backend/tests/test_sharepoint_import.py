@@ -15,7 +15,7 @@ from backend.app.services.storage.blob_storage import VercelBlobService
 
 BASE = "https://graph.microsoft.com/v1.0"
 TOKEN_URL = "https://login.microsoftonline.com/t/oauth2/v2.0/token"
-CONTENT = {"f1": b"deck one bytes", "f2": b"deck two bytes", "f3": b"deck three bytes"}
+CONTENT = {"f1": b"deck one bytes", "f2": b"deck two bytes", "f3": b"deck three bytes", "f4": b"deck four bytes"}
 
 
 def _file(item_id, name, size=100, etag="e1", path="/drives/D/root:/2024"):
@@ -35,7 +35,7 @@ TREE = {
         _file("t1", "~$Prelims.pptx"),
         {"id": "fold2", "name": "Archive", "folder": {"childCount": 1}, "parentReference": {"path": "/drives/D/root:/2024"}},
     ]},
-    "fold2": {"value": [_file("f4", "Old.pptx", 50, path="/drives/D/root:/2024/Archive")]},
+    "fold2": {"value": [_file("f4", "Old.pptx", len(CONTENT["f4"]), path="/drives/D/root:/2024/Archive")]},
 }
 
 
@@ -75,6 +75,13 @@ def db():
     s = sessionmaker(bind=engine)()
     yield s
     s.close()
+
+
+@pytest.fixture(autouse=True)
+def upload_dir(tmp_path, monkeypatch):
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(settings, "INGESTION_MODE", "in_process")
 
 
 @pytest.fixture
@@ -137,6 +144,9 @@ async def test_specific_files_and_exclusions(db, client):
 async def test_classification_already_imported_changed_and_possible_duplicate(db, client):
     db.add(SharePointFile(id="f1", name="Finals.pptx", etag="e1", sync_status="COMPLETED"))      # same etag: done
     db.add(SharePointFile(id="f2", name="Prelims.pptx", etag="OLD", sync_status="COMPLETED"))    # etag moved: changed
+    for fid, name in (("f1", "Finals.pptx"), ("f2", "Prelims.pptx")):                              # their decks exist
+        db.add(Document(id=f"doc-{fid}", filename=name, title=name, file_type="pptx", storage_path="x",
+                        sharepoint_file_id=fid, processing_status="COMPLETED"))
     db.add(Document(id="d1", filename="Semis.pdf", title="Semis", file_type="pdf", storage_path="x",
                     file_size_bytes=len(CONTENT["f3"])))                                          # uploaded by hand
     db.commit()
@@ -163,10 +173,16 @@ async def test_stage_then_transfer_creates_jobs_in_small_steps(db, client):
     second = await importer.transfer_next(db, client, limit=2, batch_id=staged["batch_id"])
     assert second["remaining"] == 0
     jobs = db.query(IngestionJob).all()
-    assert len(jobs) >= 2
-    assert all(j.status == "PENDING" and j.current_step == "DOWNLOAD" and j.source_type == "SHAREPOINT" and j.blob_url for j in jobs)
+    assert len(jobs) == 3
+    # the normal upload pipeline's job: queued, tied to a Document, no SharePoint-only state machine
+    assert all(j.status == "PENDING" and j.current_step == "QUEUED" and j.source_type == "MANUAL_UPLOAD" and j.document_id for j in jobs)
+    docs = {d.sharepoint_file_id: d for d in db.query(Document).all()}
+    assert set(docs) == {"f2", "f3", "f4"}
+    d2 = docs["f2"]
+    assert d2.source == "SHAREPOINT" and d2.filename == "Prelims.pptx" and d2.processing_status == "QUEUED"
+    assert d2.file_sha256 == hashlib.sha256(CONTENT["f2"]).hexdigest() and d2.file_size_bytes == len(CONTENT["f2"])
     row = db.query(SharePointFile).filter_by(id="f2").one()
-    assert row.sync_status == "QUEUED" and row.file_sha256 == hashlib.sha256(CONTENT["f2"]).hexdigest()
+    assert row.sync_status == "QUEUED"
 
 
 @pytest.mark.anyio
@@ -179,7 +195,7 @@ async def test_identical_deck_already_in_qshala_is_skipped_not_reimported(db, cl
     assert res["skipped_duplicate"] == 1 and res["queued"] == 0
     row = db.query(SharePointFile).filter_by(id="f2").one()
     assert row.sync_status == "SKIPPED_DUPLICATE" and row.match_document_id == "d2"
-    assert db.query(IngestionJob).count() == 0
+    assert db.query(IngestionJob).count() == 0 and db.query(Document).filter_by(source="SHAREPOINT").count() == 0
 
 
 @pytest.mark.anyio
@@ -260,7 +276,10 @@ async def test_missing_limited_folder_gives_a_clear_error(db, client, monkeypatc
 
 
 @pytest.mark.anyio
-async def test_decks_go_to_r2_when_configured_so_the_worker_can_read_them(db, client, monkeypatch):
+async def test_deck_is_staged_in_r2_for_the_worker_exactly_like_a_manual_upload(db, client, monkeypatch, tmp_path):
+    from backend.app.config import settings
+    from backend.app.services.storage import r2_storage
+    monkeypatch.setattr(settings, "INGESTION_MODE", "cloud_run_job")
     uploaded = {}
 
     class FakeR2:
@@ -268,31 +287,61 @@ async def test_decks_go_to_r2_when_configured_so_the_worker_can_read_them(db, cl
             uploaded["key"], uploaded["size"] = key, len(data)
             return f"https://r2.example/{key}"
 
-    from backend.app.services.storage import r2_storage
     monkeypatch.setattr(r2_storage, "get_media_storage", lambda: FakeR2())
     db.add(SharePointFile(id="f2", name="Prelims & Finals 2024.pptx", etag="e1", drive_id="D", sync_status="SELECTED"))
     db.commit()
     res = await importer.transfer_next(db, client)
-    assert res["queued"] == 1
-    row = db.query(SharePointFile).filter_by(id="f2").one()
-    assert row.blob_url == "https://r2.example/sharepoint/f2/Prelims_Finals_2024.pptx"      # safe key, public https URL
+    assert res["queued"] == 1 and len(res["document_ids"]) == 1
+    doc = db.query(Document).one()
+    assert uploaded["key"] == f"raw-uploads/{doc.id}.pptx"                 # the key worker.py derives from the document
     assert uploaded["size"] == len(CONTENT["f2"])
-    assert not row.blob_url.startswith("/static/blobs")                                    # never a path only one container can see
+    assert doc.filename == "Prelims & Finals 2024.pptx" and doc.source == "SHAREPOINT" and doc.sharepoint_file_id == "f2"
+    assert not (tmp_path / "uploads").exists()                              # nothing left on the API instance's disk
     job = db.query(IngestionJob).one()
-    assert job.blob_url == row.blob_url and job.filename == "Prelims & Finals 2024.pptx"
+    assert job.document_id == doc.id and job.source_type == "MANUAL_UPLOAD" and job.status == "PENDING"
+    assert db.query(SharePointFile).filter_by(id="f2").one().blob_url == f"https://r2.example/raw-uploads/{doc.id}.pptx"
 
 
 @pytest.mark.anyio
-async def test_r2_failure_fails_the_file_instead_of_saving_it_locally(db, client, monkeypatch):
+async def test_r2_failure_fails_the_file_and_creates_nothing(db, client, monkeypatch):
+    from backend.app.config import settings
+    from backend.app.services.storage import r2_storage
+    monkeypatch.setattr(settings, "INGESTION_MODE", "cloud_run_job")
+
     class BrokenR2:
         def upload_bytes(self, key, data, content_type=None):
             raise RuntimeError("R2 down")
 
-    from backend.app.services.storage import r2_storage
     monkeypatch.setattr(r2_storage, "get_media_storage", lambda: BrokenR2())
     db.add(SharePointFile(id="f2", name="Prelims.pptx", etag="e1", drive_id="D", sync_status="SELECTED"))
     db.commit()
     res = await importer.transfer_next(db, client)
     assert res["failed"] == 1 and res["queued"] == 0
     assert db.query(SharePointFile).filter_by(id="f2").one().sync_status == "FAILED"
-    assert db.query(IngestionJob).count() == 0
+    assert db.query(IngestionJob).count() == 0 and db.query(Document).count() == 0
+
+
+@pytest.mark.anyio
+async def test_cloud_worker_mode_without_r2_fails_clearly(db, client, monkeypatch):
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "INGESTION_MODE", "cloud_run_job")
+    db.add(SharePointFile(id="f2", name="Prelims.pptx", etag="e1", drive_id="D", sync_status="SELECTED"))
+    db.commit()
+    res = await importer.transfer_next(db, client)
+    assert res["failed"] == 1
+    assert "R2" in db.query(SharePointFile).filter_by(id="f2").one().error_message
+
+
+@pytest.mark.anyio
+async def test_failed_or_deleted_imports_can_be_done_again(db, client):
+    # f1: queued earlier but its deck failed -> RETRY;  f2: queued earlier but the deck was deleted -> NEW;  f3: fine -> already imported
+    for fid, name in (("f1", "Finals.pptx"), ("f2", "Prelims.pptx"), ("f3", "Semis.pdf")):
+        db.add(SharePointFile(id=fid, name=name, etag="e1", sync_status="QUEUED"))
+    db.add(Document(id="d1", filename="Finals.pptx", title="F", file_type="pptx", storage_path="x", sharepoint_file_id="f1", processing_status="FAILED"))
+    db.add(Document(id="d3", filename="Semis.pdf", title="S", file_type="pdf", storage_path="x", sharepoint_file_id="f3", processing_status="COMPLETED"))
+    db.commit()
+    plan = await importer.plan_import(db, client, sel())
+    status = {f["name"]: f["status"] for f in plan["files"]}
+    assert status["Finals.pptx"] == "RETRY"
+    assert status["Prelims.pptx"] == "NEW"
+    assert status["Semis.pdf"] == "ALREADY_IMPORTED"
