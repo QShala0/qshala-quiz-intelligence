@@ -9,6 +9,7 @@ import BankPickerDrawer from '../../components/BankPickerDrawer';
 import SourceMultiPicker, { summarizeSelectedSources } from '../../components/SourceMultiPicker';
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
+import QCat, { PawIcon } from '../../components/mascot/QCat';
 
 type DraftQ = {
   id: string;
@@ -130,6 +131,19 @@ export default function QuizzerHome() {
   const [saving, setSaving] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
   const [bankOpen, setBankOpen] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+
+  // Mascot celebration when draft completes
+  const prevDraftRef = useRef<Draft | null>(null);
+  useEffect(() => {
+    if (draft && !prevDraftRef.current) {
+      setShowCelebration(true);
+      const timer = setTimeout(() => setShowCelebration(false), 3500);
+      return () => clearTimeout(timer);
+    }
+    prevDraftRef.current = draft;
+  }, [draft]);
 
   // Brief chips state
   const [editCount, setEditCount] = useState<number>(10);
@@ -470,15 +484,39 @@ export default function QuizzerHome() {
   return (
     <div className="min-h-[calc(100vh-4rem)] px-5 pb-24">
       <div className={`mx-auto max-w-2xl transition-all ${draft ? 'pt-8' : 'pt-[16vh]'}`}>
-        <h1 className="text-center font-serif text-[34px] sm:text-[42px] leading-tight tracking-tight text-slate-900" style={{ fontFamily: 'var(--font-fraunces), ui-serif, Georgia, Cambria, serif' }}>
-          {greeting}
-        </h1>
+        <div className="flex items-center justify-center gap-3">
+          <h1 className="text-center font-serif text-[34px] sm:text-[42px] leading-tight tracking-tight text-slate-900" style={{ fontFamily: 'var(--font-fraunces), ui-serif, Georgia, Cambria, serif' }}>
+            {greeting}
+          </h1>
+          {draft && (
+            <div className="shrink-0 transition-transform duration-300">
+              <QCat
+                pose={showCelebration ? 'happy' : 'idle'}
+                size={46}
+                alt="QShala cat mascot"
+              />
+            </div>
+          )}
+        </div>
 
-        <div className="mt-8 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
+        <div className="relative mt-8 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
+          {/* While idle or typing: QCat peeks curiously over top-right edge */}
+          {!draft && !loading && (
+            <div className="absolute -top-11 right-6 pointer-events-none select-none z-10 transition-transform duration-200">
+              <QCat
+                pose="peek"
+                size={54}
+                lookingAtText={isFocused || prompt.length > 0}
+                alt="QShala cat companion peeking"
+              />
+            </div>
+          )}
           <textarea
             ref={area}
             value={prompt}
             rows={2}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); } }}
             placeholder={ph}
@@ -515,11 +553,33 @@ export default function QuizzerHome() {
         )}
 
         {loading && (
-          <div className="mt-8 text-center text-[14px] text-slate-500" role="status" aria-live="polite">
-            <span className="inline-block animate-pulse">{STAGES[stage]}…</span>
+          <div className="mt-8 flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
+            <div className="relative mb-2">
+              <QCat pose="think" size={68} alt="QShala cat thinking" />
+            </div>
+            {/* Stage paw-prints 1..6 */}
+            <div className="flex items-center gap-2.5 mb-2.5">
+              {STAGES.map((sName, i) => (
+                <span
+                  key={sName}
+                  title={`${i + 1}. ${sName}`}
+                  className={`inline-flex items-center justify-center transition-all duration-300 ${
+                    stage >= i ? 'text-amber-500 scale-110 opacity-100' : 'text-slate-300 opacity-40 scale-95'
+                  }`}
+                >
+                  <PawIcon className="w-4 h-4" />
+                </span>
+              ))}
+            </div>
+            <span className="text-[14px] font-medium text-slate-700 animate-pulse">{STAGES[stage]}…</span>
           </div>
         )}
-        {error && <p className="mt-6 text-center text-[14px] text-red-600" role="alert">{error}</p>}
+        {error && (
+          <div className="mt-6 flex flex-col items-center justify-center text-center">
+            <QCat pose="sleep" size={48} className="mb-2 opacity-80" alt="Curled up sleepy cat" />
+            <p className="text-[14px] text-red-600 font-medium" role="alert">{error}</p>
+          </div>
+        )}
 
         {/* Brief chips + Framing sentence / Short note */}
         {draft && (
