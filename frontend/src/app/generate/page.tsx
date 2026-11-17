@@ -10,6 +10,7 @@ import SourceMultiPicker, { summarizeSelectedSources } from '../../components/So
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
 import QT, { PawIcon } from '../../components/ui/QT';
+import YarnPlayCat from '../../components/mascot/YarnPlayCat';
 
 type DraftQ = {
   id: string;
@@ -513,28 +514,24 @@ export default function QuizzerHome() {
           )}
         </div>
 
-        <div className="relative mt-14 sm:mt-16 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
-          {/* While idle or typing: QT playing with the ball (yarn-mat.webp) perched along top border */}
+        <div className="relative mt-20 sm:mt-24 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
+          {/* While idle or typing: Prominent animator-choreographed Cat playing with green yarn ball */}
           {!draft && !loading && (
-            <div
-              className={`absolute -top-11 sm:-top-12 right-6 sm:right-8 z-10 select-none transition-transform duration-300 ${
-                isFocused || prompt.length > 0 ? '-translate-y-1 rotate-[-3deg]' : ''
-              }`}
-            >
-              <QT
-                pose="yarn-mat"
-                height={50}
+            <div className="absolute -top-[68px] right-6 sm:right-8 z-10 select-none">
+              <YarnPlayCat
+                height={76}
+                active={isFocused || prompt.length > 0}
                 interactive={true}
-                motion="play"
                 speechBubble={[
                   'Batting around quiz ideas!',
+                  'Swat! High bounce!',
                   'Feed me a quiz prompt!',
                   'Purr-fect question incoming...',
                   'Try: "Grade 6 Space & Solar System quiz"',
                   'Ask me anything!',
                 ]}
                 bubblePosition="top"
-                alt="QT playing with green ball of yarn"
+                alt="QT playing and batting the green yarn ball"
               />
             </div>
           )}
