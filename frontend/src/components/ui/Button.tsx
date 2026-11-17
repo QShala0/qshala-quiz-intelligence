@@ -14,11 +14,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 // Yellow only ever carries black text (white-on-yellow fails contrast).
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-sun text-ink border-2 border-ink shadow-sticker-sm hover:bg-sun-200',
-  secondary: 'bg-sky text-ink border-2 border-ink shadow-sticker-sm hover:bg-sky-200',
-  success: 'bg-leaf text-ink border-2 border-ink shadow-sticker-sm hover:bg-leaf-100',
-  danger: 'bg-berry text-white border-2 border-ink shadow-sticker-sm hover:brightness-95',
-  ghost: 'bg-transparent text-ink border-2 border-transparent hover:bg-sun-50 hover:border-ink/15',
+  primary: 'bg-slate-900 text-white border-2 border-slate-900 shadow-sticker-sm hover:bg-slate-800',
+  secondary: 'bg-white text-slate-800 border-2 border-slate-300 shadow-sticker-sm hover:bg-amber-50 hover:border-slate-800',
+  success: 'bg-emerald-600 text-white border-2 border-slate-900 shadow-sticker-sm hover:bg-emerald-700',
+  danger: 'bg-red-600 text-white border-2 border-slate-900 shadow-sticker-sm hover:bg-red-700',
+  ghost: 'bg-transparent text-slate-800 border-2 border-transparent hover:bg-amber-50 hover:border-slate-900/15',
 };
 
 const SIZES: Record<Size, string> = {

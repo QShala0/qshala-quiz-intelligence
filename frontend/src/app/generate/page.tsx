@@ -474,7 +474,7 @@ export default function QuizzerHome() {
           {greeting}
         </h1>
 
-        <div className="mt-8 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-slate-400 focus-within:shadow-md transition">
+        <div className="mt-8 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
           <textarea
             ref={area}
             value={prompt}
@@ -1051,7 +1051,7 @@ export default function QuizzerHome() {
           <button
             type="button"
             onClick={() => setBankOpen(true)}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white py-3 text-[14px] font-medium text-slate-600 transition hover:border-blue-400 hover:bg-blue-50/40 hover:text-blue-700 cursor-pointer"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white py-3 text-[14px] font-medium text-slate-600 transition hover:border-amber-400 hover:bg-amber-50/50 hover:text-slate-900 cursor-pointer"
           >
             <Plus size={16} /> Add question from bank
           </button>

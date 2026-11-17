@@ -43,7 +43,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r-2 border-ink bg-white transition-all duration-300 ease-in-out ${
+      className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out ${
         isCollapsed ? 'w-16' : 'w-52'
       }`}
     >
@@ -69,7 +69,7 @@ export default function Sidebar() {
           <button
             onClick={toggleSidebar}
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/45 transition-colors hover:bg-sun-50 hover:text-ink"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-amber-100/50 hover:text-slate-900"
             title="Collapse sidebar (Ctrl+B)"
             aria-label="Collapse sidebar"
           >
@@ -79,7 +79,7 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className={`flex-1 space-y-1.5 py-4 ${isCollapsed ? 'px-2' : 'px-3'}`} aria-label="Main">
+      <nav className={`flex-1 space-y-1 py-4 ${isCollapsed ? 'px-2' : 'px-3'}`} aria-label="Main">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive =
@@ -91,17 +91,17 @@ export default function Sidebar() {
               href={item.href}
               title={isCollapsed ? item.label : undefined}
               aria-current={isActive ? 'page' : undefined}
-              className={`group flex items-center rounded-pill border-2 transition-all ${
+              className={`group flex items-center rounded-xl border transition-all ${
                 isCollapsed ? 'h-10 w-full justify-center px-0' : 'gap-2.5 px-3 py-2 text-[13.5px] whitespace-nowrap'
               } ${
                 isActive
-                  ? 'border-ink bg-sun font-bold text-ink shadow-sticker-sm'
-                  : 'border-transparent font-semibold text-ink/70 hover:border-ink/15 hover:bg-sun-50 hover:text-ink'
+                  ? 'border-amber-400 bg-amber-100/70 font-bold text-slate-900 shadow-xs'
+                  : 'border-transparent font-medium text-slate-700 hover:bg-amber-50 hover:text-slate-900'
               }`}
             >
               <Icon
-                className={`h-4 w-4 shrink-0 transition-transform group-hover:animate-wiggle ${
-                  isActive ? 'text-ink' : 'text-ink/50 group-hover:text-ink'
+                className={`h-4 w-4 shrink-0 transition-transform group-hover:scale-105 ${
+                  isActive ? 'text-slate-900' : 'text-slate-500 group-hover:text-slate-900'
                 }`}
               />
               {!isCollapsed && <span className="truncate">{item.label}</span>}
@@ -115,7 +115,7 @@ export default function Sidebar() {
           <button
             onClick={toggleSidebar}
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/45 transition-colors hover:bg-sun-50 hover:text-ink"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-amber-100/50 hover:text-slate-900"
             title="Expand sidebar (Ctrl+B)"
             aria-label="Expand sidebar"
           >
@@ -125,10 +125,10 @@ export default function Sidebar() {
       )}
 
       {/* Footer: a sleepy QT and the tagline */}
-      <div className={`border-t-2 border-ink/10 ${isCollapsed ? 'flex justify-center p-2' : 'flex items-end gap-2 px-4 py-3'}`}>
+      <div className={`border-t border-slate-200 ${isCollapsed ? 'flex justify-center p-2' : 'flex items-end gap-2 px-4 py-3'}`}>
         <QT pose="sleepy" height={isCollapsed ? 24 : 38} motion="breathe" />
         {!isCollapsed && (
-          <p className="pb-0.5 text-[11px] font-bold leading-tight text-ink/60">
+          <p className="pb-0.5 text-[11px] font-bold leading-tight text-slate-500">
             Questions<br />
             Quriosity<br />
             Quests

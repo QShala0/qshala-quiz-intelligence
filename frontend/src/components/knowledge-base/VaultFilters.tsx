@@ -82,7 +82,7 @@ export default function VaultFilters({
 
         <button
           type="submit"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors cursor-pointer"
+          className="rounded-lg bg-slate-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-slate-800 transition-colors cursor-pointer"
         >
           Search
         </button>
@@ -98,7 +98,7 @@ export default function VaultFilters({
             aria-checked={matchMode === val}
             onClick={() => setMatchMode(val)}
             className={`rounded-full border px-2.5 py-0.5 font-semibold transition-colors cursor-pointer ${
-              matchMode === val ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              matchMode === val ? 'border-amber-400 bg-amber-50 text-slate-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
             }`}
           >
             {label}

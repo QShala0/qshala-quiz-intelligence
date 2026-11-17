@@ -250,9 +250,9 @@ export default function QuizReviewStudioPage() {
                 setCurrentSlideIndex(0);
                 setIsPresenting(true);
               }}
-              className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-[13px] font-semibold text-slate-800 hover:bg-slate-100 transition-colors shadow-xs cursor-pointer"
             >
-              <Play className="h-3.5 w-3.5 fill-current" />
+              <Play className="h-3.5 w-3.5 text-emerald-600 fill-current" />
               <span>Present Slide Deck</span>
             </button>
           )}
@@ -260,7 +260,7 @@ export default function QuizReviewStudioPage() {
           {approvedQuestions.length > 0 && (
             <button
               onClick={() => setIsStageOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer"
+              className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
             >
               <Presentation className="h-3.5 w-3.5" />
               <span>Present Live</span>
@@ -270,7 +270,7 @@ export default function QuizReviewStudioPage() {
           <button
             onClick={() => setIsExportModalOpen(true)}
             disabled={!!isExporting}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-60 cursor-pointer"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-[13px] font-semibold text-slate-800 hover:bg-slate-100 transition-colors shadow-xs disabled:opacity-60 cursor-pointer"
             title="Download authentic QShala tournament presentation deck"
           >
             {isExporting === 'pptx' ? (
@@ -535,7 +535,7 @@ export default function QuizReviewStudioPage() {
               <button
                 onClick={nextSlide}
                 disabled={currentSlideIndex === totalSlides - 1}
-                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
                 <span>{!isAnswerSlide ? 'Reveal Answer' : 'Next Question'}</span>
                 <ChevronRight className="h-4 w-4" />
