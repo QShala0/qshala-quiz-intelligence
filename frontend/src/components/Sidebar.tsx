@@ -70,7 +70,7 @@ export default function Sidebar() {
         <div className="relative flex items-center">
           <Link
             href="/"
-            className="overflow-hidden"
+            className="flex items-center shrink-0"
             title="QShala"
             aria-label="QShala home"
             onClick={handleLogoClick}
