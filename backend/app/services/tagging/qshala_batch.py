@@ -34,9 +34,11 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from backend.app.config import settings
 from backend.app.models.qshala_tag import QshalaTag, QshalaTagChange
 from backend.app.models.question import Question
 from backend.app.services.tagging import qshala_rules, topic_paths
+from backend.app.services.tagging.qshala_rules import is_answer_led
 from backend.app.services.tagging.qshala_tagger import (
     TAXONOMY_VERSION, GEOGRAPHY_V6, _system_prompt, _tag_schema_v6,
     _v6_paths, _route, _clean_year, safe_error, is_rate_limit, retry_after_seconds,
@@ -103,21 +105,68 @@ def _exemplar_block(exemplars: List[Dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+# Format labels that must never end up as a keyword on an answer-led item: the model sees them
+# in the FORMAT: line and can otherwise echo them back as if they were content.
+FORMAT_LABEL_KEYWORDS = {"connect 4", "connect", "common link"}
+
+# One instruction paragraph, added to the USER prompt only when at least one item in the chunk
+# is answer-led, so the (cached) system-prompt taxonomy block never changes shape.
+ANSWER_LED_INSTRUCTION = (
+    "ANSWER-LED QUESTIONS: items marked ANSWER-LED below have generic or boilerplate question text "
+    "(e.g. \"What connects these clues and images?\") -- the real clues are pictures you cannot see. "
+    "For those items, classify and keyword by what the ANSWER is, not the question text: expand it to "
+    "the entity itself, what kind of entity it is, its parent company or group, industry, founders or "
+    "closely related people, and country, using only facts you are confident of. Never use the format "
+    "name (\"Connect\", \"Common Link\") as a keyword. You may use up to 8 keywords and up to 3 topics "
+    "for these items (a Connect answer like \"Owners of Mumbai based sports franchise teams\" is Sports "
+    "Business plus a city topic). Set fit=good when the answer is a recognisable entity or concept; use "
+    "weak only when you genuinely cannot place it. Example: answer \"Ratan Tata\" gives theme Business, "
+    "keywords Ratan Tata, Tata Group, Tata Sons, Indian Industrialists, Indian Conglomerates."
+)
+
+
+def _clue_hint(format_payload: Optional[Dict[str, Any]]) -> tuple[List[str], str]:
+    """Clue item labels and the format's text hint, from a CONNECT/IMAGE_REVEAL format_payload.
+    Best-effort: payloads vary by format, so a missing key just yields nothing."""
+    payload = format_payload or {}
+    items = payload.get("items") or []
+    # Production data has at least one deck where "label" is an int (e.g. a clue's order number)
+    # rather than a string -- coerce rather than drop, so a real label is never silently lost.
+    labels = [str(it.get("label")) for it in items if isinstance(it, dict) and it.get("label") not in (None, "")]
+    return labels, (payload.get("text_hint") or "").strip()
+
+
 def _batch_user_prompt(items: List[Dict[str, Any]], exemplars: List[Dict[str, str]]) -> str:
     parts: List[str] = []
     ex = _exemplar_block(exemplars)
     if ex:
         parts.append(ex)
+    if any(it.get("answer_led") for it in items):
+        parts.append(ANSWER_LED_INSTRUCTION)
     parts.append(f"Tag the following {len(items)} questions. Return `results` with one object per "
                  f"question, each carrying its `n` (the number shown). Tag every question; never skip one.")
     for it in items:
-        block = [f"[n={it['n']}] QUESTION: {it['question_text']}", f"ANSWER: {it['answer']}"]
-        if it.get("visual_clues"):
-            block.append(f"VISUAL CLUES: {it['visual_clues'][:400]}")
+        answer_led = bool(it.get("answer_led"))
+        if answer_led:
+            fmt = it.get("question_format") or ""
+            block = [f"[n={it['n']}] FORMAT: {fmt} (ANSWER-LED -- question text is generic; classify from the answer)",
+                     f"QUESTION: {it['question_text']}",
+                     f"ANSWER (the subject; the clue pictures are not shown to you): {it['answer']}"]
+            if it.get("explanation"):
+                block.append(f"EXPLANATION: {it['explanation'][:400]}")
+            labels, text_hint = it.get("clue_labels") or [], it.get("text_hint") or ""
+            if labels:
+                block.append(f"CLUE LABELS: {', '.join(labels)}")
+            if text_hint:
+                block.append(f"HINT: {text_hint}")
+        else:
+            block = [f"[n={it['n']}] QUESTION: {it['question_text']}", f"ANSWER: {it['answer']}"]
+            if it.get("visual_clues"):
+                block.append(f"VISUAL CLUES: {it['visual_clues'][:400]}")
         rules = it["rules"]
         if rules.brand_hints_l1:
             block.append(f"Rule hint: likely theme(s) {', '.join(rules.brand_hints_l1)}.")
-        if rules.image_dependent:
+        if rules.image_dependent and not answer_led:
             block.append("Rule hint: may depend on an unseen image; tag from text, set fit=weak if unsure.")
         parts.append("\n".join(block))
     return "\n\n".join(parts)
@@ -158,12 +207,19 @@ def _write_item(db: Session, q: Dict[str, Any], llm_out: Dict[str, Any], model: 
     With `pre` (from `_prefetch`) nothing is read and nothing is flushed per question: the caller flushes once for the
     whole deck. Without it, every question does its own lookups and flushes, as before."""
     rules = q["rules"]
+    answer_led = bool(q.get("answer_led"))
     paths = _v6_paths(llm_out)
+    if answer_led:
+        # Safety net: strip the format's own name out of keywords even if the model echoed it
+        # back despite the prompt instruction (it saw the FORMAT: line for context, not content).
+        for p in paths:
+            kws = p.get("keywords") or []
+            p["keywords"] = [k for k in kws if k.strip().lower() not in FORMAT_LABEL_KEYWORDS]
     first = paths[0] if paths else {}
     routed = {"fit": llm_out.get("fit", "weak"),
               "india_international": llm_out.get("india_international"),
               "subtopic_l2": first.get("l2")}
-    status, confidence, reason = _route(rules, routed)
+    status, confidence, reason = _route(rules, routed, answer_led=answer_led)
     if not paths:
         status, confidence, reason = "draft", 0.30, "model returned no usable topic"
     geo = llm_out.get("india_international")
@@ -263,16 +319,24 @@ async def tag_questions_batched(db: Session, questions: List[Question], *, provi
     """Tag a list of Question rows in chunks. The caller owns the transaction; this flushes rows and
     does NOT commit (so it composes with the pipeline's own commit). Always returns; uncertain or
     failed questions are left as `draft`. Returns counts {confirmed, draft, chunks, failed_chunks}."""
+    answer_led_enabled = bool(getattr(settings, "TAG_ANSWER_LED_ENABLED", True))
     items: List[Dict[str, Any]] = []
     for idx, q in enumerate(questions):
         qtext, ans = (q.question_text or "").strip(), (q.answer or "").strip()
         if not qtext or not ans:
             continue
+        q_format = getattr(q, "question_format", None)
+        q_images = getattr(q, "question_images", None)
+        clue_labels, text_hint = _clue_hint(getattr(q, "format_payload", None))
         items.append({
             "n": idx, "question_id": q.id, "question_obj": q,
             "question_text": qtext, "answer": ans,
             "visual_clues": getattr(q, "visual_clues", "") or "",
             "rules": qshala_rules.extract(qtext, ans, taxonomy_version=TAXONOMY_VERSION),
+            "question_format": q_format,
+            "explanation": (getattr(q, "explanation", "") or "").strip(),
+            "clue_labels": clue_labels, "text_hint": text_hint,
+            "answer_led": answer_led_enabled and is_answer_led(qtext, q_format, question_images=q_images),
         })
 
     exemplars = recent_human_exemplars(db)

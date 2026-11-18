@@ -312,12 +312,18 @@ async def _call_llm(provider: GeminiLLMProvider, model: str, question_text: str,
 
 # ---------------------------------------------------------------------- routing
 
-def _route(rules: qshala_rules.RuleSignals, llm: Dict[str, Any]) -> Tuple[str, float, str]:
+def _route(rules: qshala_rules.RuleSignals, llm: Dict[str, Any], *,
+           answer_led: bool = False) -> Tuple[str, float, str]:
     """Decide status (confirmed / draft) and a confidence estimate.
 
     - LLM fit='good' AND no rule conflict → confirmed, 0.90.
     - LLM fit='weak' or fit='none'       → draft, 0.50.
     - Rule geography disagrees with LLM  → draft, 0.60. (route to review.)
+    - answer_led, fit='good', no geo conflict → confirmed, 0.85. (the question text itself never
+      carries rule signals -- Connect/Image Reveal clues are pictures -- so the "no rule signals
+      fired" draft below would otherwise send nearly every one of these to review even when the
+      model is right; the answer carries the real meaning and the prompt already told the model
+      to tag from it.)
     - LLM-only, no rule hits at all      → draft, 0.70.  (reviewer should look.)
     """
     fit = llm.get("fit", "weak")
@@ -331,6 +337,9 @@ def _route(rules: qshala_rules.RuleSignals, llm: Dict[str, Any]) -> Tuple[str, f
             and rules.india_international != llm["india_international"]):
         reasons.append(f"geography mismatch (rule {rules.india_international} vs LLM {llm['india_international']})")
         return ("draft", 0.60, "; ".join(reasons))
+
+    if answer_led:
+        return ("confirmed", 0.85, "answer-led: fit good")
 
     # Brand-hint agreement is a soft confirmation but not a hard rule — the LLM can override.
     rule_l1s = set(rules.brand_hints_l1 or [])

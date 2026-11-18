@@ -179,6 +179,11 @@ class Settings(BaseSettings):
     # Overridable via env; blank/None falls back to Flash-Lite.
     QSHALA_TAGGER_MODEL: str = "gemini-3.5-flash-lite"
 
+    # Answer-led tagging: Connect, Image Reveal and generic-text questions (the clues are pictures
+    # the tagger can't see) are tagged from the ANSWER instead of the boilerplate question text,
+    # and a good-fit result auto-confirms instead of always landing in review. Default on.
+    TAG_ANSWER_LED_ENABLED: bool = True
+
     # Embedding config
     EMBEDDING_DIM: int = 768  # 768 for Gemini / all-mpnet, 1536 for OpenAI
 
@@ -286,6 +291,15 @@ class Settings(BaseSettings):
     @field_validator("FORCE_AI_TAGGING", mode="before")
     @classmethod
     def parse_force_ai_tagging(cls, v):
+        if v == "" or v is None:
+            return True
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in {"1", "true", "yes", "on"}
+
+    @field_validator("TAG_ANSWER_LED_ENABLED", mode="before")
+    @classmethod
+    def parse_tag_answer_led_enabled(cls, v):
         if v == "" or v is None:
             return True
         if isinstance(v, bool):

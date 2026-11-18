@@ -172,6 +172,64 @@ def extract(question_text: str, answer: str = "", explanation: str = "",
     return out
 
 
+# ---------------------------------------------------------------------- answer-led questions
+
+# Formats whose own question text is never the real question -- the clue pictures (Connect,
+# Image Reveal) are. Both the canonical name and its legacy alias are listed: production data
+# has rows tagged either way (see format_payload comment on Question.question_format).
+ANSWER_LED_FORMATS = {"CONNECT", "CONNECT_4", "IMAGE_REVEAL"}
+
+_FORMAT_BADGE_RE = re.compile(r"^\s*\[[^\]]*\]\s*")
+_PUNCT_RE = re.compile(r"[^\w\s]")
+
+
+def is_answer_led(question_text: Optional[str], question_format: Optional[str] = None, *,
+                   question_images: Optional[List[Any]] = None, media_count: int = 0,
+                   max_words: int = 8) -> bool:
+    """True when a question should be classified and tagged from its ANSWER, not its own text,
+    because the text carries no real information: the clues are pictures (or, for audio-only
+    questions, sound) the tagger cannot see.
+
+    Two ways in:
+      - `question_format` is CONNECT, CONNECT_4 or IMAGE_REVEAL -- these formats never carry a
+        meaningful question string, so format alone decides it.
+      - the text, after stripping a leading "[...]" format badge and punctuation, is generic or
+        very short (at most `max_words` words, 0 counts) AND the question carries images or other
+        media (`question_images`, or `media_count` for audio/video clues).
+
+    `media_count` is a plain integer rather than a list so callers that only know a count (e.g.
+    a deck's audio/video clue tally, added in a later workstream) do not need to fabricate a list.
+    """
+    fmt = (question_format or "").strip().upper()
+    if fmt in ANSWER_LED_FORMATS:
+        return True
+
+    has_media = bool(question_images) or media_count > 0
+    if not has_media:
+        return False
+
+    stripped = _FORMAT_BADGE_RE.sub("", question_text or "")
+    stripped = _PUNCT_RE.sub(" ", stripped).strip()
+    return len(stripped.split()) <= max_words
+
+
+def answer_led_fallback_tag(answer: Optional[str], question_text: Optional[str] = None,
+                             question_format: Optional[str] = None, *,
+                             question_images: Optional[List[Any]] = None,
+                             media_count: int = 0, max_len: int = 60) -> Optional[str]:
+    """The deterministic, title-cased tag an answer-led question should carry even if nothing
+    else captures the answer as a tag (e.g. the batch tagger's Gemini call fails). Returns None
+    when the question isn't answer-led, or the answer is empty, too long to read as a tag, or a
+    URL (an answer slide that is itself a link, not a name)."""
+    if not is_answer_led(question_text, question_format, question_images=question_images,
+                          media_count=media_count):
+        return None
+    ans = (answer or "").strip()
+    if not ans or len(ans) > max_len or ans.lower().startswith(("http://", "https://")):
+        return None
+    return ans.title()
+
+
 # ====================================================================== L2 DISAMBIGUATION
 # High-precedence, deterministic guards for the recurring L2 boundary conflicts found in the
 # 22-question blind evaluation (ruling_sheet_22.csv). Each guard asserts the FINAL ruling's

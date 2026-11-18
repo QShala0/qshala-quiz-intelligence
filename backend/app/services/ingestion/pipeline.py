@@ -29,7 +29,7 @@ from backend.app.services.question_meta_service import (
     upsert_deck_metadata, deck_row_to_info, add_new_question_metadata, apply_latest_tags_to_meta,
 )
 from backend.app.services.tagging import topic_paths
-from backend.app.services.tagging.qshala_rules import classify_taxonomy
+from backend.app.services.tagging.qshala_rules import classify_taxonomy, answer_led_fallback_tag
 from backend.app.services.tagging.auto_tagger import AutoTagger  # Kept for backward compatibility
 from backend.app.services.tagging.qshala_tagger import QshalaTagger
 from backend.app.services.tagging.difficulty_engine import DifficultyEngine
@@ -806,6 +806,15 @@ class IngestionPipeline:
                 else:
                     final_subtopic = raw_sub
                 final_tags = list(dict.fromkeys((q_data.get("tags") or []) + rule_keywords))
+                # Answer-led questions (Connect, Image Reveal, generic-text-with-clue-media) have no
+                # real question text for the rule tagger or keyword search to work from. Add the
+                # answer itself as a tag so there's always a tag to find the question by even if the
+                # batch tagger's Gemini call later fails.
+                if getattr(settings, "TAG_ANSWER_LED_ENABLED", True):
+                    ans_tag = answer_led_fallback_tag(q_data.get("answer"), q_data.get("question_text"),
+                                                      q_fmt, question_images=q_data.get("question_images"))
+                    if ans_tag:
+                        final_tags = list(dict.fromkeys(final_tags + [ans_tag]))
 
                 # deduplicator.py pre-assigns a stable id to every candidate (tier1_passed loop,
                 # and again for any brand-new intra-batch match target) and uses THAT id as the
