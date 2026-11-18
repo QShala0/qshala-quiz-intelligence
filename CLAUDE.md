@@ -15,6 +15,9 @@ Read `graphify-out/GRAPH_REPORT.md` before exploring code (run `graphify update 
 - Merging to `main` deploys only the **frontend** (Vercel). The **backend does not auto-deploy**: it goes to Cloud Run
   by hand (the owner uses Antigravity with a prompt). Say so whenever a change touches `backend/`.
 - Work on the assigned feature branch, open a PR into `main`. Never force-push shared branches.
+- **Cloud Run Environment Variables & Secrets**: Every deployed service in `asia-southeast1` MUST have:
+  - Core: `DATABASE_URL` (Neon secret), `GEMINI_API_KEY` (secret), `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_PUBLIC_BASE_URL`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
+  - SharePoint / Azure AD: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` (mounted from Secret Manager `azure-client-secret:latest`), `SHAREPOINT_SITE_ID`, `SHAREPOINT_ROOT_FOLDER="Quizzes"`, `SHAREPOINT_DRIVE_ID`, `SHAREPOINT_MAX_FILE_MB="1024"`. If migrating or creating services, verify with `/health` checks.
 
 ## Commands
 - Backend tests: `python -m pytest backend/tests/<file> -q` (run the relevant files, the full suite is slow).

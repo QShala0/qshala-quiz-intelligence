@@ -390,6 +390,14 @@ def health():
     if r2_touched and not r2_complete:
         problems.append("R2 credentials are partially set (some vars missing)")
 
+    sp_configured = bool(settings.AZURE_TENANT_ID and settings.AZURE_CLIENT_ID and settings.AZURE_CLIENT_SECRET
+                         and (settings.SHAREPOINT_SITE_ID or settings.SHAREPOINT_DRIVE_ID))
+    sp_fields = [settings.AZURE_TENANT_ID, settings.AZURE_CLIENT_ID, settings.AZURE_CLIENT_SECRET,
+                 settings.SHAREPOINT_SITE_ID, settings.SHAREPOINT_DRIVE_ID]
+    sp_touched = any(sp_fields)
+    if sp_touched and not sp_configured:
+        problems.append("SharePoint/Azure credentials are partially set (some vars missing)")
+
     if not DB_PERSISTENT:
         problems.append("Data is NOT persistent (SQLite on ephemeral disk). Set DATABASE_URL to Neon.")
 
@@ -404,6 +412,7 @@ def health():
             "database_reachable": db_reachable,
             "gemini_key_configured": gemini_configured,
             "r2_configured": r2_complete if r2_touched else None,
+            "sharepoint_configured": sp_configured,
         },
         "problems": problems or None,
         "gemini_models": _gemini_models_status(),
