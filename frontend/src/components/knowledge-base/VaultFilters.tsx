@@ -1,7 +1,7 @@
 import { Search, Filter, Tag, ArrowUpDown } from 'lucide-react';
 import { TopicItem, DocumentItem, SourceCatalog } from '../../lib/types';
 import { FORMAT_FILTER_OPTIONS } from '../../lib/formatPayloads';
-import SourceMultiPicker from '../SourceMultiPicker';
+import SourceMultiPicker, { formatDeckDisplayName } from '../SourceMultiPicker';
 
 // The search box + filter bar on the Knowledge Base page (QShala priority plan P3-1). Purely
 // controlled: owns no state of its own, just renders the current filter values and reports
@@ -57,62 +57,90 @@ export default function VaultFilters({
     series: [],
     decks: documentsList.map((d) => ({
       id: d.id,
-      title: d.title || d.filename,
+      title: formatDeckDisplayName(d.filename, d.title),
       filename: d.filename,
-      series: d.title || d.filename,
+      series: formatDeckDisplayName(d.filename, d.title),
       series_key: d.id,
       year: d.year ?? null,
       question_count: d.question_count ?? 0,
+      created_at: d.uploaded_at ?? null,
     })),
   };
 
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-100/50 space-y-3">
+    <div className="rounded-xl border border-slate-200/80 bg-white p-3 sm:p-3.5 shadow-sm shadow-slate-100/50 space-y-2.5">
       <form onSubmit={onSearchSubmit} className="flex gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search questions, answers, topics, or presentation deck name..."
-            className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-4 text-[14px] font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none"
+            className="w-full h-[34px] rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-[13px] font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
         <button
           type="submit"
-          className="rounded-lg bg-slate-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-slate-800 transition-colors cursor-pointer"
+          className="h-[34px] rounded-lg bg-slate-900 px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
         >
           Search
         </button>
       </form>
 
-      <div className="flex items-center gap-2 text-[12px] text-slate-500" role="radiogroup" aria-label="Match mode">
-        <span className="font-medium">Match:</span>
-        {([['exact', 'Exact words'], ['smart', 'Smart (related)']] as const).map(([val, label]) => (
-          <button
-            key={val}
-            type="button"
-            role="radio"
-            aria-checked={matchMode === val}
-            onClick={() => setMatchMode(val)}
-            className={`rounded-full border px-2.5 py-0.5 font-semibold transition-colors cursor-pointer ${
-              matchMode === val ? 'border-amber-400 bg-amber-50 text-slate-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
+      {/* Match mode chips and Sorting on one tidy row */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+        <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Match mode">
+          <span className="font-medium text-slate-600">Match:</span>
+          {([['exact', 'Exact words'], ['smart', 'Smart (related)']] as const).map(([val, label]) => (
+            <button
+              key={val}
+              type="button"
+              role="radio"
+              aria-checked={matchMode === val}
+              onClick={() => setMatchMode(val)}
+              className={`rounded-full border px-2 py-0.5 font-semibold text-[11px] transition-colors cursor-pointer ${
+                matchMode === val ? 'border-amber-400 bg-amber-50 text-slate-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          <span className="hidden sm:inline text-slate-400 text-[10.5px]">
+            {matchMode === 'exact' ? 'Only questions containing every word you type.' : 'Also returns loosely related questions.'}
+          </span>
+        </div>
+
+        {/* Sorting controls placed compactly with Match line */}
+        <div className="flex items-center gap-1.5 ml-auto">
+          <ArrowUpDown className="h-3 w-3 text-slate-400" />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="h-[28px] rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11.5px] font-normal text-slate-700 focus:outline-none cursor-pointer"
           >
-            {label}
+            <option value="created_at">Date Added</option>
+            <option value="difficulty_score">Difficulty Score</option>
+            <option value="curiosity_score">Curiosity Score</option>
+            <option value="occurrence_count">Occurrences</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+            className="h-[28px] px-2 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-[11px] font-semibold cursor-pointer"
+            title="Toggle sort direction"
+          >
+            {sortOrder.toUpperCase()}
           </button>
-        ))}
-        <span className="hidden sm:inline text-slate-400">
-          {matchMode === 'exact' ? 'Only questions containing every word you type.' : 'Also returns loosely related questions.'}
-        </span>
+        </div>
       </div>
 
-      {/* Dynamic Filters & Sorting */}
-      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 text-[13px]">
-        <div className="flex items-center gap-1.5 text-slate-500 font-medium">
-          <Filter className="h-3.5 w-3.5" />
+      {/* Dynamic Filters Row */}
+      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-[12px]">
+        <div className="flex items-center gap-1 text-slate-500 font-medium text-[11.5px]">
+          <Filter className="h-3 w-3" />
           <span>Filters:</span>
         </div>
 
@@ -132,7 +160,7 @@ export default function VaultFilters({
             setTopic(e.target.value);
             setSubtopic('');
           }}
-          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
+          className="h-[32px] rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] font-normal text-slate-700 focus:outline-none cursor-pointer"
         >
           <option value="">All Topics ({topicsList.reduce((a, b) => a + b.count, 0)})</option>
           {topicsList.map((t) => (
@@ -147,7 +175,7 @@ export default function VaultFilters({
           <select
             value={subtopic}
             onChange={(e) => setSubtopic(e.target.value)}
-            className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
+            className="h-[32px] rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] font-normal text-slate-700 focus:outline-none cursor-pointer"
           >
             <option value="">All Subtopics</option>
             {availableSubtopics.map((sub) => (
@@ -162,7 +190,7 @@ export default function VaultFilters({
         <select
           value={difficulty}
           onChange={(e) => setDifficulty(e.target.value)}
-          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
+          className="h-[32px] rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] font-normal text-slate-700 focus:outline-none cursor-pointer"
         >
           <option value="">All Difficulties</option>
           <option value="Easy">Easy</option>
@@ -174,7 +202,7 @@ export default function VaultFilters({
         <select
           value={formatFilter}
           onChange={(e) => setFormatFilter(e.target.value)}
-          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
+          className="h-[32px] rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] font-normal text-slate-700 focus:outline-none cursor-pointer"
         >
           <option value="">All Formats</option>
           {FORMAT_FILTER_OPTIONS.map((o) => (
@@ -190,7 +218,7 @@ export default function VaultFilters({
         <select
           value={slotFilter}
           onChange={(e) => setSlotFilter(e.target.value)}
-          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
+          className="h-[32px] rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] font-normal text-slate-700 focus:outline-none cursor-pointer"
           aria-label="Slot"
         >
           <option value="">Live + Reserve + Example</option>
@@ -201,48 +229,24 @@ export default function VaultFilters({
 
         {/* Tag Filter */}
         <div className="relative">
-          <Tag className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+          <Tag className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
           <input
             type="text"
             placeholder="Filter by tag..."
             value={tagFilter}
             onChange={(e) => setTagFilter(e.target.value.replace(/^#+/, ''))}
-            className="rounded-md border border-slate-200 bg-white pl-8 pr-6 py-1.5 text-[13px] font-normal text-slate-700 placeholder-slate-400 focus:outline-none w-[140px]"
+            className="h-[32px] rounded-md border border-slate-200 bg-white pl-6 pr-5 py-1 text-[12px] font-normal text-slate-700 placeholder-slate-400 focus:outline-none w-[125px]"
           />
           {tagFilter && (
             <button
               type="button"
               onClick={() => setTagFilter('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-[12px] font-bold"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-[12px] font-bold"
               title="Clear tag filter"
             >
               &times;
             </button>
           )}
-        </div>
-
-        {/* Sorting */}
-        <div className="flex items-center gap-1.5 ml-auto">
-          <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] font-normal text-slate-700 focus:outline-none cursor-pointer"
-          >
-            <option value="created_at">Date Added</option>
-            <option value="difficulty_score">Difficulty Score</option>
-            <option value="curiosity_score">Curiosity Score</option>
-            <option value="occurrence_count">Occurrences</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-            className="px-2 py-1.5 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-[12px] font-semibold cursor-pointer"
-            title="Toggle sort direction"
-          >
-            {sortOrder.toUpperCase()}
-          </button>
         </div>
 
         {(query || topic || subtopic || tagFilter || difficulty || formatFilter || slotFilter || gradeMin || selectedDeckIds.length > 0) && (
@@ -259,7 +263,7 @@ export default function VaultFilters({
               setGradeMin('');
               setSelectedDeckIds([]);
             }}
-            className="text-[13px] text-blue-600 hover:underline cursor-pointer font-medium"
+            className="text-[12px] text-blue-600 hover:underline cursor-pointer font-medium ml-1"
           >
             Clear filters
           </button>

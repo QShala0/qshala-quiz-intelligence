@@ -334,7 +334,7 @@ export const api = {
 
   // Documents
   listDocuments: async (): Promise<DocumentItem[]> => {
-    const res = await fetch(`${getApiBase()}/documents`, { cache: 'no-store' });
+    const res = await fetch(`${getApiBase()}/documents?limit=200`, { cache: 'no-store' });
     return handleResponse<DocumentItem[]>(res);
   },
 

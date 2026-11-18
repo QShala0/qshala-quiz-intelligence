@@ -44,11 +44,49 @@ function fuzzyIncludes(haystack: string, query: string): boolean {
   );
 }
 
+/** Formats deck exact filename for display by stripping PPTX/PPT extensions without using deck.title. */
+export function formatDeckDisplayName(filename: string, fallbackTitle?: string): string {
+  const raw = (filename || fallbackTitle || '').trim();
+  return raw.replace(/\.(?:pptx|ppt|pdf|docx?|xlsx?)$/i, '').trim() || raw;
+}
+
+/** Formats an ISO ingestion date string or year into a human-readable suffix label. */
+export function formatDeckDate(dateStr?: string | null, year?: number | null): string {
+  if (dateStr) {
+    try {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (year) return `${year}`;
+  return '';
+}
+
+/** Identifies duplicate formatted deck names (case-insensitive) across a deck list. */
+export function getDuplicateDeckNameSet(decks: SourceDeckItem[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const d of decks) {
+    const key = formatDeckDisplayName(d.filename, d.title).toLowerCase();
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const dups = new Set<string>();
+  counts.forEach((cnt, key) => {
+    if (cnt > 1) dups.add(key);
+  });
+  return dups;
+}
+
 export function summarizeSelectedSources(selectedIds: string[], catalog: SourceCatalog | null): string[] {
   if (!selectedIds.length || !catalog) return [];
   const selSet = new Set(selectedIds);
   const covered = new Set<string>();
   const labels: string[] = [];
+
+  const dupNameSet = getDuplicateDeckNameSet(catalog.decks);
 
   for (const ser of catalog.series) {
     if (ser.document_ids.length > 0 && ser.document_ids.every((id) => selSet.has(id))) {
@@ -58,7 +96,11 @@ export function summarizeSelectedSources(selectedIds: string[], catalog: SourceC
   }
   for (const deck of catalog.decks) {
     if (selSet.has(deck.id) && !covered.has(deck.id)) {
-      labels.push(deck.title);
+      const baseName = formatDeckDisplayName(deck.filename, deck.title);
+      const isDup = dupNameSet.has(baseName.toLowerCase());
+      const dateLabel = formatDeckDate(deck.created_at, deck.year);
+      const suffix = isDup ? (dateLabel ? ` (${dateLabel})` : ` (${deck.id.slice(0, 6)})`) : '';
+      labels.push(`${baseName}${suffix}`);
     }
   }
   return labels;
@@ -101,21 +143,48 @@ export default function SourceMultiPicker({
     };
   }, [open]);
 
-  const seriesList = catalog?.series || [];
-  const decksList = catalog?.decks || [];
+  const seriesList = useMemo(() => catalog?.series || [], [catalog?.series]);
+  const decksList = useMemo(() => catalog?.decks || [], [catalog?.decks]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+  const duplicateNameSet = useMemo(() => {
+    return getDuplicateDeckNameSet(decksList);
+  }, [decksList]);
 
   const filteredSeries = useMemo(() => {
     if (!filterText.trim()) return seriesList;
+    const q = filterText.trim();
     return seriesList.filter((s) => {
-      if (fuzzyIncludes(s.label, filterText)) return true;
-      return decksList.some((d) => d.series_key === s.key && fuzzyIncludes(`${d.title} ${d.filename}`, filterText));
+      if (fuzzyIncludes(s.label, q)) return true;
+      return decksList.some(
+        (d) =>
+          d.series_key === s.key &&
+          (fuzzyIncludes(formatDeckDisplayName(d.filename, d.title), q) ||
+            fuzzyIncludes(d.filename, q) ||
+            fuzzyIncludes(d.title, q))
+      );
     });
   }, [seriesList, decksList, filterText]);
 
-  const filteredDecks = useMemo(() => {
-    if (!filterText.trim()) return decksList;
-    return decksList.filter((d) => fuzzyIncludes(`${d.title} ${d.filename} ${d.series}`, filterText));
+  const sortedDecks = useMemo(() => {
+    let list = decksList;
+    if (filterText.trim()) {
+      const q = filterText.trim();
+      list = decksList.filter((d) => {
+        const baseName = formatDeckDisplayName(d.filename, d.title);
+        return (
+          fuzzyIncludes(baseName, q) ||
+          fuzzyIncludes(d.filename, q) ||
+          fuzzyIncludes(d.title, q) ||
+          fuzzyIncludes(d.series, q)
+        );
+      });
+    }
+    return [...list].sort((a, b) => {
+      const nameA = formatDeckDisplayName(a.filename, a.title);
+      const nameB = formatDeckDisplayName(b.filename, b.title);
+      return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+    });
   }, [decksList, filterText]);
 
   const buttonLabel = useMemo(() => {
@@ -146,7 +215,7 @@ export default function SourceMultiPicker({
     onChange(Array.from(next));
   };
 
-  const matchingFilteredIds = useMemo(() => filteredDecks.map((d) => d.id), [filteredDecks]);
+  const matchingFilteredIds = useMemo(() => sortedDecks.map((d) => d.id), [sortedDecks]);
 
   const selectAllMatching = () => {
     const next = new Set(selectedSet);
@@ -156,12 +225,12 @@ export default function SourceMultiPicker({
 
   const triggerClass =
     variant === 'pill'
-      ? `inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] font-medium transition cursor-pointer max-w-[260px] ${
+      ? `inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium transition cursor-pointer max-w-[260px] h-[32px] ${
           selectedIds.length > 0
             ? 'border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
             : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
         }`
-      : `inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] font-normal transition cursor-pointer max-w-[250px] ${
+      : `inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-normal transition cursor-pointer max-w-[240px] sm:max-w-[270px] h-[32px] ${
           selectedIds.length > 0
             ? 'border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100'
             : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -180,7 +249,7 @@ export default function SourceMultiPicker({
         >
           <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-75" />
           <span className="truncate">{buttonLabel}</span>
-          <ChevronDown className={`h-3.5 w-3.5 shrink-0 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`h-3 w-3 shrink-0 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
         {selectedIds.length > 0 && (
           <button
@@ -190,14 +259,15 @@ export default function SourceMultiPicker({
             title="Clear selected sources"
             className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3 w-3" />
           </button>
         )}
       </div>
 
       {open && (
-        <div className="absolute left-0 z-50 mt-1.5 w-80 sm:w-96 rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-slate-900/5 overflow-hidden">
-          <div className="p-2.5 border-b border-slate-100 bg-slate-50/70 space-y-2">
+        <div className="absolute left-0 z-50 mt-1 w-80 sm:w-96 rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-slate-900/5 overflow-hidden">
+          {/* Sticky header with search */}
+          <div className="sticky top-0 z-10 p-2 border-b border-slate-100 bg-white/95 backdrop-blur-xs space-y-1.5">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
               <input
@@ -206,7 +276,7 @@ export default function SourceMultiPicker({
                 onChange={(e) => setFilterText(e.target.value)}
                 placeholder="Search source series or deck (e.g. Agastya)..."
                 autoFocus
-                className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-7 py-1.5 text-[12.5px] text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                className="w-full rounded-md border border-slate-200 bg-white pl-8 pr-7 py-1 text-[12px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               {filterText && (
                 <button
@@ -215,13 +285,13 @@ export default function SourceMultiPicker({
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                   aria-label="Clear search"
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="h-3 w-3" />
                 </button>
               )}
             </div>
-            <div className="flex items-center justify-between text-[11.5px] text-slate-500 px-0.5">
+            <div className="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
               <span>{selectedIds.length === 0 ? 'Searching all sources' : `${selectedIds.length} deck${selectedIds.length === 1 ? '' : 's'} selected`}</span>
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 {filterText.trim() && matchingFilteredIds.length > 0 && (
                   <button
                     type="button"
@@ -246,15 +316,15 @@ export default function SourceMultiPicker({
 
           <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
             {decksList.length === 0 ? (
-              <div className="px-4 py-6 text-center text-[12.5px] text-slate-400">
+              <div className="px-4 py-6 text-center text-[12px] text-slate-400">
                 No uploaded decks found.
               </div>
             ) : (
               <>
                 {/* Source Series Groups */}
                 {filteredSeries.some((s) => s.deck_count > 1) && (
-                  <div className="p-2">
-                    <div className="px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+                  <div className="p-1.5">
+                    <div className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Source Series (All Sets)
                     </div>
                     {filteredSeries
@@ -268,14 +338,14 @@ export default function SourceMultiPicker({
                             key={ser.key}
                             type="button"
                             onClick={() => toggleSeries(ser)}
-                            className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition cursor-pointer ${
+                            className={`w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] transition cursor-pointer ${
                               allChecked
                                 ? 'bg-blue-50 text-blue-900 font-medium'
                                 : 'hover:bg-slate-50 text-slate-700'
                             }`}
                           >
                             <span
-                              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                              className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
                                 allChecked
                                   ? 'border-blue-600 bg-blue-600 text-white'
                                   : partial
@@ -283,11 +353,11 @@ export default function SourceMultiPicker({
                                   : 'border-slate-300 bg-white'
                               }`}
                             >
-                              {allChecked && <Check className="h-3 w-3" />}
+                              {allChecked && <Check className="h-2.5 w-2.5" />}
                               {partial && <span className="h-1.5 w-1.5 rounded-xs bg-blue-600" />}
                             </span>
                             <span className="flex-1 truncate font-medium">{ser.label}</span>
-                            <span className="shrink-0 text-[11px] text-slate-400 font-mono">
+                            <span className="shrink-0 text-[10.5px] text-slate-400 font-mono">
                               {ser.deck_count}d · {ser.question_count}q
                             </span>
                           </button>
@@ -297,41 +367,50 @@ export default function SourceMultiPicker({
                 )}
 
                 {/* Individual Decks */}
-                <div className="p-2">
-                  <div className="px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="p-1.5">
+                  <div className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Individual Presentations / Decks
                   </div>
-                  {filteredDecks.length === 0 ? (
-                    <div className="px-2 py-3 text-center text-[12px] text-slate-400">
+                  {sortedDecks.length === 0 ? (
+                    <div className="px-2 py-3 text-center text-[11.5px] text-slate-400">
                       No matching decks for &ldquo;{filterText}&rdquo;
                     </div>
                   ) : (
-                    filteredDecks.map((deck) => {
+                    sortedDecks.map((deck) => {
                       const checked = selectedSet.has(deck.id);
+                      const baseName = formatDeckDisplayName(deck.filename, deck.title);
+                      const isDup = duplicateNameSet.has(baseName.toLowerCase());
+                      const dateLabel = formatDeckDate(deck.created_at, deck.year);
+                      const suffix = isDup ? (dateLabel ? ` (${dateLabel})` : ` (${deck.id.slice(0, 6)})`) : '';
                       return (
                         <button
                           key={deck.id}
                           type="button"
                           onClick={() => toggleDeck(deck)}
-                          className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition cursor-pointer ${
+                          className={`w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-[12px] transition cursor-pointer ${
                             checked
                               ? 'bg-blue-50 text-blue-900 font-medium'
                               : 'hover:bg-slate-50 text-slate-700'
                           }`}
                         >
                           <span
-                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
                               checked
                                 ? 'border-blue-600 bg-blue-600 text-white'
                                 : 'border-slate-300 bg-white'
                             }`}
                           >
-                            {checked && <Check className="h-3 w-3" />}
+                            {checked && <Check className="h-2.5 w-2.5" />}
                           </span>
-                          <span className="flex-1 truncate" title={deck.title || deck.filename}>
-                            {deck.title || deck.filename}
+                          <span className="flex-1 truncate" title={suffix ? `${baseName} ${suffix}` : baseName}>
+                            <span>{baseName}</span>
+                            {suffix && (
+                              <span className="ml-1 text-[10.5px] text-slate-400 font-normal">
+                                {suffix}
+                              </span>
+                            )}
                           </span>
-                          <span className="shrink-0 text-[11px] text-slate-400 font-mono">
+                          <span className="shrink-0 text-[10.5px] text-slate-400 font-mono">
                             {deck.question_count}q
                           </span>
                         </button>
