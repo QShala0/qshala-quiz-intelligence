@@ -97,6 +97,9 @@ class QuestionActionRequest(BaseModel):
     action: str  # "regenerate", "make_easier", "make_harder", "generate_similar"
     custom_instruction: Optional[str] = None
 
+class QuizRenameRequest(BaseModel):
+    title: str
+
 class QuizResponse(BaseModel):
     id: str
     title: str

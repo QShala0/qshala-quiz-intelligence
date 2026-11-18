@@ -78,12 +78,14 @@ const DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
 
 const inputCls =
   'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-800 placeholder-slate-400 focus:outline-none';
+const inputCompactCls =
+  'w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500';
 const labelCls = 'block text-[11.5px] font-bold uppercase tracking-wider text-slate-600 mb-1';
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({ label, hint, children, compact = false }: { label: string; hint?: string; children: React.ReactNode; compact?: boolean }) {
   return (
     <div>
-      <label className={labelCls}>{label}</label>
+      <label className={compact ? 'block text-[10.5px] font-bold uppercase tracking-wider text-slate-500 mb-0.5' : labelCls}>{label}</label>
       {children}
       {hint && <p className="mt-1 text-[11px] text-slate-400">{hint}</p>}
     </div>
@@ -112,14 +114,48 @@ function Toggle({ value, onChange, yes = 'Yes', no = 'No' }: { value: boolean; o
 }
 
 function ChipInput({
-  values, onChange, placeholder, prefix = '',
-}: { values: string[]; onChange: (v: string[]) => void; placeholder: string; prefix?: string }) {
+  values, onChange, placeholder, prefix = '', compact = false,
+}: { values: string[]; onChange: (v: string[]) => void; placeholder: string; prefix?: string; compact?: boolean }) {
   const [text, setText] = useState('');
   const add = () => {
     const clean = text.trim().replace(/^#+/, '').trim();
     if (clean && !values.some((v) => v.toLowerCase() === clean.toLowerCase())) onChange([...values, clean]);
     setText('');
   };
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {values.map((v) => (
+          <span key={v} className="inline-flex items-center gap-1 rounded bg-indigo-50 border border-indigo-200/80 px-1.5 py-0.5 text-[11px] font-medium text-indigo-700">
+            {prefix}{v}
+            <button type="button" onClick={() => onChange(values.filter((x) => x !== v))} className="text-indigo-400 hover:text-indigo-800 cursor-pointer" title={`Remove ${v}`}>
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        ))}
+        <div className="inline-flex items-center gap-1">
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(); } }}
+            placeholder={placeholder}
+            className="w-40 sm:w-48 rounded border border-slate-200 bg-white px-2 py-1 text-[11.5px] text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <button
+            type="button"
+            onClick={add}
+            disabled={!text.trim()}
+            className="inline-flex items-center gap-0.5 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer shrink-0"
+          >
+            <Plus className="h-3 w-3" /> Add
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       {values.length > 0 && (
@@ -384,7 +420,7 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm animate-in fade-in">
       <div className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
               <Tag className="h-4 w-4" />
@@ -400,7 +436,7 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
         </div>
 
         {/* Question context */}
-        <div className="border-b border-slate-100 bg-slate-50/70 px-6 py-3">
+        <div className="border-b border-slate-100 bg-slate-50/70 px-6 py-3 shrink-0">
           <div className="flex items-start gap-2">
             {headLabel && (
               <span className="mt-0.5 shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">{headLabel}</span>
@@ -415,7 +451,7 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 overflow-x-auto border-b border-slate-100 px-4 pt-2">
+        <div className="flex gap-1 overflow-x-auto border-b border-slate-200 px-4 pt-2 shrink-0 scrollbar-none">
           {TABS.map((t) => {
             const count = t.key === 'repeated' ? detail?.repeated.length : undefined;
             return (
@@ -423,7 +459,7 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
                 key={t.key}
                 type="button"
                 onClick={() => setTab(t.key)}
-                className={`whitespace-nowrap rounded-t-lg px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer border-b-2 -mb-px ${
+                className={`whitespace-nowrap rounded-t-lg px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer border-b-2 shrink-0 ${
                   tab === t.key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -435,7 +471,7 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5 text-[13px]">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-[13px]">
           {error && (
             <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-[12.5px] text-red-700">
               <AlertCircle className="h-4 w-4 shrink-0" />
@@ -451,18 +487,18 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
             <>
               {/* ---------------- Topics ---------------- */}
               {tab === 'topics' && (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   <p className="text-[12px] text-slate-500">
                     Topic, then subtopic, then keywords. A question can sit under more than one topic. The first one is the main topic.
                   </p>
 
                   {paths.length === 0 && (
-                    <p className="rounded-lg border border-dashed border-slate-300 p-4 text-center text-[12.5px] text-slate-400">
+                    <p className="rounded-lg border border-dashed border-slate-300 p-3.5 text-center text-[12px] text-slate-400">
                       Not tagged yet. Add a topic below, or re-tag with AI.
                     </p>
                   )}
                   {paths.length === 0 && detail.tag_error && (
-                    <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-[12px] text-red-700 break-words">
+                    <p className="rounded-lg border border-red-200 bg-red-50 p-2.5 text-[12px] text-red-700 break-words">
                       The AI could not tag this question. {detail.tag_error}
                     </p>
                   )}
@@ -474,9 +510,9 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
                     const customSub = p._cs || (!!p.l2 && !subNames.includes(p.l2 as string));
                     const sub = theme?.subtopics.find((s) => s.name === p.l2);
                     return (
-                      <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 space-y-3 shadow-xs">
+                      <div key={i} className="rounded-xl border border-slate-200 bg-white p-3 sm:p-3.5 space-y-2.5 shadow-xs">
                         <div className="flex items-center justify-between">
-                          <span className="text-[11.5px] font-bold uppercase tracking-wider text-slate-500">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                             {i === 0 ? 'Main topic' : `Also under (${i + 1})`}
                             {p.source && (
                               <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] ${p.source === 'HUMAN' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
@@ -484,12 +520,12 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
                               </span>
                             )}
                           </span>
-                          <button type="button" onClick={() => removePath(i)} className="text-slate-400 hover:text-red-600 cursor-pointer" title="Remove this topic">
+                          <button type="button" onClick={() => removePath(i)} className="text-slate-400 hover:text-red-600 cursor-pointer p-0.5" title="Remove this topic">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <Field label="Topic">
+                        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                          <Field label="Topic" compact>
                             <select
                               value={customTheme ? '__custom__' : p.l1}
                               onChange={(e) => {
@@ -497,60 +533,65 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
                                 if (v === '__custom__') updatePath(i, { _ct: true, l1: customTheme ? p.l1 : '', _cs: true });
                                 else updatePath(i, { _ct: false, l1: v, ...(subNames.includes(p.l2 as string) && v === p.l1 ? {} : { l2: '', _cs: false }) });
                               }}
-                              className={inputCls}
+                              className={inputCompactCls}
                             >
                               <option value="">Choose a topic…</option>
                               {themes.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
                               <option value="__custom__">+ New topic…</option>
                             </select>
                             {customTheme && (
-                              <input type="text" value={p.l1} onChange={(e) => updatePath(i, { l1: e.target.value, _ct: true })} placeholder="Name the new topic" className={`${inputCls} mt-2`} />
+                              <input type="text" value={p.l1} onChange={(e) => updatePath(i, { l1: e.target.value, _ct: true })} placeholder="Name the new topic" className={`${inputCompactCls} mt-1.5`} />
                             )}
                           </Field>
-                          <Field label="Subtopic">
+                          <Field label="Subtopic" compact>
                             <select
                               value={customSub ? '__custom__' : (p.l2 || '')}
                               disabled={!p.l1}
+                              title={sub?.description || undefined}
                               onChange={(e) => {
                                 const v = e.target.value;
                                 if (v === '__custom__') updatePath(i, { _cs: true, l2: customSub ? p.l2 : '' });
                                 else updatePath(i, { _cs: false, l2: v });
                               }}
-                              className={`${inputCls} disabled:bg-slate-50`}
+                              className={`${inputCompactCls} disabled:bg-slate-50`}
                             >
                               <option value="">None</option>
                               {subNames.map((s) => <option key={s} value={s}>{s}</option>)}
                               <option value="__custom__">+ New subtopic…</option>
                             </select>
                             {customSub && (
-                              <input type="text" value={p.l2 || ''} onChange={(e) => updatePath(i, { l2: e.target.value, _cs: true })} placeholder="Name the new subtopic" className={`${inputCls} mt-2`} />
+                              <input type="text" value={p.l2 || ''} onChange={(e) => updatePath(i, { l2: e.target.value, _cs: true })} placeholder="Name the new subtopic" className={`${inputCompactCls} mt-1.5`} />
                             )}
-                            {sub?.description && <p className="mt-1 text-[11px] leading-snug text-slate-400">{sub.description}</p>}
+                            {sub?.description && (
+                              <p className="mt-0.5 text-[11px] leading-tight text-slate-400 truncate" title={sub.description}>
+                                {sub.description}
+                              </p>
+                            )}
                           </Field>
                         </div>
-                        <Field label="Keywords for this question">
-                          <ChipInput values={p.keywords} onChange={(kw) => updatePath(i, { keywords: kw })} placeholder="e.g. Comet, Naru, Shoes (press Enter)" />
+                        <Field label="Keywords for this question" compact>
+                          <ChipInput values={p.keywords} onChange={(kw) => updatePath(i, { keywords: kw })} placeholder="e.g. Comet, Shoes" compact />
                         </Field>
                       </div>
                     );
                   })}
 
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button type="button" onClick={addPath} disabled={paths.length >= 6} className="inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-[12.5px] font-semibold text-slate-600 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-40 cursor-pointer">
+                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                    <button type="button" onClick={addPath} disabled={paths.length >= 6} className="inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-[12px] font-semibold text-slate-600 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-40 cursor-pointer">
                       <Plus className="h-3.5 w-3.5" /> Add another topic
                     </button>
-                    <button type="button" onClick={handleRetag} disabled={retagging} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-[12.5px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 cursor-pointer">
+                    <button type="button" onClick={handleRetag} disabled={retagging} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 cursor-pointer">
                       {retagging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Re-tag with AI
                     </button>
-                    <label className="inline-flex items-center gap-1.5 text-[11.5px] text-slate-500 cursor-pointer">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer">
                       <input type="checkbox" checked={retagForce} onChange={(e) => setRetagForce(e.target.checked)} />
                       Replace my edits too
                     </label>
                   </div>
 
-                  <div className="border-t border-slate-100 pt-4">
-                    <Field label="Hashtags" hint="Your own free-form tags. They are kept separate from the keywords above.">
-                      <ChipInput values={hashtags} onChange={setHashtags} placeholder="e.g. Throwback, Finals special (press Enter)" prefix="#" />
+                  <div className="border-t border-slate-100 pt-3">
+                    <Field label="Hashtags" hint="Your own free-form tags. They are kept separate from the keywords above." compact>
+                      <ChipInput values={hashtags} onChange={setHashtags} placeholder="e.g. Throwback, Finals (press Enter)" prefix="#" compact />
                     </Field>
                   </div>
                 </div>
@@ -787,7 +828,7 @@ export default function TagManagerModal({ isOpen, onClose, question, onSaved, on
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 bg-slate-50/60 px-6 py-3.5">
+        <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 bg-slate-50/60 px-6 py-3.5 shrink-0">
           <button type="button" onClick={onClose} disabled={saving} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
             Close
           </button>

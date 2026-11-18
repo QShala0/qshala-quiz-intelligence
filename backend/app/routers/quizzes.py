@@ -6,6 +6,7 @@ from backend.app.models.quiz import Quiz, GeneratedQuestion
 from backend.app.schemas.quiz import (
     QuizGenerateRequest,
     QuizResponse,
+    QuizRenameRequest,
     GeneratedQuestionResponse,
     GeneratedQuestionUpdate,
     QuestionActionRequest,
@@ -38,6 +39,27 @@ def get_quiz(quiz_id: str, db: Session = Depends(get_db)):
     quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
+    return quiz
+
+@router.patch("/{quiz_id}", response_model=QuizResponse)
+def rename_quiz(
+    quiz_id: str,
+    update_data: QuizRenameRequest,
+    db: Session = Depends(get_db)
+):
+    quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+
+    title = (update_data.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    if len(title) > 255:
+        raise HTTPException(status_code=400, detail="Title cannot exceed 255 characters")
+
+    quiz.title = title
+    db.commit()
+    db.refresh(quiz)
     return quiz
 
 def _generated_picture_urls(questions) -> set:

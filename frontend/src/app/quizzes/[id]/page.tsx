@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
@@ -17,6 +17,7 @@ import {
   X,
   Sparkles,
   Tag,
+  Pencil,
 } from 'lucide-react';
 import { api, resolveMediaUrl, getFallbackMediaUrl, downloadQuizFile, ExportOptions } from '../../../lib/api';
 import ExportQuizModal from '../../../components/ExportQuizModal';
@@ -43,6 +44,45 @@ export default function QuizReviewStudioPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fromBrowserCopy, setFromBrowserCopy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const savingTitleRef = useRef(false);
+  const cancelledTitleRef = useRef(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSaveTitle = async () => {
+    if (savingTitleRef.current || !quiz) return;
+    const trimmed = editTitle.trim();
+    if (trimmed === quiz.title) {
+      setIsEditingTitle(false);
+      return;
+    }
+    if (!trimmed) {
+      toast.error('Title cannot be empty');
+      setIsEditingTitle(false);
+      return;
+    }
+    if (trimmed.length > 255) {
+      toast.error('Title cannot exceed 255 characters');
+      return;
+    }
+    savingTitleRef.current = true;
+    setIsSavingTitle(true);
+    try {
+      await api.renameQuiz(quiz.id, trimmed);
+      setQuiz((prev) => (prev ? { ...prev, title: trimmed } : prev));
+      toast.success('Renamed');
+      setIsEditingTitle(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Could not rename';
+      toast.error(msg);
+    } finally {
+      savingTitleRef.current = false;
+      setIsSavingTitle(false);
+    }
+  };
 
   // Live Slide Deck Presentation Mode
   const [isPresenting, setIsPresenting] = useState(false);
@@ -312,11 +352,55 @@ export default function QuizReviewStudioPage() {
 
       {/* Clean Quiz Header Card */}
       <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm shadow-slate-100/50 space-y-3">
-        <div className="flex items-center justify-between">
-          <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight text-slate-900">
-            {quiz.title}
-          </h1>
-          <span className="text-[12px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md">
+        <div className="flex items-center justify-between gap-4">
+          {isEditingTitle ? (
+            <div className="flex-1 max-w-xl">
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={editTitle}
+                disabled={isSavingTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSaveTitle();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelledTitleRef.current = true;
+                    setIsEditingTitle(false);
+                  }
+                }}
+                onBlur={() => {
+                  if (cancelledTitleRef.current || savingTitleRef.current) return;
+                  handleSaveTitle();
+                }}
+                className="w-full rounded-lg border border-blue-400 bg-white px-3 py-1 text-[20px] sm:text-[24px] font-bold text-slate-900 shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-50 disabled:opacity-60"
+                autoFocus
+                onFocus={(e) => e.target.select()}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2.5 group/title">
+              <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight text-slate-900">
+                {quiz.title}
+              </h1>
+              <button
+                type="button"
+                onClick={() => {
+                  cancelledTitleRef.current = false;
+                  setEditTitle(quiz.title);
+                  setIsEditingTitle(true);
+                }}
+                className="opacity-70 group-hover/title:opacity-100 hover:opacity-100 p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all cursor-pointer"
+                title="Rename"
+                aria-label="Rename quiz"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+          <span className="text-[12px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md shrink-0">
             {approvedQuestions.length} / {quiz.questions.length} Approved
           </span>
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   Plus,
@@ -9,6 +9,7 @@ import {
   Presentation,
   ArrowRight,
   Trash2,
+  Pencil,
 } from 'lucide-react';
 import { api, downloadQuizFile, ExportOptions } from '../../lib/api';
 import ExportQuizModal from '../../components/ExportQuizModal';
@@ -16,10 +17,11 @@ import TableSkeleton from '../../components/TableSkeleton';
 import { Quiz } from '../../lib/types';
 import { getLocalQuizzes, deleteLocalQuiz, syncLocalQuizzesWithServer } from '../../lib/quizStorage';
 import LoadErrorBanner from '../../components/LoadErrorBanner';
-import { useConfirm, QT } from '../../components/ui';
+import { useConfirm, useToast, QT } from '../../components/ui';
 
 export default function QuizzesLibraryPage() {
   const confirm = useConfirm();
+  const toast = useToast();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [exportingQuiz, setExportingQuiz] = useState<Quiz | null>(null);
@@ -27,6 +29,52 @@ export default function QuizzesLibraryPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [offlineCopy, setOfflineCopy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const savingRef = useRef(false);
+  const cancelledRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleSave = async (quizId: string) => {
+    if (savingRef.current) return;
+    const trimmed = editTitle.trim();
+    const currentQuiz = quizzes.find((q) => q.id === quizId);
+    if (!currentQuiz) {
+      setEditingId(null);
+      return;
+    }
+    if (trimmed === currentQuiz.title) {
+      setEditingId(null);
+      return;
+    }
+    if (!trimmed) {
+      toast.error('Title cannot be empty');
+      setEditingId(null);
+      return;
+    }
+    if (trimmed.length > 255) {
+      toast.error('Title cannot exceed 255 characters');
+      return;
+    }
+    savingRef.current = true;
+    setSavingId(quizId);
+    try {
+      await api.renameQuiz(quizId, trimmed);
+      setQuizzes((prev) =>
+        prev.map((q) => (q.id === quizId ? { ...q, title: trimmed } : q))
+      );
+      toast.success('Renamed');
+      setEditingId(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Could not rename';
+      toast.error(msg);
+    } finally {
+      savingRef.current = false;
+      setSavingId(null);
+    }
+  };
 
   // The server is the single source of truth. The copy kept in this browser is only a read-only fallback for when the
   // server cannot be reached, and it is labelled as such.
@@ -142,12 +190,58 @@ export default function QuizzesLibraryPage() {
               {quizzes.map((quiz) => (
                 <tr key={quiz.id} className="hover:bg-slate-50/70 transition-colors group">
                   <td className="py-3.5 px-4 font-semibold text-[14px] text-slate-900">
-                    <Link
-                      href={`/quizzes/${quiz.id}`}
-                      className="hover:text-blue-600 transition-colors flex items-center gap-2"
-                    >
-                      <span>{quiz.title}</span>
-                    </Link>
+                    {editingId === quiz.id ? (
+                      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          ref={inputRef}
+                          type="text"
+                          value={editTitle}
+                          disabled={savingId === quiz.id}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleSave(quiz.id);
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelledRef.current = true;
+                              setEditingId(null);
+                            }
+                          }}
+                          onBlur={() => {
+                            if (cancelledRef.current || savingRef.current) return;
+                            handleSave(quiz.id);
+                          }}
+                          className="w-full max-w-sm rounded border border-blue-400 bg-white px-2 py-1 text-[13px] font-medium text-slate-900 shadow-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-50 disabled:opacity-60"
+                          autoFocus
+                          onFocus={(e) => e.target.select()}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 group/title">
+                        <Link
+                          href={`/quizzes/${quiz.id}`}
+                          className="hover:text-blue-600 transition-colors"
+                        >
+                          <span>{quiz.title}</span>
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            cancelledRef.current = false;
+                            setEditingId(quiz.id);
+                            setEditTitle(quiz.title);
+                          }}
+                          className="opacity-60 group-hover/title:opacity-100 hover:opacity-100 p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all cursor-pointer"
+                          title="Rename"
+                          aria-label="Rename quiz"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td className="py-3.5 px-4 text-slate-600">{quiz.topic}</td>
                   <td className="py-3.5 px-4 text-slate-600">

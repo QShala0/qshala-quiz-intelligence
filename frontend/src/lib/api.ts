@@ -1013,6 +1013,15 @@ export const api = {
     return handleResponse<{ message: string }>(res);
   },
 
+  renameQuiz: async (id: string, title: string): Promise<Quiz> => {
+    const res = await fetch(`${getApiBase()}/quizzes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    });
+    return handleResponse<Quiz>(res);
+  },
+
   updateQuestion: async (
     questionId: string,
     data: Partial<GeneratedQuestion>
