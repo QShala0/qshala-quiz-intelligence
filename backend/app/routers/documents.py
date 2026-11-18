@@ -925,7 +925,7 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
 
 @router.get("", response_model=List[DocumentListItem])
 def list_documents(
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
@@ -948,6 +948,7 @@ def list_document_sources(db: Session = Depends(get_db)):
             Document.year,
             Document.question_count,
             Document.processing_status,
+            Document.created_at,
         )
         .order_by(Document.created_at.desc())
         .all()
@@ -960,6 +961,7 @@ def list_document_sources(db: Session = Depends(get_db)):
             "year": d.year,
             "question_count": d.question_count or 0,
             "processing_status": d.processing_status,
+            "created_at": d.created_at.isoformat() if getattr(d, "created_at", None) else None,
         }
         for d in docs
     ]

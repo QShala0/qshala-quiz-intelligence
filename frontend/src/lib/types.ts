@@ -46,6 +46,7 @@ export interface SourceDeckItem {
   series_key: string;
   year?: number | null;
   question_count: number;
+  created_at?: string | null;
 }
 
 export interface SourceCatalog {

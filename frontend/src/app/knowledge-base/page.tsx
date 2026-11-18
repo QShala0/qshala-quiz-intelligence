@@ -3,7 +3,7 @@
 import { useState, useCallback, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
-import { AlertTriangle, Eye, RefreshCw, Search, X } from 'lucide-react';
+import { AlertTriangle, Eye, RefreshCw, X } from 'lucide-react';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../../lib/api';
 import { HistoricalQuestion } from '../../lib/types';
 import QT from '../../components/ui/QT';
@@ -116,13 +116,13 @@ function KnowledgeBaseContent() {
         </div>
 
         {/* View Tabs */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200/80">
+        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/80 gap-0.5">
           <button
             type="button"
             onClick={() => setActiveTab('all')}
-            className={`px-3.5 py-1.5 rounded-md text-[13px] font-semibold transition-all cursor-pointer ${
+            className={`px-2.5 py-1 rounded text-[11.5px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'all'
-                ? 'bg-white text-slate-900 shadow-sm'
+                ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -131,16 +131,16 @@ function KnowledgeBaseContent() {
           <button
             type="button"
             onClick={() => setActiveTab('duplicates')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[13px] font-semibold transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'duplicates'
-                ? 'bg-amber-500 text-white shadow-sm'
+                ? 'bg-amber-500 text-white shadow-xs'
                 : 'text-amber-700 hover:text-amber-800'
             }`}
           >
-            <AlertTriangle className="h-3.5 w-3.5" />
+            <AlertTriangle className="h-3 w-3 shrink-0" />
             <span>Possible Duplicates</span>
             {duplicateCount > 0 && (
-              <span className={`px-1.5 py-0.2 rounded-full text-[11px] font-bold ${
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
                 activeTab === 'duplicates' ? 'bg-white text-amber-600' : 'bg-amber-200 text-amber-900'
               }`}>
                 {duplicateCount}
@@ -150,16 +150,16 @@ function KnowledgeBaseContent() {
           <button
             type="button"
             onClick={() => setActiveTab('review')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[13px] font-semibold transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'review'
-                ? 'bg-indigo-600 text-white shadow-sm'
+                ? 'bg-indigo-600 text-white shadow-xs'
                 : 'text-indigo-700 hover:text-indigo-800'
             }`}
           >
-            <Eye className="h-3.5 w-3.5" />
+            <Eye className="h-3 w-3 shrink-0" />
             <span>Needs Review</span>
             {reviewCount > 0 && (
-              <span className={`px-1.5 py-0.2 rounded-full text-[11px] font-bold ${
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
                 activeTab === 'review' ? 'bg-white text-indigo-600' : 'bg-indigo-200 text-indigo-900'
               }`}>
                 {reviewCount}

@@ -138,6 +138,7 @@ def build_source_catalog(docs: Sequence[Any]) -> Dict[str, Any]:
             year = d.get("year")
             q_count = int(d.get("question_count") or 0)
             status = str(d.get("processing_status") or "")
+            created_at = d.get("created_at")
         else:
             doc_id = str(getattr(d, "id", "") or "")
             title = str(getattr(d, "title", "") or "")
@@ -145,6 +146,10 @@ def build_source_catalog(docs: Sequence[Any]) -> Dict[str, Any]:
             year = getattr(d, "year", None)
             q_count = int(getattr(d, "question_count", 0) or 0)
             status = str(getattr(d, "processing_status", "") or "")
+            created_at = getattr(d, "created_at", None)
+
+        if hasattr(created_at, "isoformat"):
+            created_at = created_at.isoformat()
 
         if not doc_id or status == "FAILED":
             continue
@@ -161,6 +166,7 @@ def build_source_catalog(docs: Sequence[Any]) -> Dict[str, Any]:
             "series_key": series_key,
             "year": year,
             "question_count": q_count,
+            "created_at": created_at,
         })
 
         grp = groups.get(series_key)
