@@ -362,6 +362,30 @@ def _question_paragraphs(text: str, max_paras: int = 4) -> list:
     return grouped + [tail]
 
 
+def _text_fits_at_28pt(text: str, options: list, w_in: float, h_in: float) -> bool:
+    """Check if question text (at strictly 28pt) plus options fits comfortably in a w_in x h_in box."""
+    paras = _question_paragraphs(text) if text else [""]
+    usable_w_pt = max(1.0, (w_in - 0.2)) * 72.0
+    chars_per_line = max(1, int(usable_w_pt / (28 * 0.47)))
+    line_h_pt = 28 * 1.25  # ~35 pt per line
+    
+    q_lines = sum(max(1, -(-len(p) // chars_per_line)) for p in paras)
+    para_gap_pt = max(0, len(paras) - 1) * 8.0
+    
+    opt_lines = 0
+    opt_gap_pt = 0.0
+    if options:
+        opt_cpl = max(1, int(usable_w_pt / (22 * 0.47)))
+        for o in options:
+            opt_lines += max(1, -(-len(str(o)) // opt_cpl))
+            opt_gap_pt += 8.0
+            
+    opt_h_pt = (opt_lines * (22 * 1.25)) + opt_gap_pt
+    total_h_pt = (q_lines * line_h_pt) + para_gap_pt + opt_h_pt
+    available_h_pt = (h_in - 0.2) * 72.0
+    return total_h_pt <= available_h_pt
+
+
 def _plan_media(aspect: float, text_len: int, has_options: bool = False):
     """Plan question/answer media against the amount of text. Returns (mode, text_box, media_box), inches.
 
@@ -475,6 +499,7 @@ def _apply_causten_style(prs) -> None:
                 color = d.color.rgb
         except Exception:
             color = None
+        italic = getattr(d, 'italic', None)
         runs = list(par.runs)
         if not runs:
             return
@@ -482,6 +507,8 @@ def _apply_causten_style(prs) -> None:
             f = r.font
             _set_run_font(r, CAUSTEN_BOLD if bold_face else CAUSTEN_REGULAR)
             f.bold = True if bold_face else False
+            if italic is not None and f.italic is None:
+                f.italic = italic
             if f.size is None and size is not None:
                 f.size = size
             c = color
@@ -1252,14 +1279,222 @@ class QuizExporter:
                     _opt_len = sum(len(str(o)) + 4 for o in options)
                     mode_q, (tl, tt, tw, th), (ml, mt, mw, mh) = _plan_media(_q_aspect, len(q_text) + _opt_len, has_options=bool(options))
                     stacked_q = (mode_q == "stacked")
-                    tb_q = sq.shapes.add_textbox(Inches(tl), Inches(tt), Inches(tw), Inches(th))
+                    q_paras = _question_paragraphs(q_text)
+                    fits_same_slide = _text_fits_at_28pt(q_text, options, tw, th)
+
+                    if fits_same_slide:
+                        tb_q = sq.shapes.add_textbox(Inches(tl), Inches(tt), Inches(tw), Inches(th))
+                        tf_q = tb_q.text_frame
+                        tf_q.word_wrap = True
+                        pq_main = tf_q.paragraphs[0]
+                        for pi, para in enumerate(q_paras):
+                            p = pq_main if pi == 0 else tf_q.add_paragraph()
+                            p.alignment = PP_ALIGN.CENTER
+                            if pi > 0:
+                                p.space_before = Pt(8)
+                            p.text = para
+                            p.font.name = FONT_BODY
+                            p.font.size = Pt(28)
+                            p.font.bold = False
+                            p.font.color.rgb = C_TEXT_DARK
+                        if options:
+                            for opt_idx, opt in enumerate(options):
+                                po = tf_q.add_paragraph()
+                                po.alignment = PP_ALIGN.CENTER
+                                po.space_before = Pt(8)
+                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                                po.text = f"{prefix}{opt}"
+                                po.font.name = FONT_BODY
+                                po.font.size = Pt(22)
+                                po.font.color.rgb = C_TEXT_BODY
+                        if not stacked_q:
+                            tf_q.vertical_anchor = MSO_ANCHOR.MIDDLE
+
+                        media_left, media_top, media_w, media_h = Inches(ml), Inches(mt), Inches(mw), Inches(mh)
+                        vid_h = media_h - Inches(0.45)  # leave room for the "VIDEO CLIP" caption
+
+                        is_video_mention = bool(re.search(r"\bvideo\b|\bclip\b|\bwatch\b", q_text, re.I))
+                        if video_path:
+                            sq.shapes.add_movie(
+                                str(video_path),
+                                media_left, media_top, media_w, vid_h,
+                                poster_frame_image=str(poster_path) if poster_path else None,
+                                mime_type="video/mp4"
+                            )
+                            tb_badge = sq.shapes.add_textbox(media_left, media_top + vid_h + Inches(0.10), media_w, Inches(0.40))
+                            pb = tb_badge.text_frame.paragraphs[0]
+                            pb.alignment = PP_ALIGN.CENTER
+                            pb.text = "▶ VIDEO CLIP"
+                            pb.font.name = FONT_HEAD
+                            pb.font.size = Pt(13)
+                            pb.font.bold = True
+                            pb.font.color.rgb = C_ACCENT_ORANGE
+                        elif is_video_mention and poster_path:
+                            _add_scaled_picture(sq, poster_path, media_left, media_top, media_w, vid_h)
+                            tb_badge = sq.shapes.add_textbox(media_left, media_top + vid_h + Inches(0.10), media_w, Inches(0.40))
+                            pb = tb_badge.text_frame.paragraphs[0]
+                            pb.alignment = PP_ALIGN.CENTER
+                            pb.text = "▶ VIDEO CLIP"
+                            pb.font.name = FONT_HEAD
+                            pb.font.size = Pt(13)
+                            pb.font.bold = True
+                            pb.font.color.rgb = C_ACCENT_ORANGE
+                        elif audio_path:
+                            card = sq.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, media_left, media_top, media_w, Inches(3.20))
+                            card.fill.solid()
+                            card.fill.fore_color.rgb = C_CARD_BG
+                            card.line.color.rgb = C_CARD_BORDER
+                            card.line.width = Pt(1)
+                            tf_c = card.text_frame
+                            tf_c.word_wrap = True
+                            p_c1 = tf_c.paragraphs[0]
+                            p_c1.text = "🎧 AUDIO CLUE"
+                            p_c1.font.name = FONT_HEAD
+                            p_c1.font.size = Pt(16)
+                            p_c1.font.bold = True
+                            p_c1.font.color.rgb = C_ACCENT_GOLD
+                            p_c1.alignment = PP_ALIGN.CENTER
+                            sq.shapes.add_movie(
+                                str(audio_path),
+                                media_left + Inches(1.40), media_top + Inches(1.80), Inches(1.00), Inches(1.00),
+                                poster_frame_image=str(poster_path) if poster_path else None,
+                                mime_type="audio/mpeg"
+                            )
+                        elif resolved_q_imgs:
+                            _add_scaled_picture(sq, resolved_q_imgs[0], media_left, media_top, media_w, media_h)
+                    else:
+                        # Uniform School QShala Layout: When there is no space for the image at 28pt,
+                        # render the full question text at 28pt, add "(image in next slide)",
+                        # and place the image on the following slide.
+                        tb_q = sq.shapes.add_textbox(Inches(1.20), Inches(1.65), Inches(10.933), Inches(4.70))
+                        tf_q = tb_q.text_frame
+                        tf_q.word_wrap = True
+                        tf_q.vertical_anchor = MSO_ANCHOR.MIDDLE
+                        pq_main = tf_q.paragraphs[0]
+                        for pi, para in enumerate(q_paras):
+                            p = pq_main if pi == 0 else tf_q.add_paragraph()
+                            p.alignment = PP_ALIGN.CENTER
+                            if pi > 0:
+                                p.space_before = Pt(8)
+                            p.text = para
+                            p.font.name = FONT_BODY
+                            p.font.size = Pt(28)
+                            p.font.bold = False
+                            p.font.color.rgb = C_TEXT_DARK
+
+                        if options:
+                            for opt_idx, opt in enumerate(options):
+                                po = tf_q.add_paragraph()
+                                po.alignment = PP_ALIGN.CENTER
+                                po.space_before = Pt(8)
+                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                                po.text = f"{prefix}{opt}"
+                                po.font.name = FONT_BODY
+                                po.font.size = Pt(22)
+                                po.font.color.rgb = C_TEXT_BODY
+
+                        p_sub = tf_q.add_paragraph()
+                        p_sub.alignment = PP_ALIGN.CENTER
+                        p_sub.space_before = Pt(14)
+                        if video_path:
+                            p_sub.text = "(video in next slide)"
+                        elif audio_path:
+                            p_sub.text = "(audio in next slide)"
+                        else:
+                            p_sub.text = "(image in next slide)"
+                        p_sub.font.name = FONT_BODY
+                        p_sub.font.size = Pt(20)
+                        p_sub.font.bold = False
+                        p_sub.font.italic = True
+                        p_sub.font.color.rgb = C_TEXT_MUTED
+
+                        # Dedicated image clue slide immediately following
+                        if master_prs is not None:
+                            sq_img = prs.slides.add_slide(blank_layout)
+                        elif not is_minimalist and question_bg.exists():
+                            sq_img = prs.slides.add_slide(blank_layout)
+                            sq_img.shapes.add_picture(str(question_bg), 0, 0, Inches(13.333), Inches(7.5))
+                        else:
+                            sq_img = prs.slides.add_slide(blank_layout)
+                            bg_qi = sq_img.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(13.333), Inches(7.5))
+                            bg_qi.fill.solid()
+                            bg_qi.fill.fore_color.rgb = C_WHITE
+                            bg_qi.line.fill.background()
+
+                        tb_ihead = sq_img.shapes.add_textbox(Inches(1.00), Inches(0.70), Inches(11.333), Inches(0.75))
+                        tb_ihead.name = "QNum"
+                        pi_hd = tb_ihead.text_frame.paragraphs[0]
+                        pi_hd.alignment = PP_ALIGN.CENTER
+                        pi_hd.text = f"Question {idx}"
+                        pi_hd.font.name = FONT_HEAD
+                        pi_hd.font.size = Pt(40)
+                        pi_hd.font.bold = True
+                        pi_hd.font.color.rgb = C_TEXT_DARK
+
+                        img_l, img_t, img_w, img_h = Inches(1.50), Inches(1.65), Inches(10.333), Inches(4.55)
+                        is_video_mention = bool(re.search(r"\bvideo\b|\bclip\b|\bwatch\b", q_text, re.I))
+                        if video_path:
+                            vid_h = img_h - Inches(0.45)
+                            sq_img.shapes.add_movie(
+                                str(video_path),
+                                img_l, img_t, img_w, vid_h,
+                                poster_frame_image=str(poster_path) if poster_path else None,
+                                mime_type="video/mp4"
+                            )
+                            tb_badge = sq_img.shapes.add_textbox(img_l, img_t + vid_h + Inches(0.08), img_w, Inches(0.40))
+                            pb = tb_badge.text_frame.paragraphs[0]
+                            pb.alignment = PP_ALIGN.CENTER
+                            pb.text = "▶ VIDEO CLIP"
+                            pb.font.name = FONT_HEAD
+                            pb.font.size = Pt(13)
+                            pb.font.bold = True
+                            pb.font.color.rgb = C_ACCENT_ORANGE
+                        elif is_video_mention and poster_path:
+                            vid_h = img_h - Inches(0.45)
+                            _add_scaled_picture(sq_img, poster_path, img_l, img_t, img_w, vid_h)
+                            tb_badge = sq_img.shapes.add_textbox(img_l, img_t + vid_h + Inches(0.08), img_w, Inches(0.40))
+                            pb = tb_badge.text_frame.paragraphs[0]
+                            pb.alignment = PP_ALIGN.CENTER
+                            pb.text = "▶ VIDEO CLIP"
+                            pb.font.name = FONT_HEAD
+                            pb.font.size = Pt(13)
+                            pb.font.bold = True
+                            pb.font.color.rgb = C_ACCENT_ORANGE
+                        elif audio_path:
+                            card = sq_img.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(4.20), Inches(2.20), Inches(4.933), Inches(3.20))
+                            card.fill.solid()
+                            card.fill.fore_color.rgb = C_CARD_BG
+                            card.line.color.rgb = C_CARD_BORDER
+                            card.line.width = Pt(1)
+                            tf_c = card.text_frame
+                            tf_c.word_wrap = True
+                            p_c1 = tf_c.paragraphs[0]
+                            p_c1.text = "🎧 AUDIO CLUE"
+                            p_c1.font.name = FONT_HEAD
+                            p_c1.font.size = Pt(18)
+                            p_c1.font.bold = True
+                            p_c1.font.color.rgb = C_ACCENT_GOLD
+                            p_c1.alignment = PP_ALIGN.CENTER
+                            sq_img.shapes.add_movie(
+                                str(audio_path),
+                                Inches(6.166), Inches(3.60), Inches(1.00), Inches(1.00),
+                                poster_frame_image=str(poster_path) if poster_path else None,
+                                mime_type="audio/mpeg"
+                            )
+                        elif resolved_q_imgs:
+                            if len(resolved_q_imgs) == 2:
+                                _add_scaled_picture(sq_img, resolved_q_imgs[0], Inches(1.50), Inches(1.65), Inches(4.90), img_h)
+                                _add_scaled_picture(sq_img, resolved_q_imgs[1], Inches(6.933), Inches(1.65), Inches(4.90), img_h)
+                            else:
+                                _add_scaled_picture(sq_img, resolved_q_imgs[0], img_l, img_t, img_w, img_h)
+                else:
+                    # Pure text question: 28pt centered Causten Round (Style Guide compliant)
+                    tb_q = sq.shapes.add_textbox(Inches(1.20), Inches(1.65), Inches(10.933), Inches(4.70))
                     tf_q = tb_q.text_frame
                     tf_q.word_wrap = True
+                    tf_q.vertical_anchor = MSO_ANCHOR.MIDDLE
                     pq_main = tf_q.paragraphs[0]
                     q_paras = _question_paragraphs(q_text)
-                    q_full = q_text + "".join("\n" + str(o) for o in options)
-                    # reserve a little height for the gaps between paragraphs when sizing
-                    q_pt = _fit_font_pt(q_full, tw - 0.3, (th - 0.2) - 0.12 * (len(q_paras) - 1), sizes=(28, 26, 24, 22, 20, 18, 16))
                     for pi, para in enumerate(q_paras):
                         p = pq_main if pi == 0 else tf_q.add_paragraph()
                         p.alignment = PP_ALIGN.CENTER
@@ -1267,9 +1502,10 @@ class QuizExporter:
                             p.space_before = Pt(8)
                         p.text = para
                         p.font.name = FONT_BODY
-                        p.font.size = Pt(q_pt)
+                        p.font.size = Pt(28)
                         p.font.bold = False
                         p.font.color.rgb = C_TEXT_DARK
+
                     if options:
                         for opt_idx, opt in enumerate(options):
                             po = tf_q.add_paragraph()
@@ -1278,91 +1514,7 @@ class QuizExporter:
                             prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
                             po.text = f"{prefix}{opt}"
                             po.font.name = FONT_BODY
-                            po.font.size = Pt(max(16, q_pt - 4))
-                            po.font.color.rgb = C_TEXT_BODY
-                    if not stacked_q:
-                        tf_q.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-                    media_left, media_top, media_w, media_h = Inches(ml), Inches(mt), Inches(mw), Inches(mh)
-                    vid_h = media_h - Inches(0.45)  # leave room for the "VIDEO CLIP" caption
-
-                    is_video_mention = bool(re.search(r"\bvideo\b|\bclip\b|\bwatch\b", q_text, re.I))
-                    if video_path:
-                        sq.shapes.add_movie(
-                            str(video_path),
-                            media_left, media_top, media_w, vid_h,
-                            poster_frame_image=str(poster_path) if poster_path else None,
-                            mime_type="video/mp4"
-                        )
-                        tb_badge = sq.shapes.add_textbox(media_left, media_top + vid_h + Inches(0.10), media_w, Inches(0.40))
-                        pb = tb_badge.text_frame.paragraphs[0]
-                        pb.alignment = PP_ALIGN.CENTER
-                        pb.text = "▶ VIDEO CLIP"
-                        pb.font.name = FONT_HEAD
-                        pb.font.size = Pt(13)
-                        pb.font.bold = True
-                        pb.font.color.rgb = C_ACCENT_ORANGE
-                    elif is_video_mention and poster_path:
-                        _add_scaled_picture(sq, poster_path, media_left, media_top, media_w, vid_h)
-                        tb_badge = sq.shapes.add_textbox(media_left, media_top + vid_h + Inches(0.10), media_w, Inches(0.40))
-                        pb = tb_badge.text_frame.paragraphs[0]
-                        pb.alignment = PP_ALIGN.CENTER
-                        pb.text = "▶ VIDEO CLIP"
-                        pb.font.name = FONT_HEAD
-                        pb.font.size = Pt(13)
-                        pb.font.bold = True
-                        pb.font.color.rgb = C_ACCENT_ORANGE
-                    elif audio_path:
-                        card = sq.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, media_left, media_top, media_w, Inches(3.20))
-                        card.fill.solid()
-                        card.fill.fore_color.rgb = C_CARD_BG
-                        card.line.color.rgb = C_CARD_BORDER
-                        card.line.width = Pt(1)
-                        tf_c = card.text_frame
-                        tf_c.word_wrap = True
-                        p_c1 = tf_c.paragraphs[0]
-                        p_c1.text = "🎧 AUDIO CLUE"
-                        p_c1.font.name = FONT_HEAD
-                        p_c1.font.size = Pt(16)
-                        p_c1.font.bold = True
-                        p_c1.font.color.rgb = C_ACCENT_GOLD
-                        p_c1.alignment = PP_ALIGN.CENTER
-                        sq.shapes.add_movie(
-                            str(audio_path),
-                            media_left + Inches(1.40), media_top + Inches(1.80), Inches(1.00), Inches(1.00),
-                            poster_frame_image=str(poster_path) if poster_path else None,
-                            mime_type="audio/mpeg"
-                        )
-                    elif resolved_q_imgs:
-                        _add_scaled_picture(sq, resolved_q_imgs[0], media_left, media_top, media_w, media_h)
-                else:
-                    # Pure text question: 28pt centered Causten Round (Style Guide compliant)
-                    tb_q = sq.shapes.add_textbox(Inches(1.20), Inches(1.85), Inches(10.933), Inches(4.50))
-                    tf_q = tb_q.text_frame
-                    tf_q.word_wrap = True
-                    pq_main = tf_q.paragraphs[0]
-                    q_paras = _question_paragraphs(q_text)
-                    qpt = 28 if len(q_text) < 180 else (24 if len(q_text) < 320 else 20)
-                    for pi, para in enumerate(q_paras):
-                        p = pq_main if pi == 0 else tf_q.add_paragraph()
-                        p.alignment = PP_ALIGN.CENTER
-                        if pi > 0:
-                            p.space_before = Pt(10)
-                        p.text = para
-                        p.font.name = FONT_BODY
-                        p.font.size = Pt(qpt)
-                        p.font.bold = False
-                        p.font.color.rgb = C_TEXT_DARK
-
-                    if options:
-                        for opt_idx, opt in enumerate(options):
-                            po = tf_q.add_paragraph()
-                            po.alignment = PP_ALIGN.CENTER
-                            po.space_before = Pt(10)
-                            prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                            po.text = f"{prefix}{opt}"
-                            po.font.name = FONT_BODY
-                            po.font.size = Pt(20)
+                            po.font.size = Pt(22)
                             po.font.color.rgb = C_TEXT_BODY
 
                 # Style Guide Speaker Notes
@@ -1385,6 +1537,8 @@ class QuizExporter:
                 if v_clue:
                     q_notes.append(f"Presenter Clues: {v_clue}")
                 sq.notes_slide.notes_text_frame.text = "\n".join(q_notes)
+                if has_media and not fits_same_slide and 'sq_img' in locals():
+                    sq_img.notes_slide.notes_text_frame.text = sq.notes_slide.notes_text_frame.text
             elif has_media:
                 # South Zone 2-Column Protocol: Question text left (7.80 in), Media clue right (3.90 in)
                 tb_q = sq.shapes.add_textbox(Inches(0.80), Inches(1.50), Inches(7.80), Inches(4.80))

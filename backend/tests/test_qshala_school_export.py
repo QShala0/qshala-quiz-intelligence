@@ -275,3 +275,92 @@ def test_qshala_school_template_lives_in_the_slide_master_not_on_slides():
                     rPr = r._r.rPr
                     faces = {el.get("typeface") for el in rPr if el.tag.split("}")[1] in ("latin", "ea", "cs")}
                     assert faces and faces <= ok, (r.text, faces)
+
+
+def test_qshala_school_font_size_28_and_image_in_next_slide():
+    """QShala School style rule: Question text font size must be 28pt everywhere (never reduced).
+    If there is no space for the image alongside the question at 28pt, question slide has
+    '(image in next slide)' and the image is placed on a dedicated following slide."""
+    from PIL import Image
+    from pptx.util import Inches
+    import shutil
+    from backend.app.services.export import exporter as ex
+
+    img_dir = ex.Path(ex.__file__).resolve().parents[4] / "backend" / "storage" / "_pytest_font28"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        img_path = img_dir / "unicorn_wiz.png"
+        Image.new("RGB", (1000, 600), (40, 80, 160)).save(img_path)
+
+        q_long = (
+            "While a 'unicorn' denotes an unlisted company that has achieved a valuation of over $1 billion, "
+            "a '_____' is one that raises $1 billion in a single investor round. "
+            "Flipkart was the first such Indian company when it raised $1 billion in July 2014. "
+            "The term is named after a mythical creature that is depicted in Western cultures as winged, horned, and capable of breathing fire. "
+            "Which term/mythical creature?"
+        )
+
+        quiz = {
+            "title": "School Championship",
+            "topic": "Business & Startups",
+            "questions": [
+                {
+                    "order_index": 1,
+                    "question_text": q_long,
+                    "answer": "Dragon",
+                    "explanation": "A dragon company raises $1B in a single round.",
+                    "question_images": [f"backend/storage/_pytest_font28/unicorn_wiz.png"],
+                    "is_approved": True,
+                },
+                {
+                    "order_index": 2,
+                    "question_text": "What is the capital of Australia?",
+                    "answer": "Canberra",
+                    "is_approved": True,
+                }
+            ]
+        }
+
+        raw = QuizExporter.to_pptx(quiz, quiz_type="qshala_school", show_answer_divider=True)
+        prs = Presentation(io.BytesIO(raw))
+
+        # Q1 Long: should have Question slide (Slide 1) and Image slide (Slide 2), then Divider (3), Answer (4)
+        q1_slide = prs.slides[1]
+        q1_texts = [sh.text_frame.text for sh in q1_slide.shapes if sh.has_text_frame]
+        assert any("Question 1" in t for t in q1_texts)
+        assert any("(image in next slide)" in t for t in q1_texts)
+
+        # Check font sizes on Q1 slide: question runs must be 28pt, sub heading 20pt
+        found_28 = False
+        found_sub_20 = False
+        for sh in q1_slide.shapes:
+            if sh.has_text_frame and "unicorn" in sh.text_frame.text:
+                for par in sh.text_frame.paragraphs:
+                    for r in par.runs:
+                        if "unicorn" in r.text:
+                            assert r.font.size.pt == 28.0
+                            found_28 = True
+                        if "(image in next slide)" in r.text:
+                            assert r.font.size.pt == 20.0
+                            assert r.font.italic is True
+                            found_sub_20 = True
+        assert found_28
+        assert found_sub_20
+
+        # Dedicated image slide
+        img_slide = prs.slides[2]
+        img_texts = [sh.text_frame.text for sh in img_slide.shapes if sh.has_text_frame]
+        assert any("Question 1" in t for t in img_texts)
+        pics = [sh for sh in img_slide.shapes if sh.shape_type == 13 and sh.width < Inches(13)]
+        assert len(pics) == 1
+
+        # Q2 Pure Text Question: Question text run must be 28pt
+        q2_slide = prs.slides[5]
+        for sh in q2_slide.shapes:
+            if sh.has_text_frame and "capital" in sh.text_frame.text:
+                for par in sh.text_frame.paragraphs:
+                    for r in par.runs:
+                        if "capital" in r.text:
+                            assert r.font.size.pt == 28.0
+    finally:
+        shutil.rmtree(img_dir, ignore_errors=True)
