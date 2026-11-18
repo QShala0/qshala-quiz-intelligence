@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Check, Lock, Plus, RefreshCw, Sparkles, Trash2, Unlock } from 'lucide-react';
+import { ArrowUp, Check, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { getApiBase, resolveMediaUrl } from '../../lib/api';
 import { HistoricalQuestion, SourceCatalog } from '../../lib/types';
 import BankPickerDrawer from '../../components/BankPickerDrawer';
@@ -128,7 +128,6 @@ export default function QuizzerHome() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [qs, setQs] = useState<DraftQ[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [locked, setLocked] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
   const [bankOpen, setBankOpen] = useState(false);
@@ -175,7 +174,6 @@ export default function QuizzerHome() {
   // Interactive topic change state
   const [cardTopicEdit, setCardTopicEdit] = useState<string | null>(null);
   const [cardTopicInput, setCardTopicInput] = useState<string>('');
-  const [batchTopicInput, setBatchTopicInput] = useState<string>('');
 
   const area = useRef<HTMLTextAreaElement>(null);
 
@@ -240,7 +238,6 @@ export default function QuizzerHome() {
       setDraft(d);
       setQs(d.questions);
       setChecked(new Set(d.questions.map((q) => q.id)));
-      setLocked(new Set());
       setLastPrompt(p);
       syncChipsFromBrief(d.brief);
     } catch (e) {
@@ -265,7 +262,7 @@ export default function QuizzerHome() {
         prompt: `replace question ${slotIndex} with ${t}`,
         previous_brief: draft.brief,
         options: quizOptions(),
-        keep_ids: Array.from(locked),
+        keep_ids: qs.filter((q) => q.id !== id && checked.has(q.id)).map((q) => q.id),
         current_questions: currentQuestions,
       });
       setDraft(d);
@@ -281,41 +278,6 @@ export default function QuizzerHome() {
     }
   }
 
-  async function handleReplaceUnselected(topicOverride?: string) {
-    const t = (topicOverride !== undefined ? topicOverride : batchTopicInput).trim();
-    if (!t || loading || !draft) return;
-    const unselectedCount = qs.length - checked.size;
-    if (unselectedCount <= 0) return;
-
-    setError(''); setLoading(true); setStage(0);
-    try {
-      const keptIds = Array.from(checked);
-      const excludedIds = qs.filter((q) => !checked.has(q.id)).map((q) => q.id);
-      const currentQuestions = qs.map((q, idx) => ({
-        index: idx + 1,
-        id: q.id,
-        question_text: q.question_text,
-        topic: q.subtopic_l2 || q.topic_l1,
-      }));
-
-      const d = await apiFetch<Draft>('/prompt-quiz/draft', {
-        prompt: `change ${unselectedCount} questions to ${t}`,
-        previous_brief: draft.brief,
-        keep_ids: keptIds,
-        exclude_ids: excludedIds,
-        current_questions: currentQuestions,
-      });
-      setDraft(d);
-      setQs(d.questions);
-      setChecked(new Set(d.questions.map((q) => q.id)));
-      setBatchTopicInput('');
-      syncChipsFromBrief(d.brief);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Replacement failed');
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function swap(id: string) {
     try {
@@ -395,8 +357,8 @@ export default function QuizzerHome() {
     const textToUse = (overrideText !== undefined ? overrideText : refineText).trim();
     if (!textToUse || loading || !draft) return;
 
-    // Only genuinely locked questions are kept; unchecked questions are excluded
-    const keptIds = Array.from(locked);
+    // Checked questions are kept; unchecked questions are excluded
+    const keptIds = qs.filter((q) => checked.has(q.id)).map((q) => q.id);
     const excludedIds = qs.filter((q) => !checked.has(q.id)).map((q) => q.id);
     const currentQuestions = qs.map((q, idx) => ({
       index: idx + 1,
@@ -417,9 +379,7 @@ export default function QuizzerHome() {
       setDraft(d);
       setQs(d.questions);
       setChecked(new Set(d.questions.map((q) => q.id)));
-      // Retain lock state for questions that survived in the updated list
-      const newIds = new Set(d.questions.map((q) => q.id));
-      setLocked(new Set(Array.from(locked).filter((id) => newIds.has(id))));
+
       setRefineText('');
       setLastPrompt(textToUse);
       syncChipsFromBrief(d.brief);
@@ -836,61 +796,14 @@ export default function QuizzerHome() {
             </div>
           </div>
 
-          {/* Interactive Batch Replace Bar for Unchecked Questions */}
-          {checked.size < qs.length && (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/90 p-3 text-slate-900 shadow-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                <div>
-                  <p className="text-[13px] font-semibold text-amber-950">
-                    {qs.length - checked.size} of {qs.length} questions unselected
-                  </p>
-                  <p className="text-[12px] text-amber-800">
-                    Replace the {qs.length - checked.size} unchecked questions while keeping the {checked.size} selected questions:
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {['Technology', 'Cricket', 'Startups', 'Food', 'Finance'].map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      disabled={loading}
-                      onClick={() => handleReplaceUnselected(t)}
-                      className="rounded-md border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-100 transition cursor-pointer disabled:opacity-40"
-                    >
-                      + {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="mt-2.5 flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Or type a replacement topic (e.g. Indian Brands, World History)..."
-                  value={batchTopicInput}
-                  onChange={(e) => setBatchTopicInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleReplaceUnselected(); }}
-                  className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  disabled={!batchTopicInput.trim() || loading}
-                  onClick={() => handleReplaceUnselected()}
-                  className="rounded-lg bg-amber-600 hover:bg-amber-700 px-3.5 py-1.5 text-[12px] font-semibold text-white transition disabled:opacity-40 cursor-pointer"
-                >
-                  Replace {qs.length - checked.size}
-                </button>
-              </div>
-            </div>
-          )}
+
 
           <ol className="mt-2 divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
             {qs.map((q, i) => (
               <li
                 key={q.id}
                 className={`group px-5 py-4 transition-all duration-150 ${
-                  locked.has(q.id)
-                    ? 'bg-amber-50/30 border-l-4 border-l-amber-500'
-                    : checked.has(q.id) ? 'bg-white' : 'bg-slate-50/70 opacity-45'
+                  checked.has(q.id) ? 'bg-white' : 'bg-slate-50/70 opacity-45'
                 }`}
               >
                 <div className="flex gap-3.5 items-start">
@@ -1066,11 +979,7 @@ export default function QuizzerHome() {
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {locked.has(q.id) && (
-                        <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">
-                          <Lock size={11} /> Pinned
-                        </span>
-                      )}
+
                       <p className="text-[12px] text-slate-400">{[q.subtopic_l2 || q.topic_l1, q.document_title, q.difficulty !== 'Unrated' ? q.difficulty : null, q.image_dependent ? 'has image' : null].filter(Boolean).join(' · ')}</p>
                     </div>
 
@@ -1127,7 +1036,6 @@ export default function QuizzerHome() {
                   <div className="flex shrink-0 items-start gap-1 text-slate-400 opacity-60 transition group-hover:opacity-100 focus-within:opacity-100">
                     <button
                       aria-label="Change topic for this question"
-                      disabled={locked.has(q.id)}
                       onClick={() => {
                         setCardTopicEdit(cardTopicEdit === q.id ? null : q.id);
                         setCardTopicInput('');
@@ -1137,9 +1045,8 @@ export default function QuizzerHome() {
                     >
                       <Sparkles size={16} />
                     </button>
-                    <button aria-label={locked.has(q.id) ? 'Unlock' : 'Lock'} onClick={() => toggle(locked, q.id, setLocked)} className={`p-1.5 transition ${locked.has(q.id) ? 'text-amber-600 hover:text-amber-700' : 'hover:text-slate-900'}`} title={locked.has(q.id) ? 'Unlock question' : 'Lock question'}>{locked.has(q.id) ? <Lock size={16} /> : <Unlock size={16} />}</button>
-                    <button aria-label="Swap for another" disabled={locked.has(q.id)} onClick={() => swap(q.id)} className="p-1.5 hover:text-slate-900 disabled:opacity-30" title="Swap with another random question"><RefreshCw size={16} /></button>
-                    <button aria-label="Remove" disabled={locked.has(q.id)} onClick={() => removeQuestion(q.id)} className="p-1.5 hover:text-red-600 disabled:opacity-30" title="Remove question"><Trash2 size={16} /></button>
+                    <button aria-label="Swap for another" onClick={() => swap(q.id)} className="p-1.5 hover:text-slate-900 disabled:opacity-30" title="Swap with another random question"><RefreshCw size={16} /></button>
+                    <button aria-label="Remove" onClick={() => removeQuestion(q.id)} className="p-1.5 hover:text-red-600 disabled:opacity-30" title="Remove question"><Trash2 size={16} /></button>
                   </div>
                 </div>
               </li>
@@ -1164,11 +1071,7 @@ export default function QuizzerHome() {
           <div className="mt-6">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[12px] font-medium text-slate-500">Quick Adjustments:</span>
-              {locked.size > 0 && (
-                <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <Lock size={11} /> {locked.size} {locked.size === 1 ? 'question' : 'questions'} pinned
-                </span>
-              )}
+
             </div>
             <div className="flex flex-wrap gap-1.5 mb-2.5">
               {[
