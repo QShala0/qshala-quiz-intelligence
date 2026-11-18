@@ -35,7 +35,7 @@ except Exception:  # pragma: no cover
     QshalaTag = None
     QshalaQuestionMetadata = None
 
-from backend.app.services.prompt_quiz.retrieval import Index, normalize_compound_typos, parse_prompt, tokenize, WORD_NUMS
+from backend.app.services.prompt_quiz.retrieval import Index, normalize_compound_typos, parse_prompt, tokenize, WORD_NUMS, SYNONYMS
 from backend.app.services.prompt_quiz.interpreter_llm import V6_THEMES
 from backend.app.services.prompt_quiz.audience import (
     audience_score, defaults_for_audience, difficulty_penalty, passes_hard
@@ -510,7 +510,6 @@ def _copy_of(bank: List[Dict[str, Any]], token: float) -> "_BankList":
 
 
 def _refresh_bank_in_background(key: Any, slots: Optional[tuple] = None) -> None:
-    global _REFRESH_FAILED_AT
     if time.monotonic() - _REFRESH_FAILED_AT < 10.0 or not _REFRESH_LOCK.acquire(blocking=False):
         return
 
@@ -1012,7 +1011,8 @@ _THEMATIC_SIGNALS = {
     "astronaut", "astronauts", "space", "mission", "missions", "entertainment",
     "culture", "general", "knowledge", "trivia", "nature", "environment",
     "everyday", "wildlife", "flora", "fauna", "sports", "business", "technology",
-} | {w for t in V6_THEMES for w in tokenize(t.lower())}
+    "brand", "brands", "company", "companies", "film", "films", "movie", "movies",
+} | {w for t in V6_THEMES for w in tokenize(t.lower())} | {w for k in SYNONYMS for w in tokenize(k.lower())}
 
 def _detect_deck_scope(prompt_lower: str, bank: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Detect distinctive deck-series names and typos (e.g. 'agastya', 'aghtya', 'set 2 prelims') in the prompt."""
