@@ -812,7 +812,8 @@ class IngestionPipeline:
                 # batch tagger's Gemini call later fails.
                 if getattr(settings, "TAG_ANSWER_LED_ENABLED", True):
                     ans_tag = answer_led_fallback_tag(q_data.get("answer"), q_data.get("question_text"),
-                                                      q_fmt, question_images=q_data.get("question_images"))
+                                                      q_fmt, question_images=q_data.get("question_images"),
+                                                      media_count=len(q_data.get("question_audio") or []) + len(q_data.get("question_videos") or []))
                     if ans_tag:
                         final_tags = list(dict.fromkeys(final_tags + [ans_tag]))
 
@@ -911,7 +912,13 @@ class IngestionPipeline:
             duplicate_report = build_duplicate_report(
                 deck_title=doc_title, extracted=len(raw_questions), saved=len(question_models),
                 exact_duplicates=duplicates, final_candidates=unique_candidates,
-                provenance_warnings=dedup_warnings)
+                provenance_warnings=dedup_warnings,
+                skipped_media_slides=list(getattr(self.extractor, "skipped_media_slides", None) or []))
+            _skipped = duplicate_report.get("skipped_media_slides") or []
+            if _skipped:
+                progress.event(INGESTION_STATUS_REGISTRY[document_id],
+                               "Audio/video on slide(s) " + ", ".join(str(n) for n in _skipped[:20])
+                               + " did not become a question: check them in the deck")
             INGESTION_STATUS_REGISTRY[document_id]["duplicate_report"] = duplicate_report
             doc.duplicate_report = duplicate_report
 

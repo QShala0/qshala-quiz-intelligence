@@ -472,6 +472,18 @@ export interface DashboardStats {
   }[];
 }
 
+// Mirrors backend's deduplicator.build_duplicate_report(): what got dropped as a repeat, what
+// got kept for review, and the extracted/saved/dropped reconciliation so the numbers add up.
+export interface UploadDuplicateReport {
+  deck_title: string;
+  reconciliation: { extracted: number; saved: number; dropped: number };
+  already_in_library: { already_in_deck_title: string | null; question_number: number | null }[];
+  repeated_in_this_deck: number;
+  possible_duplicates_kept: { question_text: string; similarity: number | null; matched_id: string | null }[];
+  skipped_media_slides: number[];
+  provenance_warnings: string[];
+}
+
 export interface IngestionStatus {
   document_id: string;
   status: string;
@@ -480,6 +492,7 @@ export interface IngestionStatus {
   slides_processed: number;
   questions_extracted: number;
   questions_saved?: number | null;   // stored and searchable while AI tagging is still running
+  duplicate_report?: UploadDuplicateReport | null;
   error?: string | null;
   detail?: string | null;
   events?: { ts: number; msg: string }[] | null;

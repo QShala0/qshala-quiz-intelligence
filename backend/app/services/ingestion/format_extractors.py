@@ -10,6 +10,7 @@ Every result carries a confidence (>= 0.9 accept, 0.7-0.9 optional vision check,
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -62,6 +63,11 @@ _UNIT_MULT = {"thousand": 1e3, "k": 1e3, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, 
 # ------------------------------------------------------------------------------------------------ small helpers
 
 
+def media_only_enabled() -> bool:
+    """MEDIA_ONLY_QUESTIONS_ENABLED=0 restores the old behaviour: audio is not read and audio-only slides get no placeholder."""
+    return os.getenv("MEDIA_ONLY_QUESTIONS_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _lines(text: str) -> List[str]:
     return [l.strip() for l in (text or "").replace("\r", "").split("\n") if l.strip()]
 
@@ -95,7 +101,7 @@ def _reading_order(shapes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def _clue_media(slide: Dict[str, Any], noise: set, kind: str) -> List[Dict[str, Any]]:
     """Pictures (kind='image') or videos (kind='video') that belong to the question: servable, not deck furniture."""
-    want = ("PICTURE",) if kind == "image" else ("MEDIA",)
+    want = ("PICTURE",) if kind == "image" else ("MEDIA",)      # kind: image | video | audio
     out = []
     for s in slide.get("shapes") or []:
         if s.get("type") not in want or is_timer_shape(s) or not s.get("media_url"):
@@ -103,6 +109,8 @@ def _clue_media(slide: Dict[str, Any], noise: set, kind: str) -> List[Dict[str, 
         if kind == "image" and s.get("media_kind") not in (None, "image"):
             continue
         if kind == "video" and s.get("media_kind") != "video":
+            continue
+        if kind == "audio" and s.get("media_kind") != "audio":
             continue
         if s.get("media_md5") in noise and not is_export_shape(s):
             continue
@@ -223,6 +231,18 @@ class Ctx:
             out.extend(_clue_media(s, self.noise, "video"))
         return out
 
+    def question_audio(self) -> List[Dict[str, Any]]:
+        out = []
+        for s in self.slides:
+            out.extend(_clue_media(s, self.noise, "audio"))
+        return out
+
+    def answer_audio(self) -> List[Dict[str, Any]]:
+        out = []
+        for s in ([self.ans] if self.ans else []) + self.extras:
+            out.extend(_clue_media(s, self.noise, "audio"))
+        return out
+
     def answer_images(self) -> List[Dict[str, Any]]:
         out = []
         for s in ([self.ans] if self.ans else []) + self.extras:
@@ -264,6 +284,7 @@ def _result(ctx: Ctx, fmt: str, payload: Dict[str, Any], confidence: float, ques
                              "reasons": reasons}
     qimgs, qvids = ctx.question_images(), ctx.question_videos()
     aimgs, avids = ctx.answer_images(), ctx.answer_videos()
+    qaud, aaud = (ctx.question_audio(), ctx.answer_audio()) if media_only_enabled() else ([], [])
     q_urls, a_urls = _urls(qimgs), _urls(aimgs)
     first_no, last_no = u.first_slide, u.last_slide
     raw_notes = "\n".join(s.get("speaker_notes") or "" for s in ctx.slides + ([ctx.ans] if ctx.ans else []) if s.get("speaker_notes")).strip()
@@ -286,12 +307,13 @@ def _result(ctx: Ctx, fmt: str, payload: Dict[str, Any], confidence: float, ques
         "image_refs": list(dict.fromkeys(q_urls + a_urls)),
         "question_images": q_urls,
         "answer_images": a_urls,
-        "audio_refs": [], "question_audio": [], "answer_audio": [],
+        "audio_refs": list(dict.fromkeys(_urls(qaud) + _urls(aaud))),
+        "question_audio": _urls(qaud), "answer_audio": _urls(aaud),
         "video_refs": list(dict.fromkeys(_urls(qvids) + _urls(avids))),
         "question_videos": _urls(qvids),
         "answer_videos": _urls(avids),
         "media_items": [],
-        "raw_media_refs": list(dict.fromkeys(q_urls + a_urls + _urls(qvids) + _urls(avids))),
+        "raw_media_refs": list(dict.fromkeys(q_urls + a_urls + _urls(qvids) + _urls(avids) + _urls(qaud) + _urls(aaud))),
         "speaker_notes": notes,
         "play_mode": u.play_mode,
         "slot": u.slot,
@@ -797,13 +819,19 @@ def extract_standard(ctx: Ctx) -> Dict[str, Any]:
         q_text = cleaned.strip() or q_text
     answer, expl = ctx.answer()
     vids, imgs = ctx.question_videos(), ctx.question_images()
-    media_kind = "VIDEO" if vids else ("IMAGE" if imgs else None)
+    auds = ctx.question_audio() if media_only_enabled() else []
+    media_kind = "VIDEO" if vids else ("AUDIO" if auds else ("IMAGE" if imgs else None))
     conf = 0.9
     if not q_text:
-        if imgs or vids:
-            q_text = "(see the picture)" if imgs else "(see the clip)"
+        if imgs or vids or auds:
+            q_text = "(see the picture)" if imgs else ("(see the clip)" if vids else "(listen to the clip)")
             conf = 0.8
             ctx.reasons.append("question is carried by media only")
+            if auds and not imgs and not vids:
+                # An audio-only question has nothing for the reader or the tagger but the answer: send it to review
+                # so a person confirms the placeholder text and the tags.
+                ctx.unit.needs_review = True
+                ctx.unit.review_reason = ctx.unit.review_reason or "audio-only question: question text is a placeholder"
         else:
             ctx.reasons.append("no question text found")
             conf = 0.4
@@ -930,6 +958,31 @@ def with_shapes(slide: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(slide)
     out["shapes"] = shapes
     return out
+
+
+def skipped_media_slides(slides: List[Dict[str, Any]], analysis: DeckAnalysis) -> List[int]:
+    """Slides that carry a real audio or video clue (not a timer, not furniture used on 3+ slides) but belong to no
+    question: listed in the upload report so a clip is never lost silently. Short title/section/scoreboard slides
+    (round music) are left out; only slides that look like question material are reported."""
+    used = set()
+    for u in analysis.units:
+        used.update(u.content_slides)
+        used.update(u.extra_answer_slides)
+        for n in (u.marker_slide, u.answer_slide):
+            if n is not None:
+                used.add(n)
+    out: List[int] = []
+    for s in slides:
+        n = s.get("slide_number")
+        if n is None or int(n) in used:
+            continue
+        s = with_shapes(s)
+        if not any(_clue_media(s, analysis.noise, k) for k in ("video", "audio")):
+            continue
+        words = len((s.get("extracted_text") or "").split())
+        if s.get("slide_type") == "QUESTION" or words > 6:
+            out.append(int(n))
+    return sorted(out)
 
 
 def extract_deck(slides: List[Dict[str, Any]], analysis: DeckAnalysis, extractor) -> List[Dict[str, Any]]:

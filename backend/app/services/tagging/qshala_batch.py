@@ -327,6 +327,7 @@ async def tag_questions_batched(db: Session, questions: List[Question], *, provi
             continue
         q_format = getattr(q, "question_format", None)
         q_images = getattr(q, "question_images", None)
+        q_media_count = len(getattr(q, "question_audio", None) or []) + len(getattr(q, "question_videos", None) or [])
         clue_labels, text_hint = _clue_hint(getattr(q, "format_payload", None))
         items.append({
             "n": idx, "question_id": q.id, "question_obj": q,
@@ -336,7 +337,8 @@ async def tag_questions_batched(db: Session, questions: List[Question], *, provi
             "question_format": q_format,
             "explanation": (getattr(q, "explanation", "") or "").strip(),
             "clue_labels": clue_labels, "text_hint": text_hint,
-            "answer_led": answer_led_enabled and is_answer_led(qtext, q_format, question_images=q_images),
+            "answer_led": answer_led_enabled and is_answer_led(qtext, q_format, question_images=q_images,
+                                                                      media_count=q_media_count),
         })
 
     exemplars = recent_human_exemplars(db)

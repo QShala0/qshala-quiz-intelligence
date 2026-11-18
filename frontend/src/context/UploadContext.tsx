@@ -18,7 +18,14 @@ import {
   BatchLocalItem,
   BatchTotals,
   BatchItemPhase,
+  UploadDuplicateReport,
 } from '../lib/types';
+
+export interface UploadReportEntry {
+  deckTitle: string;
+  filename: string;
+  report: UploadDuplicateReport;
+}
 
 export interface PipelineProgress {
   step: string;
@@ -55,6 +62,11 @@ interface UploadContextType {
   showLog: boolean;
   setShowLog: React.Dispatch<React.SetStateAction<boolean>>;
   version: number;
+  // Post-upload duplicate/reconciliation report dialog: one entry per deck that finished in the
+  // current/most recent batch, shown together once the batch (or single upload) is done.
+  uploadReports: Record<string, UploadReportEntry>;
+  showUploadReportDialog: boolean;
+  dismissUploadReportDialog: () => void;
   // Actions
   handleFileUpload: (file: File) => Promise<void>;
   handleMultiFileUpload: (files: File[]) => Promise<void>;
@@ -105,6 +117,13 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
   const [timing, setTiming] = useState<UploadTiming | null>(null);
   const [, setTick] = useState(0);
+
+  const [uploadReports, setUploadReports] = useState<Record<string, UploadReportEntry>>({});
+  const [showUploadReportDialog, setShowUploadReportDialog] = useState(false);
+  const dismissUploadReportDialog = useCallback(() => {
+    setShowUploadReportDialog(false);
+    setUploadReports({});
+  }, []);
 
   // Send batch heartbeat every 20s while activeBatchId is active to prevent abandoned status
   // It stops once every item is finished (the batch id stays set for the summary screen, but nothing is left to keep alive).
@@ -327,6 +346,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         if (allDone) {
           setVersion((v) => v + 1);
           stopClock();
+          setShowUploadReportDialog(true);   // the dialog itself renders nothing if no reports landed
         }
       } catch (err) {
         console.warn('Batch polling error:', err);
@@ -404,6 +424,18 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
               : it
           )
         );
+
+        if (status.status === 'COMPLETED' && status.duplicate_report) {
+          const finishedFilename = itemsRef.current.find((it) => it.docId === activeDocId)?.filename || '';
+          setUploadReports((prev) => ({
+            ...prev,
+            [activeDocId]: {
+              deckTitle: status.duplicate_report!.deck_title || finishedFilename,
+              filename: finishedFilename,
+              report: status.duplicate_report!,
+            },
+          }));
+        }
 
         if (status.status === 'COMPLETED' || status.status === 'FAILED' || status.status === 'CANCELLED') {
           clearVaultCache();   // the question bank must not show a remembered list from before this deck
@@ -796,6 +828,8 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     setActiveBatchId(null);
     setItems([]);
     setBatchTotals(null);
+    setUploadReports({});
+    setShowUploadReportDialog(false);
     try {
       localStorage.removeItem(STORAGE_BATCH_KEY);
       localStorage.removeItem(STORAGE_ACTIVE_KEY);
@@ -821,6 +855,9 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         showLog,
         setShowLog,
         version,
+        uploadReports,
+        showUploadReportDialog,
+        dismissUploadReportDialog,
         handleFileUpload,
         handleMultiFileUpload,
         handleRetry,

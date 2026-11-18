@@ -8,6 +8,7 @@ import {
   Quiz,
   GeneratedQuestion,
   IngestionStatus,
+  UploadDuplicateReport,
   TopicItem,
   TopicSummary,
   TagItem,
@@ -355,6 +356,15 @@ export const api = {
   getIngestionStatus: async (id: string): Promise<IngestionStatus> => {
     const res = await fetch(`${getApiBase()}/documents/${id}/status`, { cache: 'no-store' });
     return handleResponse<IngestionStatus>(res);
+  },
+
+  // Reopens the duplicate/reconciliation report from a past upload (see "View upload report" in
+  // Recent uploads). null for a deck that predates this feature or never ran dedup (the backend
+  // answers {} in that case; there's nothing useful to show, so this flattens to null here).
+  getUploadReport: async (id: string): Promise<UploadDuplicateReport | null> => {
+    const res = await fetch(`${getApiBase()}/documents/${id}/upload-report`, { cache: 'no-store' });
+    const body = await handleResponse<Record<string, unknown>>(res);
+    return 'reconciliation' in body ? (body as unknown as UploadDuplicateReport) : null;
   },
 
   uploadDocument: async (

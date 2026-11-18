@@ -17,8 +17,10 @@ import { api } from '../../lib/api';
 import LoadErrorBanner from '../../components/LoadErrorBanner';
 import { DocumentItem, Slide } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
+import UploadReportDialog from '../../components/UploadReportDialog';
 import { useUpload } from '../../context/UploadContext';
 import { useConfirm, useToast, QT } from '../../components/ui';
+import { UploadDuplicateReport } from '../../lib/types';
 
 export default function UploadPage() {
   const confirm = useConfirm();
@@ -28,6 +30,7 @@ export default function UploadPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [selectedSlide, setSelectedSlide] = useState<Slide | null>(null);
+  const [reopenedReport, setReopenedReport] = useState<{ deckTitle: string; report: UploadDuplicateReport } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -43,6 +46,9 @@ export default function UploadPage() {
     showLog,
     setShowLog,
     version,
+    uploadReports,
+    showUploadReportDialog,
+    dismissUploadReportDialog,
     handleMultiFileUpload,
     handleRetry,
     handleCancelBatch,
@@ -115,6 +121,20 @@ export default function UploadPage() {
       setLoadError(err instanceof Error && err.message ? err.message : 'The server could not be reached.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleViewUploadReport = async (doc: DocumentItem) => {
+    try {
+      const report = await api.getUploadReport(doc.id);
+      if (!report) {
+        toast.info('No upload report is available for this deck.');
+        return;
+      }
+      setReopenedReport({ deckTitle: report.deck_title || doc.title || doc.filename, report });
+    } catch (err) {
+      console.error(err);
+      toast.error('Could not load the upload report.');
     }
   };
 
@@ -762,6 +782,16 @@ export default function UploadPage() {
                   </span>
                 </div>
 
+                {doc.processing_status === 'COMPLETED' && (
+                  <button
+                    onClick={() => handleViewUploadReport(doc)}
+                    className="text-[12px] font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                    title="See duplicates found and reconciliation numbers for this upload"
+                  >
+                    View upload report
+                  </button>
+                )}
+
                 <button
                   onClick={() => handleDelete(doc.id)}
                   className="rounded-lg p-1.5 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
@@ -795,6 +825,20 @@ export default function UploadPage() {
         isOpen={Boolean(selectedSlide)}
         onClose={() => setSelectedSlide(null)}
         slide={selectedSlide}
+      />
+
+      {/* Post-upload duplicate report: one combined dialog, one section per deck in the batch */}
+      <UploadReportDialog
+        isOpen={showUploadReportDialog}
+        onClose={dismissUploadReportDialog}
+        sections={Object.values(uploadReports).map((r) => ({ deckTitle: r.deckTitle, report: r.report }))}
+      />
+
+      {/* Reopening a past deck's report from "View upload report" in Recent uploads */}
+      <UploadReportDialog
+        isOpen={Boolean(reopenedReport)}
+        onClose={() => setReopenedReport(null)}
+        sections={reopenedReport ? [reopenedReport] : []}
       />
     </div>
   );

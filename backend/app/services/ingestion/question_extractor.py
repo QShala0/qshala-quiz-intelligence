@@ -3,6 +3,8 @@ import re
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 
+from backend.app.services.ingestion.picture_sides import separate_picture_sides_all
+
 logger = logging.getLogger(__name__)
 
 # Format-aware ingestion (units found from ANSWER slides + structure-based formats). FORMAT_AWARE_INGESTION=0 restores
@@ -57,12 +59,17 @@ class QuestionExtractor:
             if len(analysis.units) < self.MIN_STRUCTURED_UNITS:
                 return None
             questions = extract_deck(slides, analysis, self)
+            try:
+                from backend.app.services.ingestion.format_extractors import skipped_media_slides, media_only_enabled
+                self.skipped_media_slides = skipped_media_slides(slides, analysis) if media_only_enabled() else []
+            except Exception:
+                self.skipped_media_slides = []
         except Exception as e:                       # never fail the deck because of the new path
             logger.warning("format-aware extraction failed, using the legacy extractor: %s", type(e).__name__)
             return None
         for q in questions:
             q["source_year"] = doc_year or 2026
-        return questions
+        return separate_picture_sides_all(questions)
 
     @staticmethod
     def _is_trans_slide(slide: Optional[Dict[str, Any]]) -> bool:
@@ -1041,7 +1048,7 @@ class QuestionExtractor:
                 seen_q[key] = q
                 consolidated.append(q)
 
-        return consolidated
+        return separate_picture_sides_all(consolidated)
 
     @staticmethod
     def _strip_data_uris(text: str) -> str:

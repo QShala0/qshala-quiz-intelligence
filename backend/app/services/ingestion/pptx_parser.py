@@ -174,6 +174,26 @@ class PPTXParser:
         self._header_cache[zip_name] = result
         return result
 
+    @staticmethod
+    def _poster_zip_names(slide) -> Set[str]:
+        """Zip names of the poster images of the slide's video and audio shapes (the camera / speaker picture a clip is
+        drawn with). A poster is part of the clip, never a picture of its own, whatever the file looks like."""
+        out: Set[str] = set()
+        if os.getenv("MEDIA_ONLY_QUESTIONS_ENABLED", "1").strip().lower() in {"0", "false", "no", "off"}:
+            return out
+        try:
+            for el in slide._element.iter("{http://schemas.openxmlformats.org/presentationml/2006/main}pic"):
+                has_clip = any(True for _ in el.iter("{http://schemas.openxmlformats.org/drawingml/2006/main}videoFile",
+                                                      "{http://schemas.openxmlformats.org/drawingml/2006/main}audioFile"))
+                if not has_clip:
+                    continue
+                rid = getattr(el, "blip_rId", None)
+                if rid:
+                    out.add(str(slide.part.related_part(rid).partname).lstrip("/"))
+        except Exception as e:                     # a dangling relationship must never stop parsing
+            logger.debug("poster images unreadable: %s", e)
+        return out
+
     def _is_video_icon(self, zip_name: str, size: int) -> bool:
         if size > _ICON_CHECK_MAX_BYTES:
             return False
@@ -731,6 +751,8 @@ class PPTXParser:
                         else:
                             logger.warning(f"Could not extract picture shape from slide {slide_idx}: {e}")
 
+            poster_zips = self._poster_zip_names(slide)
+
             # 2. Extract embedded audio & video from slide.part.rels
             try:
                 for rel_id, rel in slide.part.rels.items():
@@ -767,7 +789,7 @@ class PPTXParser:
                                 if is_timer_vid and media_type == "video":
                                     has_timer = True
                                     continue
-                                if media_type == "image" and not self._is_valid_quiz_image(zip_name, ext):
+                                if media_type == "image" and (zip_name in poster_zips or not self._is_valid_quiz_image(zip_name, ext)):
                                     continue
 
                                 mime_type = getattr(target_part, "content_type", None) or mimetypes.guess_type(part_name)[0] or "application/octet-stream"
@@ -801,7 +823,8 @@ class PPTXParser:
                     if info is None:
                         logger.warning(f"Could not read {z_item['zip_name']} from the deck")
                         continue
-                    if z_item["media_type"] == "image" and not self._is_valid_quiz_image(z_item["zip_name"], Path(z_item["filename"]).suffix):
+                    if z_item["media_type"] == "image" and (z_item["zip_name"] in poster_zips
+                                                            or not self._is_valid_quiz_image(z_item["zip_name"], Path(z_item["filename"]).suffix)):
                         continue
 
                     try:
