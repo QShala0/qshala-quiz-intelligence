@@ -983,6 +983,11 @@ class IngestionPipeline:
                 if fin_doc:
                     fin_doc.question_count = len(question_models)
                     fin_doc.processing_status = "COMPLETED"
+                    if fin_doc.sharepoint_file_id:
+                        from backend.app.models.sharepoint import SharePointFile
+                        fin_sp = fin.query(SharePointFile).filter(SharePointFile.id == fin_doc.sharepoint_file_id).first()
+                        if fin_sp:
+                            fin_sp.sync_status = "COMPLETED"
 
             _review_n = tag_stats.get("draft", 0)
             _summary = (f"Saved {len(question_models)} questions from {len(slide_models)} slides"

@@ -205,6 +205,11 @@ def _reclaim_stale(db: Session) -> None:
                 doc = db.query(Document).filter(Document.id == job.document_id).first()
                 if doc is not None:
                     doc.processing_status = "COMPLETED"
+                if job.source_file_id:
+                    from backend.app.models.sharepoint import SharePointFile
+                    sp_file = db.query(SharePointFile).filter(SharePointFile.id == job.source_file_id).first()
+                    if sp_file:
+                        sp_file.sync_status = "COMPLETED"
                 reclaimed += 1
                 continue
             elif c_status in ("FAILED", "CANCELLED"):
@@ -335,6 +340,11 @@ async def _run_job(job_id: str, document_id: str) -> None:
         if job:
             if ok and doc_ok:
                 job.status, job.current_step, job.completed_at = "COMPLETED", "DONE", _now()
+                if job.source_file_id:
+                    from backend.app.models.sharepoint import SharePointFile
+                    sp_file = db.query(SharePointFile).filter(SharePointFile.id == job.source_file_id).first()
+                    if sp_file:
+                        sp_file.sync_status = "COMPLETED"
             else:
                 job.status = "FAILED"
                 job.error_message = err or (doc.processing_error if doc else None) or "ingestion did not complete"
