@@ -323,6 +323,7 @@ def _expected_extra_columns(eng_is_postgres: bool) -> dict[str, list[tuple[str, 
             ("cancel_requested", "BOOLEAN DEFAULT FALSE"),
             ("progress_detail", "JSON"),
             ("file_sha256", "VARCHAR(64)"),
+            ("duplicate_report", "JSON"),
         ],
         "qshala_question_metadata": [
             ("round_number", "INTEGER"),

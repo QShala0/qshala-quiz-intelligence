@@ -71,7 +71,7 @@ def test_tier1_exact_hash_bypass_and_provenance(test_db):
         "slide_id": "slide_new"
     }
 
-    final_candidates, exact_duplicates = dedup.deduplicate_batch(
+    final_candidates, exact_duplicates, _ = dedup.deduplicate_batch(
         db=test_db,
         candidates=[candidate],
         candidate_embeddings=[generate_normalized_vector(42)],
@@ -140,7 +140,7 @@ def test_tier2_threshold_flagging_possible_duplicate(test_db):
         "slide_id": "slide_3"
     }
 
-    final_candidates, exact_duplicates = dedup.deduplicate_batch(
+    final_candidates, exact_duplicates, _ = dedup.deduplicate_batch(
         db=test_db,
         candidates=[candidate_high, candidate_low],
         candidate_embeddings=[near_dup_vector, diff_vector],
@@ -233,7 +233,7 @@ def test_intra_batch_duplicate_vector_matching(test_db):
         "primary_topic": "Science & Nature"
     }
 
-    final_candidates, exact_duplicates = dedup.deduplicate_batch(
+    final_candidates, exact_duplicates, _ = dedup.deduplicate_batch(
         db=test_db,
         candidates=[cand1, cand2],
         candidate_embeddings=[v1, v2],
@@ -296,7 +296,7 @@ def test_sparse_symbolic_and_disjoint_answers_not_flagged(test_db):
         "primary_topic": "Mathematics"
     }
 
-    final_candidates, _ = dedup.deduplicate_batch(
+    final_candidates, _, _ = dedup.deduplicate_batch(
         db=test_db,
         candidates=[cand_skin, cand_cube],
         candidate_embeddings=[v, v],

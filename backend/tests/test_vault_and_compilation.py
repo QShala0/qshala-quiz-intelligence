@@ -72,7 +72,7 @@ def test_deduplicator():
     hash2 = dedup.compute_hash(cand2["question_text"], cand2["answer"])
     assert hash1 == hash2, "Canonical normalization failed to produce matching hash"
 
-    unique, duplicates = dedup.deduplicate_batch(
+    unique, duplicates, _ = dedup.deduplicate_batch(
         db=db,
         candidates=[cand1, cand2],
         candidate_embeddings=[],

@@ -377,7 +377,7 @@ class JobQueueService:
         embeddings = step_data.get("embeddings", [])
         doc_id = job.document_id or str(uuid.uuid4())
 
-        final_candidates, exact_duplicates = self.deduplicator.deduplicate_batch(
+        final_candidates, exact_duplicates, dedup_warnings = self.deduplicator.deduplicate_batch(
             db=db,
             candidates=canonical_questions,
             candidate_embeddings=embeddings,
@@ -387,6 +387,7 @@ class JobQueueService:
 
         step_data["dedup_candidates"] = final_candidates
         step_data["exact_duplicates_count"] = len(exact_duplicates)
+        step_data["dedup_warnings"] = dedup_warnings
         job.step_data = step_data
         job.current_step = "TAG"
         job.updated_at = datetime.now(timezone.utc)

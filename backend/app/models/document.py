@@ -41,6 +41,13 @@ class Document(Base):
     # SHA-256 of the uploaded deck file, recorded at the start of ingestion so an identical re-upload can be
     # recognised (see IDENTICAL_REUPLOAD_ACTION in pipeline.py). Null for decks ingested before this existed.
     file_sha256 = Column(String(64), nullable=True)
+    # Per-deck duplicate/reconciliation report from the last ingestion run (see
+    # deduplicator.build_duplicate_report): already-in-library repeats, same-deck intra-batch
+    # repeats, possible-duplicates kept for review, and extracted/saved/dropped counts. Written
+    # directly here (not just to progress_detail) so GET /documents/{id}/upload-report can read it
+    # back after the run, in every ingestion mode -- progress_detail itself is only persisted by
+    # the Cloud Run Job worker's cross-process mirror and stays null for in-process ingestion.
+    duplicate_report = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

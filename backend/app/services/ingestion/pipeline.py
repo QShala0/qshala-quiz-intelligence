@@ -765,7 +765,7 @@ class IngestionPipeline:
             _ensure_clean(db, "dedup")
             from sqlalchemy.exc import OperationalError, DBAPIError
             try:
-                unique_candidates, duplicates = self.deduplicator.deduplicate_batch(
+                unique_candidates, duplicates, dedup_warnings = self.deduplicator.deduplicate_batch(
                     db=db, candidates=enriched_questions,
                     candidate_embeddings=embeddings, doc_id=doc.id)
             except (OperationalError, DBAPIError) as db_err:
@@ -774,7 +774,7 @@ class IngestionPipeline:
                     db.rollback()
                 except Exception:
                     pass
-                unique_candidates, duplicates = self.deduplicator.deduplicate_batch(
+                unique_candidates, duplicates, dedup_warnings = self.deduplicator.deduplicate_batch(
                     db=db, candidates=enriched_questions,
                     candidate_embeddings=embeddings, doc_id=doc.id)
 
@@ -900,6 +900,20 @@ class IngestionPipeline:
                         db, q_m, [{"l1": q_m.topic, "l2": q_m.subtopic, "keywords": q_m.tags or []}], source="RULES")
                 except Exception as tp_err:
                     logger.warning("rule topic-path seeding error: %s", tp_err)
+
+            # Duplicate/reconciliation report for the upload page's post-upload dialog and the
+            # "View upload report" link (GET /documents/{id}/upload-report). Set on `doc` here (not
+            # a separate commit) so it rides the SAME Phase C1 commit below: a second commit here
+            # would re-expire every already-bulk-reloaded question_models object right before the
+            # tagging stage reads each one's attributes, reintroducing the N+1 query-per-question
+            # pattern commit c2a1491 (M4) fixed.
+            from backend.app.services.deduplication.deduplicator import build_duplicate_report
+            duplicate_report = build_duplicate_report(
+                deck_title=doc_title, extracted=len(raw_questions), saved=len(question_models),
+                exact_duplicates=duplicates, final_candidates=unique_candidates,
+                provenance_warnings=dedup_warnings)
+            INGESTION_STATUS_REGISTRY[document_id]["duplicate_report"] = duplicate_report
+            doc.duplicate_report = duplicate_report
 
             # Phase C1 done: questions + metadata are durable BEFORE tagging runs. A tagging hiccup
             # can no longer roll back the whole ingested deck, and the connection is released.

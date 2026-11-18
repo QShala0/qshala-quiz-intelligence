@@ -43,7 +43,7 @@ def test_candidate_without_embedding_does_not_shift_intra_batch_matches():
     c = {"question_text": f"Who wrote the national anthem of India titled {tag} again?", "answer": "Rabindranath Tagore", "slide_id": None}
     db = SessionLocal()
     try:
-        kept, dropped = Deduplicator().deduplicate_batch(
+        kept, dropped, _ = Deduplicator().deduplicate_batch(
             db, [a, b, c], [None, _unit(700), _unit(700)], doc_id=str(uuid.uuid4()))
     finally:
         db.close()
@@ -200,8 +200,8 @@ def test_tier1_rule_is_shared_by_the_pipeline_precheck_and_the_deduplicator():
     db = SessionLocal()
     try:
         skip = exact_duplicate_indices(db, qs)
-        kept, dropped = Deduplicator().deduplicate_batch(db, [dict(q) for q in qs], [None, None, None],
-                                                         doc_id=str(uuid.uuid4()))
+        kept, dropped, _ = Deduplicator().deduplicate_batch(db, [dict(q) for q in qs], [None, None, None],
+                                                            doc_id=str(uuid.uuid4()))
     finally:
         db.close()
     assert skip == {2}

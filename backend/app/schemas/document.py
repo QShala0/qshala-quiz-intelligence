@@ -51,6 +51,9 @@ class IngestionStatusResponse(BaseModel):
     questions_extracted: int
     # Questions already stored and searchable while AI tagging is still running (None until that point).
     questions_saved: Optional[int] = None
+    # Per-deck duplicate/reconciliation report (see deduplicator.build_duplicate_report). None
+    # until deduplication has run for this upload.
+    duplicate_report: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     detail: Optional[str] = None
     events: Optional[List[Dict[str, Any]]] = None

@@ -1014,6 +1014,10 @@ def get_ingestion_status(document_id: str, db: Session = Depends(get_db)):
         "slides_processed": doc.slide_count,
         "questions_extracted": doc.question_count,
         "questions_saved": pd.get("questions_saved"),
+        # Read straight off the document row, not the progress_detail mirror: that mirror is only
+        # ever written by the Cloud Run Job worker, so in-process ingestion would otherwise never
+        # show a duplicate report once this registry entry is gone.
+        "duplicate_report": doc.duplicate_report,
         "error": doc.processing_error or pd.get("error"),
         "detail": pd.get("detail"),
         "events": pd.get("events"),
@@ -1021,6 +1025,17 @@ def get_ingestion_status(document_id: str, db: Session = Depends(get_db)):
         "peak_memory_mb": pd.get("peak_memory_mb"),
         "memory_limit_mb": pd.get("memory_limit_mb"),
     }
+
+@router.get("/{document_id}/upload-report")
+def get_upload_report(document_id: str, db: Session = Depends(get_db)):
+    """The last ingestion run's duplicate/reconciliation report, so the post-upload dialog can be
+    reopened later from the Recent uploads list. {} (not 404) when the deck predates this feature
+    or dedup hasn't run yet for it."""
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return doc.duplicate_report or {}
+
 
 @router.delete("/{document_id}")
 def delete_document(document_id: str, db: Session = Depends(get_db)):

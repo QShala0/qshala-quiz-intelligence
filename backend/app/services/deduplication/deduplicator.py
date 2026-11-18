@@ -136,7 +136,7 @@ class Deduplicator:
         candidate_embeddings: List[List[float]],
         doc_id: str,
         threshold: Optional[float] = None
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]]:
         """
         Deduplicates candidate questions:
         - Tier 1: Exact hash match updates provenance on existing record and skips vector search.
@@ -145,7 +145,7 @@ class Deduplicator:
           and human UI review.
         """
         if not candidates:
-            return [], []
+            return [], [], []
 
         thresh = threshold if threshold is not None else self.DEFAULT_SEMANTIC_THRESHOLD
 
@@ -176,7 +176,11 @@ class Deduplicator:
                     "candidate_question": c["question_text"],
                     "matched_id": existing.id,
                     "duplicate_type": "EXACT_HASH",
-                    "similarity": 1.0
+                    "similarity": 1.0,
+                    # Which deck already holds this question, for the upload report -- independent
+                    # of whether the repeat-provenance write below succeeds.
+                    "already_in_deck_title": getattr(existing.document, "title", None),
+                    "question_number": (c.get("_meta") or {}).get("question_number"),
                 })
             elif i in exact_idx:
                 exact_duplicates.append({
@@ -192,8 +196,8 @@ class Deduplicator:
                     tier1_passed_embeddings.append([])
 
         if not tier1_passed:
-            self._batch_commit_provenance(db, provenance_updates, doc_id)
-            return [], exact_duplicates
+            _, warnings = self._batch_commit_provenance(db, provenance_updates, doc_id)
+            return [], exact_duplicates, warnings
 
         # 3. Tier 2: Nearest-Neighbor Semantic Vector Similarity
         batch_topics = set()
@@ -330,7 +334,7 @@ class Deduplicator:
                 final_candidates_emb_idx.append(len(final_candidates) - 1)
 
         # Commit provenance for exact hash matches
-        self._batch_commit_provenance(db, provenance_updates, doc_id)
+        _, provenance_warnings = self._batch_commit_provenance(db, provenance_updates, doc_id)
 
         # Explain the final count: raw candidates in, how many collapsed and why, how many kept.
         n_exact_db = sum(1 for d in exact_duplicates if d.get("duplicate_type") == "EXACT_HASH")
@@ -343,26 +347,33 @@ class Deduplicator:
             n_exact_db, n_exact_intra, n_possible, thresh,
         )
 
-        return final_candidates, exact_duplicates
+        return final_candidates, exact_duplicates, provenance_warnings
 
     def _batch_commit_provenance(
         self,
         db: Session,
         updates: List[Tuple[Question, Optional[str], Dict[str, Any]]],
         doc_id: str
-    ):
+    ) -> Tuple[int, List[str]]:
         """Records each exact repeat on the question we already hold.
 
         Instead of storing the question again, the original gets a Repeated entry saying which quiz it was
         found in again and at which question number, plus the provenance link and occurrence count.
+
+        Each update runs in its own SAVEPOINT: one bad row (a write error, a stale FK) rolls back only
+        that row and is reported as a warning, instead of the old single try/except around the whole
+        loop losing every repeat record for the deck because one of them raised.
         """
         if not updates:
-            return
-        try:
-            from backend.app.services.question_meta_service import add_repeat
-            for existing, slide_id, cand in updates:
-                if existing.document_id == doc_id:
-                    continue  # the same deck cannot repeat a question it already contributed
+            return 0, []
+        from backend.app.services.question_meta_service import add_repeat
+        ok = 0
+        warnings: List[str] = []
+        for existing, slide_id, cand in updates:
+            if existing.document_id == doc_id:
+                continue  # the same deck cannot repeat a question it already contributed
+            try:
+                sp = db.begin_nested()
                 rep = add_repeat(db, existing, doc_id, cand.get("_meta"), cand.get("source_slide_range"),
                                  match_type="EXACT")
                 provenance = list(existing.provenance_decks or [])
@@ -371,7 +382,64 @@ class Deduplicator:
                     existing.provenance_decks = provenance
                 if rep is not None:
                     existing.occurrence_count = (existing.occurrence_count or 1) + 1
+                sp.commit()
+                ok += 1
+            except Exception as e:
+                try:
+                    sp.rollback()
+                except Exception:
+                    pass
+                msg = f"repeat record for question {existing.id} in deck {doc_id} failed: {e}"
+                logger.warning("duplicate provenance savepoint failed: %s", msg)
+                warnings.append(msg)
+        try:
             db.commit()
         except Exception as e:
-            logger.warning(f"Failed to batch record duplicate provenance: {e}")
+            logger.warning(f"Failed to commit duplicate provenance batch: {e}")
             db.rollback()
+            warnings.append(f"batch commit failed, {ok} repeat record(s) not saved: {e}")
+            ok = 0
+        return ok, warnings
+
+
+def build_duplicate_report(
+    deck_title: str,
+    extracted: int,
+    saved: int,
+    exact_duplicates: List[Dict[str, Any]],
+    final_candidates: List[Dict[str, Any]],
+    provenance_warnings: Optional[List[str]] = None,
+    skipped_media_slides: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    """The per-deck duplicate/reconciliation report shown on the upload page: what deduplicate_batch
+    found, in plain categories, plus extracted/saved/dropped so the numbers visibly add up.
+
+    `skipped_media_slides` is an empty list for now -- Workstream 4 (audio-only questions) fills it
+    in with slides that carried a real clue but produced no question, so this shape is ready for it
+    without another schema change.
+    """
+    already_in_library = [
+        {"already_in_deck_title": d.get("already_in_deck_title"),
+         "question_number": d.get("question_number")}
+        for d in exact_duplicates if d.get("duplicate_type") == "EXACT_HASH"
+    ]
+    repeated_in_this_deck = sum(1 for d in exact_duplicates if d.get("duplicate_type") == "INTRA_BATCH_EXACT")
+    possible_duplicates_kept = [
+        {"question_text": (c.get("question_text") or "")[:200],
+         "similarity": c.get("duplicate_similarity"), "matched_id": c.get("duplicate_of_id")}
+        for c in final_candidates if c.get("duplicate_status") == "POSSIBLE_DUPLICATE"
+    ]
+    dropped = len(already_in_library) + repeated_in_this_deck
+    if extracted != saved + dropped:
+        # Not fatal (the report is informational), but worth knowing about if the two ever drift.
+        logger.warning("duplicate report reconciliation mismatch: extracted=%d saved=%d dropped=%d",
+                       extracted, saved, dropped)
+    return {
+        "deck_title": deck_title,
+        "reconciliation": {"extracted": extracted, "saved": saved, "dropped": dropped},
+        "already_in_library": already_in_library,
+        "repeated_in_this_deck": repeated_in_this_deck,
+        "possible_duplicates_kept": possible_duplicates_kept,
+        "skipped_media_slides": skipped_media_slides or [],
+        "provenance_warnings": provenance_warnings or [],
+    }
