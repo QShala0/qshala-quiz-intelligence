@@ -22,6 +22,69 @@ import { useUpload } from '../../context/UploadContext';
 import { useConfirm, useToast, QT } from '../../components/ui';
 import { UploadDuplicateReport } from '../../lib/types';
 
+// Decks whose duplicate report was already shown (or that finished before this feature): never shown again.
+const SEEN_KEY = 'qshala_upload_reports_seen';
+
+function readSeen(): Set<string> | null {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    return raw ? new Set<string>(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSeen(seen: Set<string>) {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(seen).slice(-2000)));
+  } catch {
+    /* private mode: the report may be offered again next visit, which is harmless */
+  }
+}
+
+interface FoundReport {
+  docId: string;
+  deckTitle: string;
+  report: UploadDuplicateReport;
+}
+
+// Reports of decks that finished without this tab driving the upload (SharePoint imports, an upload from another
+// computer, a deck that finished while the page was closed). Each deck is offered once. The very first visit only
+// records what is already there, so old decks do not all pop up at once.
+async function findNewReports(docs: DocumentItem[], handledDocIds: Set<string>): Promise<FoundReport[]> {
+  const completed = docs.filter((d) => d.processing_status === 'COMPLETED');
+  const seen = readSeen();
+  if (!seen) {
+    writeSeen(new Set(completed.map((d) => d.id)));
+    return [];
+  }
+  const fresh = completed.filter((d) => !seen.has(d.id));
+  if (fresh.length === 0) return [];
+  const next = new Set(seen);
+  const found: FoundReport[] = [];
+  for (const d of fresh) {
+    next.add(d.id);
+    if (handledDocIds.has(d.id)) continue;       // the upload dialog of this tab already covers it
+    try {
+      const report = await api.getUploadReport(d.id);
+      if (report) found.push({ docId: d.id, deckTitle: d.filename, report });
+    } catch {
+      next.delete(d.id);                          // could not load it: try again on the next refresh
+    }
+  }
+  writeSeen(next);
+  return found;
+}
+
+const isActive = (d: DocumentItem) => d.processing_status === 'PENDING' || d.processing_status === 'PROCESSING';
+
+function fmtIngested(iso?: string | null): string {
+  if (!iso) return '';
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return '';
+  return t.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 export default function UploadPage() {
   const confirm = useConfirm();
   const toast = useToast();
@@ -31,6 +94,8 @@ export default function UploadPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [selectedSlide, setSelectedSlide] = useState<Slide | null>(null);
   const [reopenedReport, setReopenedReport] = useState<{ deckTitle: string; report: UploadDuplicateReport } | null>(null);
+  const [autoReports, setAutoReports] = useState<FoundReport[]>([]);
+  const [progressById, setProgressById] = useState<Record<string, { pct: number; step: string }>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -80,6 +145,8 @@ export default function UploadPage() {
         if (!ignore) {
           setDocuments(data);
           setLoadError(null);
+          const found = await findNewReports(data, new Set(items.map((i) => i.docId).filter(Boolean) as string[]));
+          if (!ignore && found.length) setAutoReports((prev) => [...prev, ...found.filter((f) => !prev.some((p) => p.docId === f.docId))]);
         }
       } catch (err) {
         console.error(err);
@@ -112,6 +179,58 @@ export default function UploadPage() {
     };
   }, [version, items]);
 
+  // Keep the list live: decks that arrive from SharePoint are ingested by the worker, not by this tab, so poll
+  // (every 5 s while something is processing, every 20 s otherwise), show each processing deck's progress, and
+  // open the duplicate report when a deck finishes.
+  const hasActive = documents.some(isActive);
+  const itemsForPoll = useRef(items);
+  useEffect(() => {
+    itemsForPoll.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      try {
+        const docs = await api.listDocuments();
+        if (stop) return;
+        setDocuments(docs);
+        const active = docs.filter(isActive).slice(0, 10);
+        const entries = await Promise.all(
+          active.map(async (d) => {
+            try {
+              const st = await api.getIngestionStatus(d.id);
+              return [d.id, { pct: Math.max(0, Math.min(100, Math.round(st.progress_percentage || 0))), step: st.current_step || '' }] as const;
+            } catch {
+              return null;
+            }
+          })
+        );
+        if (stop) return;
+        setProgressById(Object.fromEntries(entries.filter((e): e is NonNullable<typeof e> => e !== null)));
+        const found = await findNewReports(docs, new Set(itemsForPoll.current.map((i) => i.docId).filter(Boolean) as string[]));
+        if (!stop && found.length) setAutoReports((prev) => [...prev, ...found.filter((f) => !prev.some((p) => p.docId === f.docId))]);
+      } catch {
+        /* a failed refresh keeps what is on screen; the next one tries again */
+      }
+    };
+    const timer = setInterval(tick, hasActive ? 5000 : 20000);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
+  }, [hasActive]);
+
+  // A report this tab's own upload dialog has shown counts as seen, so it is not offered a second time.
+  useEffect(() => {
+    const ids = Object.keys(uploadReports);
+    if (ids.length === 0) return;
+    const seen = readSeen();
+    if (!seen) return;
+    ids.forEach((id) => seen.add(id));
+    writeSeen(seen);
+  }, [uploadReports]);
+
   const retryLoadDocs = async () => {
     setLoading(true);
     try {
@@ -131,7 +250,7 @@ export default function UploadPage() {
         toast.info('No upload report is available for this deck.');
         return;
       }
-      setReopenedReport({ deckTitle: report.deck_title || doc.title || doc.filename, report });
+      setReopenedReport({ deckTitle: doc.filename, report });
     } catch (err) {
       console.error(err);
       toast.error('Could not load the upload report.');
@@ -759,10 +878,19 @@ export default function UploadPage() {
                     {doc.filename}
                   </h4>
                   <p className="text-[12px] text-slate-400 font-normal">
-                    {doc.slide_count} slides · {doc.question_count} questions extracted · Year:{' '}
-                    {doc.year || '2024'}
-                    {doc.title && doc.title !== doc.filename ? ` · ${doc.title}` : ''}
+                    {doc.slide_count} slides · {doc.question_count} questions extracted
+                    {fmtIngested(doc.uploaded_at) ? ` · Ingested ${fmtIngested(doc.uploaded_at)}` : ''}
                   </p>
+                  {isActive(doc) && progressById[doc.id] && (
+                    <div className="mt-1.5 flex items-center gap-2" aria-live="polite">
+                      <div className="h-1.5 w-40 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${progressById[doc.id].pct}%` }} />
+                      </div>
+                      <span className="text-[11px] text-slate-500 truncate">
+                        {progressById[doc.id].pct}%{progressById[doc.id].step ? ` · ${progressById[doc.id].step}` : ''}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -832,6 +960,13 @@ export default function UploadPage() {
         isOpen={showUploadReportDialog}
         onClose={dismissUploadReportDialog}
         sections={Object.values(uploadReports).map((r) => ({ deckTitle: r.deckTitle, report: r.report }))}
+      />
+
+      {/* Decks that finished without this tab (SharePoint imports): one combined dialog, one section per deck */}
+      <UploadReportDialog
+        isOpen={autoReports.length > 0}
+        onClose={() => setAutoReports([])}
+        sections={autoReports.map((r) => ({ deckTitle: r.deckTitle, report: r.report }))}
       />
 
       {/* Reopening a past deck's report from "View upload report" in Recent uploads */}

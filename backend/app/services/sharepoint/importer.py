@@ -360,7 +360,7 @@ async def _hand_off_to_pipeline(db: Session, row: SharePointFile, data: bytes, s
 
     doc = Document(
         id=doc_id, filename=row.name, title=Path(row.name).stem.replace("_", " ").title(),
-        year=datetime.now(timezone.utc).year, file_type=ext.lstrip("."), storage_path=storage_path, blob_url=raw_url,
+        year=None, file_type=ext.lstrip("."), storage_path=storage_path, blob_url=raw_url,       # the deck's own year comes from its name; the import year is not it
         source="SHAREPOINT", sharepoint_file_id=row.id, file_size_bytes=len(data), file_sha256=sha,
         processing_status="PROCESSING",
     )

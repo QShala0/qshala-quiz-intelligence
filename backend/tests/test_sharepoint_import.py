@@ -296,6 +296,8 @@ async def test_deck_is_staged_in_r2_for_the_worker_exactly_like_a_manual_upload(
     assert uploaded["key"] == f"raw-uploads/{doc.id}.pptx"                 # the key worker.py derives from the document
     assert uploaded["size"] == len(CONTENT["f2"])
     assert doc.filename == "Prelims & Finals 2024.pptx" and doc.source == "SHAREPOINT" and doc.sharepoint_file_id == "f2"
+    assert doc.year is None            # the import year is not the deck's year: nothing invented is stored
+    assert doc.uploaded_at is not None  # the ingestion date shown on the Uploads page
     assert not (tmp_path / "uploads").exists()                              # nothing left on the API instance's disk
     job = db.query(IngestionJob).one()
     assert job.document_id == doc.id and job.source_type == "MANUAL_UPLOAD" and job.status == "PENDING"

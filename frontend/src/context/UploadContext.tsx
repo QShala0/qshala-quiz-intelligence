@@ -430,7 +430,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
           setUploadReports((prev) => ({
             ...prev,
             [activeDocId]: {
-              deckTitle: status.duplicate_report!.deck_title || finishedFilename,
+              deckTitle: finishedFilename || status.duplicate_report!.deck_title,
               filename: finishedFilename,
               report: status.duplicate_report!,
             },
