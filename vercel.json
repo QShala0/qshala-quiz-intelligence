@@ -19,11 +19,11 @@
     },
     {
       "source": "/api/:path*",
-      "destination": "https://qshala-quiz-intelligence-238470261844.asia-south1.run.app/api/:path*"
+      "destination": "https://qshala-quiz-intelligence-238470261844.asia-southeast1.run.app/api/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://qshala-quiz-intelligence-238470261844.asia-south1.run.app/health"
+      "destination": "https://qshala-quiz-intelligence-238470261844.asia-southeast1.run.app/health"
     },
     {
       "source": "/(.*)",

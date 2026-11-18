@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    const cloudRunBackend = "https://qshala-quiz-intelligence-238470261844.asia-south1.run.app/api/:path*";
+    const cloudRunBackend = "https://qshala-quiz-intelligence-238470261844.asia-southeast1.run.app/api/:path*";
     const rewrites = [
       {
         source: "/api/:path*",

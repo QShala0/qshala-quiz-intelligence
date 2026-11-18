@@ -6,7 +6,7 @@ Read `graphify-out/GRAPH_REPORT.md` before exploring code (run `graphify update 
 
 ## Stack and where things run
 - Backend: FastAPI + SQLAlchemy in `backend/app`. Cloud Run service `qshala-quiz-intelligence`, worker job
-  `qshala-ingestion-worker` (GCP project `qshala-quiz`, region `asia-south1`). Prod DB is Neon Postgres; local is SQLite.
+  `qshala-ingestion-worker` (GCP project `qshala-quiz`, region `asia-southeast1` (Singapore; the old Mumbai `asia-south1` copy is being retired, never deploy to it)). Prod DB is Neon Postgres; local is SQLite.
 - Frontend: Next.js 16 (App Router, React 19, Tailwind v4) in `frontend/`, on Vercel. Read `frontend/AGENTS.md` first:
   this Next.js has breaking changes, check `node_modules/next/dist/docs/` before using an API from memory.
 - Media in Cloudflare R2. Backups: `.github/workflows/backup.yml`, restore drill: `restore-drill.yml`.
