@@ -1002,6 +1002,18 @@ _TOPICAL_NOISE_WORDS = {
     "based", "syllabus", "curriculum", "cbse", "icse", "ncert", "class",
 }
 
+_THEMATIC_SIGNALS = {
+    "women", "woman", "pioneer", "pioneers", "science", "scientific", "experiment",
+    "experiments", "physics", "chemistry", "biology", "history", "heritage",
+    "movement", "revolution", "freedom", "fighter", "fighters", "startup", "startups",
+    "founder", "founders", "hero", "heroes", "underdog", "underdogs", "inventions",
+    "invention", "inventor", "inventors", "achiever", "achievers", "leader", "leaders",
+    "people", "person", "personality", "personalities", "figure", "figures",
+    "astronaut", "astronauts", "space", "mission", "missions", "entertainment",
+    "culture", "general", "knowledge", "trivia", "nature", "environment",
+    "everyday", "wildlife", "flora", "fauna", "sports", "business", "technology",
+} | {w for t in V6_THEMES for w in tokenize(t.lower())}
+
 def _detect_deck_scope(prompt_lower: str, bank: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Detect distinctive deck-series names and typos (e.g. 'agastya', 'aghtya', 'set 2 prelims') in the prompt."""
     from backend.app.services.source_grouping import resolve_deck_query
@@ -1253,6 +1265,50 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     # Use bank-validated subtopics so the editor never filters by
     # Gemini-invented names that don't exist in the bank
     brief.subtopics_l2 = effective_l2s
+
+    # Distinctive specific-name query filter (Bug 2):
+    # When user's query is a short, specific entity name (1-2 topical words, e.g. brand "Kia" or a person)
+    # and at least one word is distinctive in the bank (low non-zero document frequency), keep only questions
+    # actually containing that word in on_ok. Questions matching only through expansion terms move to adjacent.
+    # Thematic prompts ("women pioneers in India", "everyday science") keep broad expansion behaviour.
+    if 1 <= len(query_topical_tokens) <= 2 and not is_pure_geo and not is_vague:
+        is_thematic = any(w in _THEMATIC_SIGNALS for w in query_topical_tokens) or any(
+            s in p_lower for s in ("women", "pioneer", "everyday science", "experiments")
+        )
+        if not is_thematic and hasattr(idx, "df"):
+            rare_threshold = min(max(8, int(len(bank) * 0.08)), max(1, len(bank) - 1)) if len(bank) > 1 else 1
+            distinctive_words = {
+                w for w in query_topical_tokens
+                if 0 < idx.df.get(w, 0) <= rare_threshold
+            }
+            if distinctive_words:
+                def _has_distinctive(item: Dict[str, Any]) -> bool:
+                    kw_list = []
+                    for k_key in ("keywords", "keywords_l3", "tags"):
+                        val = item.get(k_key)
+                        if isinstance(val, list):
+                            kw_list.extend(str(x) for x in val if x)
+                        elif isinstance(val, str) and val:
+                            kw_list.append(val)
+                    blob = " ".join([
+                        str(item.get("question_text") or ""),
+                        str(item.get("answer") or ""),
+                        str(item.get("subtopic_l2") or ""),
+                        str(item.get("topic_l1") or ""),
+                        str(item.get("search_summary") or ""),
+                        " ".join(str(x) for x in (item.get("secondary_l2") or [])),
+                        " ".join(kw_list),
+                    ])
+                    return bool(set(tokenize(blob.lower())) & distinctive_words)
+
+                distinctive_on_ok = []
+                for c in on_ok:
+                    if _has_distinctive(c):
+                        distinctive_on_ok.append(c)
+                    else:
+                        adjacent.append(c)
+                on_ok = distinctive_on_ok
+                on_all = [c for c in on_all if _has_distinctive(c)]
 
     # Preserve top-matching currently displayed questions on constraint refinements (e.g. "School friendly")
     has_topic_swap = bool(re.search(

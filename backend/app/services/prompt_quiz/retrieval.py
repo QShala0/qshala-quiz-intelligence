@@ -223,6 +223,7 @@ class Index:
             self.style.append(item.get('question_style') or question_style(item.get('question_text',''), item.get('answer',''), bool(item.get('image_dependent'))))
             for term in c:
                 df[term] += 1
+        self.df = df
         self.N = len(questions)
         self.avgdl = (sum(self.len) / self.N) if self.N else 0.0
         self.idf = {t: math.log(1 + (self.N - n + 0.5) / (n + 0.5)) for t, n in df.items()}

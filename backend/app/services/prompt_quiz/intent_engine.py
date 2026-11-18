@@ -465,8 +465,26 @@ def deconstruct_prompt(
         )
         effective_aud = filters.get("audience") or target_aud
 
+        prev_b = previous_brief or {}
+        opts = options or {}
+        cross_topic_padding = bool((previous_brief or {}).get("cross_topic_padding", False) or (options or {}).get("cross_topic_padding", False))
+        if re.search(r"\b(related|adjacent|whatever you have|fill the rest)\b", p_lower):
+            cross_topic_padding = True
+        inc_reserve = bool(
+            prev_b.get("include_reserve")
+            or opts.get("include_reserve")
+            or False
+        )
+        inc_example = bool(
+            prev_b.get("include_example")
+            or opts.get("include_example")
+            or False
+        )
+
         from backend.app.services.prompt_quiz.engine import Brief
         brief = Brief(
+                include_reserve=inc_reserve,
+                include_example=inc_example,
                 prompt=prompt,
                 query=subject,
                 count=final_count,
@@ -479,7 +497,7 @@ def deconstruct_prompt(
                 locality=locality,
                 venue_type=effective_aud,
                 tone=[],
-                cross_topic_padding=False,
+                cross_topic_padding=cross_topic_padding,
                 topics_l1=l1s,
                 subtopics_l2=l2s,
                 search_terms=expansions,
