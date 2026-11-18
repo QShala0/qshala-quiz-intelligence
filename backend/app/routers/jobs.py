@@ -429,8 +429,14 @@ def cancel_entire_batch(batch_id: str, db: Session = Depends(get_db)):
     logger.info("[BATCH-CANCEL] cancelled entire batch %s (%d jobs)", batch_id, cancelled_count)
     return {"batch_id": batch_id, "cancelled_count": cancelled_count}
 
-def to_job_dict(job: IngestionJob) -> Dict[str, Any]:
+def to_job_dict(job: IngestionJob, doc: Optional[Document] = None) -> Dict[str, Any]:
     step_data = job.step_data or {}
+    slides_count = len(step_data.get("slides", []))
+    questions_count = len(step_data.get("canonical_questions", []))
+    if doc:
+        slides_count = slides_count or doc.slide_count or 0
+        questions_count = questions_count or doc.question_count or 0
+
     return {
         "id": job.id,
         "source_type": job.source_type,
@@ -447,10 +453,10 @@ def to_job_dict(job: IngestionJob) -> Dict[str, Any]:
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
         "step_summary": {
-            "slides_count": len(step_data.get("slides", [])),
+            "slides_count": slides_count,
             "media_count": len(step_data.get("media_manifest", [])),
             "media_cursor": step_data.get("media_cursor", 0),
-            "questions_count": len(step_data.get("canonical_questions", [])),
+            "questions_count": questions_count,
             "exact_duplicates": step_data.get("exact_duplicates_count", 0),
         }
     }
@@ -473,11 +479,14 @@ def list_jobs(
     total = query.count()
     items = query.order_by(IngestionJob.created_at.desc()).offset(offset).limit(limit).all()
 
+    doc_ids = [j.document_id for j in items if j.document_id]
+    doc_map = {d.id: d for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()} if doc_ids else {}
+
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
-        "jobs": [to_job_dict(j) for j in items]
+        "jobs": [to_job_dict(j, doc_map.get(j.document_id)) for j in items]
     }
 
 @router.get("/{job_id}")
@@ -486,7 +495,8 @@ def get_job(job_id: str, db: Session = Depends(get_db)):
     job = db.query(IngestionJob).filter(IngestionJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Ingestion job not found")
-    return to_job_dict(job)
+    doc = db.query(Document).filter(Document.id == job.document_id).first() if job.document_id else None
+    return to_job_dict(job, doc)
 
 @router.post("/process-next")
 async def process_next_job_endpoint(db: Session = Depends(get_db)):
