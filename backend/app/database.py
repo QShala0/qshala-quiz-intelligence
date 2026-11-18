@@ -201,7 +201,7 @@ if engine is None:
         )
     from backend.app.config import default_db_url
     sqlite_url = raw_db_url if (raw_db_url and raw_db_url.startswith("sqlite")) else default_db_url
-    connect_args = {"check_same_thread": False}
+    connect_args = {"check_same_thread": False, "timeout": 30}
     engine = create_engine(sqlite_url, connect_args=connect_args, echo=False)
     logger.warning(
         "=" * 78 + "\n"

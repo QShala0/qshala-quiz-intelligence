@@ -57,7 +57,8 @@ def snapshot(db: Session, kind: str, label: str, document_id: Optional[str] = No
     assert kind in ("deck", "all_questions")
     _ensure_index(db)
     sid = f"{datetime.now(timezone.utc):%Y%m%d%H%M%S}{secrets.token_hex(2)}"
-    existing = set(inspect(db.get_bind()).get_table_names())
+    insp = inspect(db.connection())
+    existing = set(insp.get_table_names())
     counts: Dict[str, int] = {}
     for table in TABLES:
         if table not in existing:
@@ -81,7 +82,7 @@ def list_snapshots(db: Session) -> List[dict]:
 
 
 def _live_columns(db: Session, table: str) -> List[str]:
-    return [c["name"] for c in inspect(db.get_bind()).get_columns(table)]
+    return [c["name"] for c in inspect(db.connection()).get_columns(table)]
 
 
 def restore(db: Session, sid: str) -> Dict[str, int]:
@@ -92,7 +93,7 @@ def restore(db: Session, sid: str) -> Dict[str, int]:
     row = db.execute(text("SELECT id FROM trash_index WHERE id = :i"), {"i": sid}).first()
     if not row:
         raise KeyError(sid)
-    insp = inspect(db.get_bind())
+    insp = inspect(db.connection())
     existing = set(insp.get_table_names())
     restored: Dict[str, int] = {}
     for table in TABLES:

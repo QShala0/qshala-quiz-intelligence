@@ -569,4 +569,4 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
             ))
 
     db.commit()
-    return {"quiz_id": quiz.id, "title": quiz.title, "count": len(ordered)}
+    return {"id": quiz.id, "quiz_id": quiz.id, "title": quiz.title, "count": len(ordered)}
