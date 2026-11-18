@@ -3,9 +3,6 @@
 import { useState } from 'react';
 import {
   Check,
-  RefreshCw,
-  TrendingDown,
-  TrendingUp,
   Trash2,
   Edit2,
   Bookmark,
@@ -542,32 +539,7 @@ export default function QuestionCard({
             </button>
           )}
 
-          <button
-            onClick={() => handleAction('regenerate')}
-            disabled={actionLoading !== null}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 text-slate-400 ${actionLoading === 'regenerate' ? 'animate-spin text-blue-600' : ''}`} />
-            <span>Regenerate</span>
-          </button>
 
-          <button
-            onClick={() => handleAction('make_easier')}
-            disabled={actionLoading !== null}
-            className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
-          >
-            <TrendingDown className="h-3.5 w-3.5 text-slate-400" />
-            <span>Make easier</span>
-          </button>
-
-          <button
-            onClick={() => handleAction('make_harder')}
-            disabled={actionLoading !== null}
-            className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors"
-          >
-            <TrendingUp className="h-3.5 w-3.5 text-slate-400" />
-            <span>Make harder</span>
-          </button>
         </div>
 
         <button
