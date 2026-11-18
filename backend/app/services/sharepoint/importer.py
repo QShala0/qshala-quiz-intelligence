@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXT = {".pptx", ".pdf"}
 MAX_PLAN_ITEMS = int(os.getenv("SHAREPOINT_MAX_PLAN_ITEMS", "2000"))
 MAX_DEPTH = int(os.getenv("SHAREPOINT_MAX_DEPTH", "8"))
-MAX_FILE_BYTES = int(float(os.getenv("SHAREPOINT_MAX_FILE_MB", "600")) * 1024 * 1024)
+MAX_FILE_BYTES = int(float(os.getenv("SHAREPOINT_MAX_FILE_MB", "1024")) * 1024 * 1024)
 STALE_TRANSFER = timedelta(minutes=10)
 PLAN_FILE_LIST_CAP = 500
 _IN_CHUNK = 400   # stay under SQLite's bound-variable limit
