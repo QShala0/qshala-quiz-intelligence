@@ -28,7 +28,7 @@ def test_health_reports_database_backend_and_persistence():
     # on sqlite the endpoint must warn; on postgres it must not
     assert (r["warning"] is None) == (r["database"] == "postgres")
     # live checks are actually reported, not assumed
-    assert set(r["checks"].keys()) == {"database_reachable", "gemini_key_configured", "r2_configured"}
+    assert set(r["checks"].keys()) == {"database_reachable", "gemini_key_configured", "r2_configured", "sharepoint_configured"}
     assert isinstance(r["checks"]["database_reachable"], bool)
     assert isinstance(r["checks"]["gemini_key_configured"], bool)
     # sqlite (not persistent) or an unreachable DB must surface as a problem, not get silently
