@@ -83,6 +83,8 @@ def _read_candidates(db):
         by_id: dict[str, dict] = {}
         for q in questions:
             tag = latest_tag.get(q.id)
+            if tag is not None and tag.status == "superseded":
+                tag = None          # a superseded tag was withdrawn on purpose (e.g. a repair): the question needs a new one
             if tag is not None and tag.source == "HUMAN" and tag.status == "confirmed":
                 human_protected += 1
                 continue

@@ -29,7 +29,7 @@ from backend.app.services.question_meta_service import (
     upsert_deck_metadata, deck_row_to_info, add_new_question_metadata, apply_latest_tags_to_meta,
 )
 from backend.app.services.tagging import topic_paths
-from backend.app.services.tagging.qshala_rules import classify_taxonomy, answer_led_fallback_tag
+from backend.app.services.tagging.qshala_rules import classify_taxonomy, answer_led_fallback_tag, is_format_or_round_label
 from backend.app.services.tagging.auto_tagger import AutoTagger  # Kept for backward compatibility
 from backend.app.services.tagging.qshala_tagger import QshalaTagger
 from backend.app.services.tagging.difficulty_engine import DifficultyEngine
@@ -801,7 +801,7 @@ class IngestionPipeline:
                 )
                 final_topic = q_data.get("primary_topic") or rule_l1
                 raw_sub = (q_data.get("subtopic") or "").strip()
-                if not raw_sub or raw_sub.lower() in {"topic", "topics", "direct", "general"} or any(w in raw_sub.lower() for w in ["round", "closing bell", "market indicators", "ticker tangle", "portfolio builder", "opening bell", "list it", "list-it", "image reveal", "connect", "buzz", "audience question", "tie breaker", "dry run"]):
+                if is_format_or_round_label(raw_sub):
                     final_subtopic = rule_l2
                 else:
                     final_subtopic = raw_sub

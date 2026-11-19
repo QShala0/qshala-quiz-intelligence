@@ -509,6 +509,20 @@ TAXONOMY_RULES: List[Tuple[str, str, str]] = [
     (r"\b(zimbabwe|australia|sydney|bangalore|bengaluru|mumbai)\b", "Geography", "Countries and Capitals"),
 ]
 
+_FORMAT_OR_ROUND_WORDS = (
+    "round", "closing bell", "market indicators", "ticker tangle", "portfolio builder", "opening bell", "list it",
+    "list-it", "image reveal", "connect", "buzz", "audience question", "tie breaker", "dry run", "clue", "stepped",
+    "potpourri", "reserve", "arrange", "mcq", "multiple choice", "prelim", "final",
+)
+
+
+def is_format_or_round_label(label: str) -> bool:
+    """True when a deck's slide/round label ("THREE CLUES", "Portfolio Builder", "Round 3") names a question
+    format or a round, not a subject. Such a label must never become the question's topic."""
+    low = (label or "").strip().lower()
+    return (not low) or low in {"topic", "topics", "direct", "general"} or any(w in low for w in _FORMAT_OR_ROUND_WORDS)
+
+
 def classify_taxonomy(q_text: str, ans_text: str, round_name: str = "", fmt: str = "QA") -> Tuple[str, str, List[str]]:
     """Rule-based instant classification: returns (L1, L2, keywords). Guarantees no question is Uncategorised."""
     combined = f"{q_text} {ans_text} {round_name}".lower()
@@ -559,7 +573,7 @@ def classify_taxonomy(q_text: str, ans_text: str, round_name: str = "", fmt: str
         "IMAGE_REVEAL": "Image Reveal",
         "LIST_IT": "List It",
     }.get(fmt, fmt)
-    keywords.append(fmt_display)
+    # The format is stored in question_format and shown as its own badge; it is not a topic, so it is not a tag.
 
     # Extract relevant entities
     entities = [
