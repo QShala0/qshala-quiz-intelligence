@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowUp, Check, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { getApiBase, resolveMediaUrl } from '../../lib/api';
@@ -11,6 +11,8 @@ import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
 import QT, { PawIcon } from '../../components/ui/QT';
 import YarnPlayCat from '../../components/mascot/YarnPlayCat';
+import VoiceInputButton from '../../components/VoiceInputButton';
+import { buildVocabulary } from '../../lib/voiceVocabulary';
 
 type DraftQ = {
   id: string;
@@ -170,6 +172,15 @@ export default function QuizzerHome() {
 
   // Refine box state
   const [refineText, setRefineText] = useState('');
+
+  // Voice input state tracking
+  const mainPromptBaseRef = useRef<string>('');
+  const refineBaseRef = useRef<string>('');
+
+  const pageVocabulary = useMemo(
+    () => buildVocabulary(sourceCatalog),
+    [sourceCatalog]
+  );
 
   // Interactive topic change state
   const [cardTopicEdit, setCardTopicEdit] = useState<string | null>(null);
@@ -516,10 +527,32 @@ export default function QuizzerHome() {
                 placeholder={`All sources (${sourceCatalog.decks.length})`}
               />
             )}
-            <button onClick={() => run()} disabled={loading || prompt.trim().length < 2} aria-label="Build quiz"
-              className="ml-auto flex h-10 w-9 items-center justify-center rounded-full bg-slate-900 text-white transition disabled:opacity-30 hover:bg-slate-700">
-              <ArrowUp size={18} />
-            </button>
+            <div className="ml-auto flex items-center gap-1.5">
+              <VoiceInputButton
+                mode="prompt"
+                disabled={loading}
+                vocabulary={pageVocabulary}
+                buttonSize="md"
+                onStart={() => {
+                  mainPromptBaseRef.current = prompt.trim();
+                }}
+                onInterim={(interim) => {
+                  const base = mainPromptBaseRef.current;
+                  setPrompt(base ? `${base} ${interim}` : interim);
+                }}
+                onText={(text) => {
+                  setPrompt((prev) => {
+                    const base = mainPromptBaseRef.current || prev.trim();
+                    mainPromptBaseRef.current = '';
+                    return base ? `${base} ${text}` : text;
+                  });
+                }}
+              />
+              <button onClick={() => run()} disabled={loading || prompt.trim().length < 2} aria-label="Build quiz"
+                className="flex h-10 w-9 items-center justify-center rounded-full bg-slate-900 text-white transition disabled:opacity-30 hover:bg-slate-700">
+                <ArrowUp size={18} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1097,14 +1130,38 @@ export default function QuizzerHome() {
               ))}
             </div>
             <div className="flex gap-2">
-              <input
-                type="text"
-                value={refineText}
-                onChange={(e) => setRefineText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleRefine(); }}
-                placeholder="Adjust this quiz… (e.g. make it harder, add 1 question based on Bengaluru)"
-                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[14px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
-              />
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={refineText}
+                  onChange={(e) => setRefineText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleRefine(); }}
+                  placeholder="Adjust this quiz… (e.g. make it harder, add 1 question based on Bengaluru)"
+                  className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-10 py-2.5 text-[14px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                />
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">
+                  <VoiceInputButton
+                    mode="prompt"
+                    disabled={loading}
+                    vocabulary={pageVocabulary}
+                    buttonSize="sm"
+                    onStart={() => {
+                      refineBaseRef.current = refineText.trim();
+                    }}
+                    onInterim={(interim) => {
+                      const base = refineBaseRef.current;
+                      setRefineText(base ? `${base} ${interim}` : interim);
+                    }}
+                    onText={(text) => {
+                      setRefineText((prev) => {
+                        const base = refineBaseRef.current || prev.trim();
+                        refineBaseRef.current = '';
+                        return base ? `${base} ${text}` : text;
+                      });
+                    }}
+                  />
+                </div>
+              </div>
               <button
                 onClick={() => handleRefine()}
                 disabled={loading || !refineText.trim()}

@@ -1,7 +1,10 @@
+import { useMemo, useRef } from 'react';
 import { Search, Filter, Tag, ArrowUpDown } from 'lucide-react';
 import { TopicItem, DocumentItem, SourceCatalog } from '../../lib/types';
 import { FORMAT_FILTER_OPTIONS } from '../../lib/formatPayloads';
 import SourceMultiPicker, { formatDeckDisplayName } from '../SourceMultiPicker';
+import VoiceInputButton from '../VoiceInputButton';
+import { buildVocabulary } from '../../lib/voiceVocabulary';
 
 // The search box + filter bar on the Knowledge Base page (QShala priority plan P3-1). Purely
 // controlled: owns no state of its own, just renders the current filter values and reports
@@ -53,7 +56,9 @@ export default function VaultFilters({
   sortOrder, setSortOrder,
   topicsList, documentsList, sourceCatalog, availableSubtopics,
 }: VaultFiltersProps) {
-  const effectiveCatalog: SourceCatalog = sourceCatalog || {
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const effectiveCatalog: SourceCatalog = useMemo(() => sourceCatalog || {
     series: [],
     decks: documentsList.map((d) => ({
       id: d.id,
@@ -65,20 +70,49 @@ export default function VaultFilters({
       question_count: d.question_count ?? 0,
       created_at: d.uploaded_at ?? null,
     })),
-  };
+  }, [sourceCatalog, documentsList]);
+
+  const effectiveVocab = useMemo(
+    () => buildVocabulary(effectiveCatalog),
+    [effectiveCatalog]
+  );
 
   return (
     <div className="rounded-xl border border-slate-200/80 bg-white p-3 sm:p-3.5 shadow-sm shadow-slate-100/50 space-y-2.5">
-      <form onSubmit={onSearchSubmit} className="flex gap-2">
+      <form ref={formRef} onSubmit={onSearchSubmit} className="flex gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search questions, answers, topics, or presentation deck name..."
-            className="w-full h-[34px] rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-[13px] font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full h-[34px] rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-9 text-[13px] font-normal text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
+            <VoiceInputButton
+              mode="search"
+              vocabulary={effectiveVocab}
+              buttonSize="sm"
+              onInterim={(interim) => {
+                setQuery(interim);
+              }}
+              onText={(cleanText) => {
+                setQuery(cleanText);
+                setTimeout(() => {
+                  if (formRef.current) {
+                    if (typeof formRef.current.requestSubmit === 'function') {
+                      formRef.current.requestSubmit();
+                    } else {
+                      formRef.current.dispatchEvent(
+                        new Event('submit', { cancelable: true, bubbles: true })
+                      );
+                    }
+                  }
+                }, 0);
+              }}
+            />
+          </div>
         </div>
 
         <button
