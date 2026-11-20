@@ -19,7 +19,7 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import httpx
 from pydantic import BaseModel, Field
@@ -68,46 +68,89 @@ class Selection(BaseModel):
 
 # ------------------------------------------------------------------------------------------------ folder limit
 
-async def scope_root(client, drive_id: str) -> Optional[Dict[str, str]]:
-    """When SHAREPOINT_ROOT_FOLDER is set (e.g. "Quizzes"), the folder everything must stay inside; else None."""
-    folder = (getattr(settings, "SHAREPOINT_ROOT_FOLDER", None) or "").strip().strip("/")
-    if not folder:
-        return None
+async def scope_roots(client, drive_id: str) -> List[Dict[str, str]]:
+    """When SHAREPOINT_ROOT_FOLDERS or SHAREPOINT_ROOT_FOLDER is set (e.g. "Quizzes" or "Quizzes, QShala School Program"),
+    the folders everything must stay inside; else empty list."""
+    raw = (getattr(settings, "SHAREPOINT_ROOT_FOLDERS", None)
+           or getattr(settings, "SHAREPOINT_ROOT_FOLDER", None)
+           or "").strip()
+    if not raw:
+        return []
+    folders = [f.strip().strip("/") for f in raw.split(",") if f.strip().strip("/")]
+    if not folders:
+        return []
     cache = client.__dict__.setdefault("_scope_cache", {})
-    key = (drive_id, folder)
-    if key in cache:
-        return cache[key]
-    try:
-        item = await client.get_item_by_path(drive_id, folder)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ValueError(f"The SharePoint folder “{folder}” set for QShala was not found in this library")
-        raise
-    if "folder" not in item:
-        raise ValueError(f"“{folder}” is not a folder")
-    parent = (item.get("parentReference") or {}).get("path") or ""
-    root = {"id": item["id"], "path": f"{parent}/{item.get('name')}", "name": item.get("name") or folder}
-    cache[key] = root
-    return root
+    results = []
+    for folder in folders:
+        key = (drive_id, folder)
+        if key in cache:
+            results.append(cache[key])
+            continue
+        try:
+            item = await client.get_item_by_path(drive_id, folder)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise ValueError(f"The SharePoint folder “{folder}” set for QShala was not found in this library")
+            raise
+        if "folder" not in item:
+            raise ValueError(f"“{folder}” is not a folder")
+        parent = (item.get("parentReference") or {}).get("path") or ""
+        root = {"id": item["id"], "path": f"{parent}/{item.get('name')}", "name": item.get("name") or folder}
+        cache[key] = root
+        results.append(root)
+    return results
 
 
-def within_scope(item: Dict[str, Any], root: Optional[Dict[str, str]]) -> bool:
-    if root is None or item.get("id") == root["id"]:
+async def scope_root(client, drive_id: str) -> Optional[Dict[str, str]]:
+    """Single-root compatibility helper. Returns the root when exactly 1 is set, else None."""
+    roots = await scope_roots(client, drive_id)
+    return roots[0] if len(roots) == 1 else None
+
+
+def within_scope(item: Dict[str, Any], root: Union[Optional[Dict[str, str]], List[Dict[str, str]]]) -> bool:
+    if not root:
         return True
+    roots = [root] if isinstance(root, dict) else root
+    if not roots:
+        return True
+    item_id = item.get("id")
     p = (item.get("parentReference") or {}).get("path") or ""
-    return p == root["path"] or p.startswith(root["path"] + "/")
+    for r in roots:
+        if item_id == r["id"]:
+            return True
+        if p == r["path"] or p.startswith(r["path"] + "/"):
+            return True
+    return False
 
 
 async def effective_folder(client, drive_id: str, folder_id: Optional[str]) -> Optional[str]:
-    """The folder id to list. With a folder limit, the library root means the limited folder, and any other folder must be inside it."""
-    root = await scope_root(client, drive_id)
-    if root is None:
+    """The folder id to list.
+    - With no folder limit, returns folder_id.
+    - With 1 folder limit, library root ('root' or None) resolves to that folder's id.
+    - With multiple folder limits, library root ('root' or None) returns None (virtual root handled by caller),
+      and any requested folder_id must be inside one of the allowed roots.
+    """
+    roots = await scope_roots(client, drive_id)
+    if not roots:
         return folder_id
-    if not folder_id or folder_id == "root" or folder_id == root["id"]:
-        return root["id"]
+
+    if len(roots) == 1:
+        single = roots[0]
+        if not folder_id or folder_id == "root" or folder_id == single["id"]:
+            return single["id"]
+        item = await client.get_item(drive_id, folder_id)
+        if not within_scope(item, [single]):
+            raise ValueError("That folder is outside the folder QShala is allowed to read")
+        return folder_id
+
+    # Multiple roots
+    if not folder_id or folder_id == "root":
+        return None
+    if any(r["id"] == folder_id for r in roots):
+        return folder_id
     item = await client.get_item(drive_id, folder_id)
-    if not within_scope(item, root):
-        raise ValueError("That folder is outside the folder QShala is allowed to read")
+    if not within_scope(item, roots):
+        raise ValueError("That folder is outside the folders QShala is allowed to read")
     return folder_id
 
 
@@ -235,7 +278,7 @@ async def collect_candidates(client, sel: Selection) -> Dict[str, Any]:
     found: Dict[str, Dict[str, Any]] = {}
     state = {"truncated": False}
     excluded = set(sel.exclude_ids)
-    root = await scope_root(client, sel.drive_id)
+    roots = await scope_roots(client, sel.drive_id)
 
     def add(item: Dict[str, Any]) -> None:
         if "file" not in item or not item.get("id"):
@@ -268,10 +311,15 @@ async def collect_candidates(client, sel: Selection) -> Dict[str, Any]:
         if state["truncated"]:
             break
         if ref.kind == "folder":
-            await walk(await effective_folder(client, sel.drive_id, None if ref.id == "root" else ref.id), 0)
+            if (not ref.id or ref.id == "root") and len(roots) > 1:
+                for r in roots:
+                    await walk(r["id"], 0)
+            else:
+                eff = await effective_folder(client, sel.drive_id, None if ref.id == "root" else ref.id)
+                await walk(eff, 0)
         else:
             item = await client.get_item(sel.drive_id, ref.id)
-            if not within_scope(item, root):
+            if not within_scope(item, roots):
                 raise ValueError("That file is outside the folder QShala is allowed to read")
             add(item)
     return {"candidates": list(found.values()), "truncated": state["truncated"]}

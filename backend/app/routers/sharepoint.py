@@ -35,7 +35,7 @@ async def trigger_sharepoint_sync(
     Discovers new/updated .pptx and .pdf decks, streams them to Vercel Blob,
     and enqueues background processing jobs.
     """
-    if (settings.SHAREPOINT_ROOT_FOLDER or "").strip():
+    if (settings.SHAREPOINT_ROOT_FOLDERS or settings.SHAREPOINT_ROOT_FOLDER or "").strip():
         raise HTTPException(status_code=400, detail="Whole-library sync is switched off while a SharePoint folder limit is set. "
                                                     "Use Import from SharePoint instead.")
     client = get_sharepoint_client()
@@ -171,13 +171,16 @@ def _graph_error(e: Exception) -> HTTPException:
 @router.get("/config")
 def sharepoint_config():
     """Whether the bridge is configured. Never returns secrets."""
+    raw_roots = (settings.SHAREPOINT_ROOT_FOLDERS or settings.SHAREPOINT_ROOT_FOLDER or "").strip().strip("/")
+    root_list = [f.strip() for f in raw_roots.split(",") if f.strip()]
     return {
         "configured": bool(settings.AZURE_TENANT_ID and settings.AZURE_CLIENT_ID and settings.AZURE_CLIENT_SECRET
                            and (settings.SHAREPOINT_SITE_ID or settings.SHAREPOINT_DRIVE_ID)),
         "has_credentials": bool(settings.AZURE_TENANT_ID and settings.AZURE_CLIENT_ID and settings.AZURE_CLIENT_SECRET),
         "has_site": bool(settings.SHAREPOINT_SITE_ID),
         "has_drive": bool(settings.SHAREPOINT_DRIVE_ID),
-        "root_folder": (settings.SHAREPOINT_ROOT_FOLDER or "").strip().strip("/") or None,
+        "root_folder": ", ".join(root_list) if root_list else None,
+        "root_folders": root_list,
         "max_file_mb": int(importer.MAX_FILE_BYTES / (1024 * 1024)),
         "supported_extensions": sorted(importer.SUPPORTED_EXT),
     }
@@ -201,10 +204,29 @@ async def sharepoint_browse(
     """One page of a folder: sub-folders plus the importable decks in it, each tagged with its import status."""
     client = get_sharepoint_client()
     try:
+        roots = await importer.scope_roots(client, drive_id)
+        if len(roots) > 1 and (not folder_id or folder_id == "root"):
+            return {
+                "drive_id": drive_id,
+                "folder_id": None,
+                "next_url": None,
+                "other_files_hidden": 0,
+                "folders": [
+                    {"id": r["id"], "name": r["name"], "child_count": None}
+                    for r in sorted(roots, key=lambda r: (r["name"] or "").lower())
+                ],
+                "files": [],
+            }
+
         eff = await importer.effective_folder(client, drive_id, folder_id)
-        if next_url and await importer.scope_root(client, drive_id) is not None:
+        if next_url and roots:
             # a continuation link must belong to the folder just checked, never to a different one
-            if not next_url.startswith(f"{client.GRAPH_BASE}/drives/{drive_id}/items/{eff}/children"):
+            valid_prefix = any(
+                next_url.startswith(f"{client.GRAPH_BASE}/drives/{drive_id}/items/{r['id']}/children") or
+                (eff and next_url.startswith(f"{client.GRAPH_BASE}/drives/{drive_id}/items/{eff}/children"))
+                for r in roots
+            )
+            if not valid_prefix:
                 raise ValueError("That page link does not belong to the allowed folder")
         page = await client.list_children(drive_id, eff, next_url=next_url)
     except Exception as e:

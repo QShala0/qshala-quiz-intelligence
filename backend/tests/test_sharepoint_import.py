@@ -36,6 +36,7 @@ TREE = {
         {"id": "fold2", "name": "Archive", "folder": {"childCount": 1}, "parentReference": {"path": "/drives/D/root:/2024"}},
     ]},
     "fold2": {"value": [_file("f4", "Old.pptx", len(CONTENT["f4"]), path="/drives/D/root:/2024/Archive")]},
+    "fold3": {"value": [_file("f5", "Curriculum.pptx", len(CONTENT["f1"]), path="/drives/D/root:/School Program")]},
 }
 
 
@@ -47,7 +48,7 @@ def make_handler(state):
         state.setdefault("calls", []).append(url)
         if url.startswith(f"{BASE}/drives/D/root/children"):
             return httpx.Response(200, json=TREE["root"])
-        for fid in ("fold1", "fold2"):
+        for fid in ("fold1", "fold2", "fold3"):
             if url.startswith(f"{BASE}/drives/D/items/{fid}/children"):
                 if state.get("throttle_once") and not state.get("throttled"):
                     state["throttled"] = True
@@ -55,6 +56,8 @@ def make_handler(state):
                 return httpx.Response(200, json=TREE[fid])
         if url.startswith(f"{BASE}/drives/D/root:/2024"):
             return httpx.Response(200, json={"id": "fold1", "name": "2024", "folder": {}, "parentReference": {"path": "/drives/D/root:"}})
+        if url.startswith(f"{BASE}/drives/D/root:/School%20Program") or url.startswith(f"{BASE}/drives/D/root:/School Program"):
+            return httpx.Response(200, json={"id": "fold3", "name": "School Program", "folder": {}, "parentReference": {"path": "/drives/D/root:"}})
         for fid, body in CONTENT.items():
             if url == f"{BASE}/drives/D/items/{fid}/content":
                 return httpx.Response(200, content=state.get("override", {}).get(fid, body))
@@ -82,6 +85,7 @@ def upload_dir(tmp_path, monkeypatch):
     from backend.app.config import settings
     monkeypatch.setattr(settings, "UPLOAD_DIR", tmp_path / "uploads")
     monkeypatch.setattr(settings, "INGESTION_MODE", "in_process")
+    monkeypatch.setattr(settings, "SHAREPOINT_ROOT_FOLDER", "")
 
 
 @pytest.fixture
@@ -273,6 +277,43 @@ async def test_missing_limited_folder_gives_a_clear_error(db, client, monkeypatc
     with pytest.raises(ValueError) as e:
         await importer.plan_import(db, client, sel())
     assert "DoesNotExist" in str(e.value)
+
+
+@pytest.mark.anyio
+async def test_multiple_folder_limits_allows_both_roots_and_their_contents(db, client, monkeypatch):
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "SHAREPOINT_ROOT_FOLDER", "2024, School Program")
+
+    roots = await importer.scope_roots(client, "D")
+    assert len(roots) == 2
+    assert {r["name"] for r in roots} == {"2024", "School Program"}
+
+    # "root" walks both folders
+    plan = await importer.plan_import(db, client, sel())
+    names = {f["name"] for f in plan["files"]}
+    assert names == {"Prelims.pptx", "Semis.pdf", "Old.pptx", "Curriculum.pptx"}
+    # Finals.pptx sits in root outside both folders, so it's excluded
+    assert "Finals.pptx" not in names
+
+
+@pytest.mark.anyio
+async def test_multiple_folder_limits_effective_folder_and_outside_rejection(db, client, monkeypatch):
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "SHAREPOINT_ROOT_FOLDER", "2024, School Program")
+
+    # "root" or None returns None for multiple roots (caller provides virtual root)
+    assert await importer.effective_folder(client, "D", "root") is None
+    assert await importer.effective_folder(client, "D", None) is None
+
+    # Selecting fold1 or fold3 or fold2 works
+    assert await importer.effective_folder(client, "D", "fold1") == "fold1"
+    assert await importer.effective_folder(client, "D", "fold3") == "fold3"
+    assert await importer.effective_folder(client, "D", "fold2") == "fold2"
+
+    # Selecting outside file fails
+    with pytest.raises(ValueError):
+        await importer.plan_import(db, client, sel(items=[{"id": "f1", "kind": "file"}]))
+
 
 
 @pytest.mark.anyio

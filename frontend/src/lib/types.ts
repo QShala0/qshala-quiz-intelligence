@@ -682,7 +682,7 @@ export interface BatchLocalItem {
 
 // ---- SharePoint selective importer ----
 export type SpItemStatus = 'NEW' | 'CHANGED' | 'RETRY' | 'ALREADY_IMPORTED' | 'IN_PROGRESS' | 'POSSIBLE_DUPLICATE';
-export interface SpConfig { configured: boolean; has_credentials: boolean; has_site: boolean; has_drive: boolean; root_folder?: string | null; max_file_mb: number; supported_extensions: string[] }
+export interface SpConfig { configured: boolean; has_credentials: boolean; has_site: boolean; has_drive: boolean; root_folder?: string | null; root_folders?: string[] | null; max_file_mb: number; supported_extensions: string[] }
 export interface SpDrive { id: string; name?: string | null; web_url?: string | null }
 export interface SpFolder { id: string; name: string | null; child_count?: number | null }
 export interface SpBrowseFile { id: string; name: string; size: number; status: SpItemStatus; modified?: string | null; match_document_id?: string | null }
