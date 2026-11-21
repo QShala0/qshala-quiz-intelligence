@@ -1,14 +1,20 @@
 import { pipeline, env, AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
 
-// Configure transformers.js to load strictly from local/self-hosted endpoints
+// Configure transformers.js to load from self-hosted assets base URL (R2 or same-origin fallback)
+const configuredBase = process.env.NEXT_PUBLIC_VOICE_ASSETS_BASE?.trim();
+const normalizedBase = configuredBase ? configuredBase.replace(/\/+$/, '') : '';
+
 if (typeof self !== 'undefined' && self.location) {
   const origin = self.location.origin;
+  const modelsHost = normalizedBase ? `${normalizedBase}/models/` : `${origin}/models/`;
+  const wasmPath = normalizedBase ? `${normalizedBase}/wasm/` : `${origin}/wasm/`;
+
   env.allowRemoteModels = true;
   env.allowLocalModels = false;
-  env.remoteHost = `${origin}/models/`;
+  env.remoteHost = modelsHost;
   env.remotePathTemplate = '{model}/';
   if (env.backends?.onnx?.wasm) {
-    env.backends.onnx.wasm.wasmPaths = `${origin}/wasm/`;
+    env.backends.onnx.wasm.wasmPaths = wasmPath;
   }
   env.useBrowserCache = true;
 }
