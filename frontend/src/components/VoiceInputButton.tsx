@@ -80,6 +80,8 @@ export default function VoiceInputButton({
     e.preventDefault();
     e.stopPropagation();
     if (disabled || isBusy) return;
+    // Show a repeated error again: without this, the same message was hidden after its first 4 seconds.
+    setDismissedError(null);
 
     if (listening) {
       stop();

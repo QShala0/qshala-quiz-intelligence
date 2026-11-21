@@ -1,8 +1,11 @@
 import { pipeline, env, AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
 
 // Configure transformers.js to load from self-hosted assets base URL (R2 or same-origin fallback)
-const configuredBase = process.env.NEXT_PUBLIC_VOICE_ASSETS_BASE?.trim();
-const normalizedBase = configuredBase ? configuredBase.replace(/\/+$/, '') : '';
+// The default is the public R2 address of the uploaded voice files, so voice works even when the Vercel project has no
+// NEXT_PUBLIC_VOICE_ASSETS_BASE set (without it, the files were looked up on our own site, where they do not exist).
+const DEFAULT_VOICE_ASSETS_BASE = 'https://pub-e6b1fda94a4149298de10be6794417fc.r2.dev/voice/v1';
+const configuredBase = process.env.NEXT_PUBLIC_VOICE_ASSETS_BASE?.trim() || DEFAULT_VOICE_ASSETS_BASE;
+const normalizedBase = configuredBase.replace(/\/+$/, '');
 
 if (typeof self !== 'undefined' && self.location) {
   const origin = self.location.origin;
