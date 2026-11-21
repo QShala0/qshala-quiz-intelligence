@@ -223,7 +223,7 @@ export default function QuizzesLibraryPage() {
                           href={`/quizzes/${quiz.id}`}
                           className="hover:text-blue-600 transition-colors"
                         >
-                          <span>{quiz.title}</span>
+                          <span className="line-clamp-2" title={quiz.raw_prompt && quiz.raw_prompt !== quiz.title ? `${quiz.title}\n\nOriginal prompt: ${quiz.raw_prompt}` : quiz.title}>{quiz.title}</span>
                         </Link>
                         <button
                           type="button"

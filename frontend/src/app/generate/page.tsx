@@ -132,6 +132,9 @@ export default function QuizzerHome() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
+  // The prompt the quiz was first created from. Follow-ups ("make it harder") change lastPrompt, but the saved
+  // quiz is named after, and remembers, this one.
+  const [initialPrompt, setInitialPrompt] = useState('');
   const [bankOpen, setBankOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -250,6 +253,7 @@ export default function QuizzerHome() {
       setQs(d.questions);
       setChecked(new Set(d.questions.map((q) => q.id)));
       setLastPrompt(p);
+      if (!restPayload.previous_brief) setInitialPrompt(p);
       syncChipsFromBrief(d.brief);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong');
@@ -347,7 +351,7 @@ export default function QuizzerHome() {
     setSaving(true);
     try {
       const r = await apiFetch<{ quiz_id: string }>('/prompt-quiz/save', {
-        prompt: lastPrompt,
+        prompt: initialPrompt || lastPrompt,
         question_ids: selectedIds,
         brief: draft?.brief,
       });
@@ -1177,7 +1181,7 @@ export default function QuizzerHome() {
               className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-[14px] font-medium text-white transition hover:bg-slate-700 disabled:opacity-40">
               <Check size={16} /> {saving ? 'Saving…' : `Save ${checked.size} questions`}
             </button>
-            <button onClick={() => run(lastPrompt)} className="text-[14px] text-slate-500 hover:text-slate-900">Start over</button>
+            <button onClick={() => run(initialPrompt || lastPrompt)} className="text-[14px] text-slate-500 hover:text-slate-900">Start over</button>
           </div>
         </section>
       )}

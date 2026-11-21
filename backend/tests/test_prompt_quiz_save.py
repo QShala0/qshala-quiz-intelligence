@@ -86,6 +86,30 @@ def test_save_keeps_the_requested_order_and_skips_unknown_ids():
         db.close()
 
 
+def test_default_title_is_the_typed_prompt_and_rename_keeps_the_prompt():
+    _, q = _question_with_media()
+    prompt = "  20 questions on   cricket and the IPL, school safe "
+    r = client.post("/api/v1/prompt-quiz/save", json={
+        "prompt": prompt, "question_ids": [q], "brief": {"framing": "A cricket-flavoured round", "query": "cricket"}})
+    assert r.status_code == 200, r.text
+    qid = r.json()["quiz_id"]
+    assert r.json()["title"] == "20 questions on cricket and the IPL, school safe"
+
+    assert client.patch(f"/api/v1/quizzes/{qid}", json={"title": "Friday cricket"}).status_code == 200
+    got = client.get(f"/api/v1/quizzes/{qid}").json()
+    assert got["title"] == "Friday cricket"
+    assert got["raw_prompt"] == prompt
+
+
+def test_prompt_title_cuts_long_prompts_at_a_word():
+    from backend.app.routers.prompt_quiz import prompt_title
+    long = "quiz on banking " * 40
+    t = prompt_title(long)
+    assert len(t) <= 255 and t.endswith("…") and "bankin…" not in t
+    assert prompt_title("  hi   there ") == "hi there"
+    assert prompt_title("") == ""
+
+
 def test_save_with_no_matching_questions_is_a_404():
     r = client.post("/api/v1/prompt-quiz/save", json={"prompt": "x", "question_ids": ["nope"]})
     assert r.status_code == 404
