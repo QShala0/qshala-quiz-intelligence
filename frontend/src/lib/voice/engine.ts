@@ -1,10 +1,9 @@
-export type VoiceEngine = 'browser' | 'whisper';
+export type VoiceEngine = 'browser' | 'server';
 
 export const VOICE_ENGINE_STORAGE_KEY = 'qshala-voice-engine';
 
 export interface VoiceEnvironment {
   hasSpeechRecognition: boolean;
-  hasWebAssembly: boolean;
   hasGetUserMedia: boolean;
   hasMediaRecorder: boolean;
   isBrave: boolean;
@@ -18,7 +17,7 @@ export interface VoiceEnvironment {
  */
 export function evaluateVoiceEngine(env: VoiceEnvironment): {
   browserSupported: boolean;
-  whisperSupported: boolean;
+  serverSupported: boolean;
   voiceSupported: boolean;
   preferredEngine: VoiceEngine;
 } {
@@ -31,27 +30,27 @@ export function evaluateVoiceEngine(env: VoiceEnvironment): {
   const browserSupported =
     env.hasSpeechRecognition && isChromeOrEdge && !env.isBrave;
 
-  // Whisper engine requires WebAssembly, getUserMedia, and MediaRecorder
-  const whisperSupported =
-    env.hasWebAssembly && env.hasGetUserMedia && env.hasMediaRecorder;
+  // Server engine (our own voice service) needs only getUserMedia and MediaRecorder
+  const serverSupported = env.hasGetUserMedia && env.hasMediaRecorder;
 
-  const voiceSupported = browserSupported || whisperSupported;
+  const voiceSupported = browserSupported || serverSupported;
 
   let preferredEngine: VoiceEngine = 'browser';
 
-  if (env.savedPreference === 'whisper' && whisperSupported) {
-    preferredEngine = 'whisper';
+  // 'whisper' is what older versions stored for the on-device engine; it now means the server engine.
+  if ((env.savedPreference === 'server' || env.savedPreference === 'whisper') && serverSupported) {
+    preferredEngine = 'server';
   } else if (env.savedPreference === 'browser' && browserSupported) {
     preferredEngine = 'browser';
   } else if (browserSupported) {
     preferredEngine = 'browser';
-  } else if (whisperSupported) {
-    preferredEngine = 'whisper';
+  } else if (serverSupported) {
+    preferredEngine = 'server';
   }
 
   return {
     browserSupported,
-    whisperSupported,
+    serverSupported,
     voiceSupported,
     preferredEngine,
   };
@@ -64,7 +63,6 @@ export function getBrowserVoiceEnvironment(): VoiceEnvironment {
   if (typeof window === 'undefined') {
     return {
       hasSpeechRecognition: false,
-      hasWebAssembly: false,
       hasGetUserMedia: false,
       hasMediaRecorder: false,
       isBrave: false,
@@ -75,8 +73,6 @@ export function getBrowserVoiceEnvironment(): VoiceEnvironment {
 
   const hasSpeech =
     'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
-
-  const hasWasm = typeof WebAssembly !== 'undefined';
 
   const hasGUM =
     typeof navigator !== 'undefined' &&
@@ -108,7 +104,6 @@ export function getBrowserVoiceEnvironment(): VoiceEnvironment {
 
   return {
     hasSpeechRecognition: hasSpeech,
-    hasWebAssembly: hasWasm,
     hasGetUserMedia: hasGUM,
     hasMediaRecorder: hasMR,
     isBrave,
@@ -128,10 +123,10 @@ export function isBrowserSpeechSupported(): boolean {
 }
 
 /**
- * Whisper supported when WebAssembly, getUserMedia, and MediaRecorder are all available
+ * Server engine supported when getUserMedia and MediaRecorder are available
  */
-export function isWhisperSupported(): boolean {
-  return evaluateVoiceEngine(getBrowserVoiceEnvironment()).whisperSupported;
+export function isServerVoiceSupported(): boolean {
+  return evaluateVoiceEngine(getBrowserVoiceEnvironment()).serverSupported;
 }
 
 /**

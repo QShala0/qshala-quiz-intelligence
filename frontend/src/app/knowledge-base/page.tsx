@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, Suspense } from 'react';
+import { useState, useCallback, useEffect, Suspense } from 'react';
+import { warmVoiceServiceIfNeeded } from '../../lib/voice/serverTranscribe';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { AlertTriangle, Eye, RefreshCw, X } from 'lucide-react';
@@ -23,6 +24,11 @@ import { useVaultQuestions } from '../../hooks/useVaultQuestions';
 import { isPlaceholderIcon } from '../../lib/placeholderIcons';
 
 function KnowledgeBaseContent() {
+  // Wake the voice service so the search mic answers fast (skipped on Chrome and Edge, which use the browser engine).
+  useEffect(() => {
+    warmVoiceServiceIfNeeded();
+  }, []);
+
   const searchParams = useSearchParams();
   const initialTopic = searchParams.get('topic') || '';
   const initialDeck = searchParams.get('deck') || '';   // the Upload Center links here while a deck is still being tagged

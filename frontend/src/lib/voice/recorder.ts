@@ -1,7 +1,12 @@
 export interface RecordedAudio {
-  audio: Float32Array;
+  blob: Blob;
   durationSec: number;
 }
+
+// Clips shorter than this are ignored (the server ignores anything under 0.3 s anyway).
+const MIN_CLIP_SECONDS = 0.3;
+// The recorder stops by itself at this length; the server accepts up to 90 s.
+const MAX_CLIP_MS = 60000;
 
 /**
  * Supported MIME type selection for MediaRecorder across Chrome, Edge, Brave, Safari, and Firefox.
@@ -25,59 +30,6 @@ export function getSupportedMimeType(): string {
   return '';
 }
 
-/**
- * Resamples any decoded AudioBuffer to a 16 kHz mono Float32Array using OfflineAudioContext.
- */
-export async function resampleTo16kMono(audioBuffer: AudioBuffer): Promise<Float32Array> {
-  const targetSampleRate = 16000;
-  const numFrames = Math.max(1, Math.ceil(audioBuffer.duration * targetSampleRate));
-
-  const OfflineCtxClass =
-    window.OfflineAudioContext ||
-    (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext })
-      .webkitOfflineAudioContext;
-
-  if (!OfflineCtxClass) {
-    // Fallback: simple linear resampling if OfflineAudioContext is unavailable
-    return linearResampleMono(audioBuffer, targetSampleRate);
-  }
-
-  const offlineCtx = new OfflineCtxClass(1, numFrames, targetSampleRate);
-  const source = offlineCtx.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(offlineCtx.destination);
-  source.start(0);
-
-  const rendered = await offlineCtx.startRendering();
-  return rendered.getChannelData(0);
-}
-
-/**
- * Pure fallback linear resampler for mono channel
- */
-export function linearResampleMono(audioBuffer: AudioBuffer, targetSampleRate: number): Float32Array {
-  const origRate = audioBuffer.sampleRate;
-  const input = audioBuffer.getChannelData(0);
-  if (origRate === targetSampleRate) {
-    return new Float32Array(input);
-  }
-
-  const duration = audioBuffer.duration;
-  const outputLength = Math.max(1, Math.round(duration * targetSampleRate));
-  const output = new Float32Array(outputLength);
-  const ratio = origRate / targetSampleRate;
-
-  for (let i = 0; i < outputLength; i++) {
-    const origIndex = i * ratio;
-    const i1 = Math.floor(origIndex);
-    const i2 = Math.min(i1 + 1, input.length - 1);
-    const fraction = origIndex - i1;
-    output[i] = input[i1] * (1 - fraction) + input[i2] * fraction;
-  }
-
-  return output;
-}
-
 export class VoiceRecorder {
   private mediaStream: MediaStream | null = null;
   private mediaRecorder: MediaRecorder | null = null;
@@ -98,6 +50,7 @@ export class VoiceRecorder {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
+        autoGainControl: true,
         echoCancellation: true,
         noiseSuppression: true,
       },
@@ -119,12 +72,12 @@ export class VoiceRecorder {
     this.mediaRecorder = recorder;
     this.startTime = Date.now();
 
-    // Auto-stop automatically at 60 seconds
+    // Auto-stop automatically at 60 seconds (see MAX_CLIP_MS)
     this.autoStopTimer = setTimeout(() => {
       if (this.isRecording()) {
         this.onAutoStopCallback?.();
       }
-    }, 60000);
+    }, MAX_CLIP_MS);
   }
 
   public async stop(): Promise<RecordedAudio | null> {
@@ -170,35 +123,12 @@ export class VoiceRecorder {
 
     const recordedBlob = await stoppedBlobPromise;
 
-    // Ignore recordings under 0.4 seconds
-    if (durationSec < 0.4 || recordedBlob.size === 0) {
+    // Ignore very short or empty recordings
+    if (durationSec < MIN_CLIP_SECONDS || recordedBlob.size === 0) {
       return null;
     }
 
-    // Decode audio and resample to 16 kHz mono Float32
-    const arrayBuffer = await recordedBlob.arrayBuffer();
-    const AudioCtxClass =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-
-    if (!AudioCtxClass) {
-      throw new Error('AudioContext unavailable in this browser');
-    }
-
-    const audioCtx = new AudioCtxClass();
-    try {
-      const decodedBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
-        audioCtx.decodeAudioData(arrayBuffer, resolve, reject);
-      });
-
-      const float32Data = await resampleTo16kMono(decodedBuffer);
-      return {
-        audio: float32Data,
-        durationSec,
-      };
-    } finally {
-      await audioCtx.close().catch(() => {});
-    }
+    return { blob: recordedBlob, durationSec };
   }
 
   public abort(): void {

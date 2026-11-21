@@ -21,6 +21,7 @@ Read `graphify-out/GRAPH_REPORT.md` before exploring code (run `graphify update 
 - Frontend: Next.js 16 (App Router, React 19, Tailwind v4) in `frontend/`, on Vercel. Read `frontend/AGENTS.md` first:
   this Next.js has breaking changes, check `node_modules/next/dist/docs/` before using an API from memory.
 - Media in Cloudflare R2. Backups: `.github/workflows/backup.yml`, restore drill: `restore-drill.yml`.
+- Voice input: the mic uses the browser recognizer on genuine Chrome/Edge and our own speech service (`voice_service/`, faster-whisper `small.en`, separate Cloud Run service, no Gemini) everywhere else; the frontend reads `NEXT_PUBLIC_VOICE_API_URL` and pings `/health` from the Create quiz and Question bank pages.
 
 ## Deploying (important)
 - Merging to `main` deploys the **frontend** (Vercel) and, through the Cloud Build trigger `qshala-test-gated-deploy`
