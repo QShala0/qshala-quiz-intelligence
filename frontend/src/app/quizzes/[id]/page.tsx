@@ -405,6 +405,27 @@ export default function QuizReviewStudioPage() {
           </span>
         </div>
 
+        {quiz.raw_prompt?.trim() && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3.5 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Original prompt</span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(quiz.raw_prompt ?? '').then(
+                    () => toast.success('Prompt copied'),
+                    () => toast.error('Could not copy'),
+                  );
+                }}
+                className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
+              >
+                Copy
+              </button>
+            </div>
+            <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-800">{quiz.raw_prompt}</p>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-3 text-[13px] text-slate-500 font-normal">
           <span className="inline-flex items-center gap-1 font-semibold text-slate-700">
             {quiz.quiz_format === 'STAGE_FINALS' ? '⚡ Stage Finals' :

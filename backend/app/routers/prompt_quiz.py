@@ -47,6 +47,20 @@ class SaveReq(BaseModel):
     brief: Optional[Dict[str, Any]] = None
 
 
+TITLE_MAX = 255
+
+
+def prompt_title(prompt: Optional[str]) -> str:
+    """A quiz name taken from the prompt the person typed: whitespace tidied, cut at a word boundary when too long."""
+    text = " ".join((prompt or "").split())
+    if len(text) <= TITLE_MAX:
+        return text
+    cut = text[:TITLE_MAX - 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(" ,.;:-") + "…"
+
+
 WORD_MAP = {
     'a': 1, 'an': 1, 'another': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
     'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
@@ -491,11 +505,11 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
     if not ordered:
         raise HTTPException(status_code=404, detail="None of the selected questions exist")
 
-    # Title: explicit > brief.framing > cleaned prompt
-    title = (req.title or "").strip()
+    # Title: explicit > the prompt the person typed > the AI's framing summary (only when the prompt is blank).
+    # The prompt itself is always kept unchanged in raw_prompt, so renaming the quiz never loses it.
+    title = (req.title or "").strip() or prompt_title(req.prompt)
     if not title:
-        framing = ((req.brief or {}).get("framing") or "").strip()
-        title = framing if framing else req.prompt[:80]
+        title = ((req.brief or {}).get("framing") or "").strip() or "Untitled quiz"
 
     topic = (req.brief or {}).get("query") or "General"
     if isinstance(topic, list):
