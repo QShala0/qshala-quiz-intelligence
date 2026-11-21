@@ -108,29 +108,13 @@ self.onmessage = async (event: MessageEvent) => {
     try {
       const transcriber = await getTranscriber();
 
+      // whisper-base.en is English-only: passing `language` or `task` makes transformers.js throw ("Cannot specify
+      // `task` or `language` for an English-only model"), which surfaced as "Didn't catch that" on every recording.
+      // This transformers.js version has no vocabulary prompt support either, so deck and series names are fixed
+      // afterwards by correctTranscript. `prompt` is accepted and ignored.
+      void prompt;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const options: Record<string, any> = {
-        language: 'en',
-        task: 'transcribe',
-      };
-
-      // Add vocabulary hint list via prompt_ids or initial_prompt capped at ~150 tokens
-      if (prompt && typeof prompt === 'string' && prompt.trim().length > 0) {
-        try {
-          if (transcriber.tokenizer) {
-            const tokenized = transcriber.tokenizer(prompt.trim());
-            if (tokenized?.input_ids) {
-              options.prompt_ids = tokenized.input_ids;
-            }
-          }
-        } catch {
-          // If prompt_ids tokenization fails, fallback to passing prompt directly
-          options.initial_prompt = prompt.trim();
-        }
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result: any = await (transcriber as any)(audio, options);
+      const result: any = await (transcriber as any)(audio, { chunk_length_s: 30 });
       const text = (result?.text || '').trim();
 
       self.postMessage({

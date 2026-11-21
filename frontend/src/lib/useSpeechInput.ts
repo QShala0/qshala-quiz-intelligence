@@ -185,6 +185,7 @@ export function useSpeechInput({
             }
           } catch (txErr) {
             const msg = txErr instanceof Error ? txErr.message : String(txErr);
+            console.warn('[voice] transcription failed:', msg);
             if (msg.includes('download') || msg.includes('fetch')) {
               setError('Voice download failed, tap to retry');
             } else {
