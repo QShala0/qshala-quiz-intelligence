@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 
 import httpx
@@ -388,3 +389,444 @@ async def test_failed_or_deleted_imports_can_be_done_again(db, client):
     assert status["Finals.pptx"] == "RETRY"
     assert status["Prelims.pptx"] == "NEW"
     assert status["Semis.pdf"] == "ALREADY_IMPORTED"
+
+
+# ==============================================================================
+# Streaming to R2, In-Flight Concurrency, and Batch Capping Tests
+# ==============================================================================
+
+class RecordingFakeR2:
+    def __init__(self, slow_upload_delay: float = 0.0, fail_upload_part: bool = False):
+        self.is_configured = True
+        self.slow_upload_delay = slow_upload_delay
+        self.fail_upload_part = fail_upload_part
+        self.created_uploads = []
+        self.uploaded_parts = []
+        self.completed_uploads = []
+        self.aborted_uploads = []
+        self.uploaded_bytes = []
+        self.deleted_objects = []
+        self.current_pending_uploads = 0
+        self.max_pending_uploads = 0
+
+    def create_multipart_upload(self, key: str, content_type=None) -> str:
+        upload_id = f"upload_{len(self.created_uploads) + 1}"
+        self.created_uploads.append((key, upload_id))
+        return upload_id
+
+    def upload_part(self, key: str, upload_id: str, part_number: int, data) -> str:
+        self.current_pending_uploads += 1
+        if self.current_pending_uploads > self.max_pending_uploads:
+            self.max_pending_uploads = self.current_pending_uploads
+        if self.slow_upload_delay:
+            import time
+            time.sleep(self.slow_upload_delay)
+        self.current_pending_uploads -= 1
+        if self.fail_upload_part:
+            raise RuntimeError("R2 upload_part network failure")
+        etag = f'"etag_{part_number}"'
+        self.uploaded_parts.append({
+            "key": key,
+            "upload_id": upload_id,
+            "part_number": part_number,
+            "size": len(data),
+            "etag": etag,
+            "data": bytes(data)
+        })
+        return etag
+
+    def complete_multipart_upload(self, key: str, upload_id: str, parts) -> str:
+        self.completed_uploads.append((key, upload_id, parts))
+        return f"https://pub.r2.dev/{key}"
+
+    def abort_multipart_upload(self, key: str, upload_id: str) -> None:
+        self.aborted_uploads.append((key, upload_id))
+
+    def upload_bytes(self, key: str, data: bytes, content_type=None) -> str:
+        self.uploaded_bytes.append((key, len(data), bytes(data)))
+        return f"https://pub.r2.dev/{key}"
+
+    def delete_object(self, key: str) -> None:
+        self.deleted_objects.append(key)
+
+
+@pytest.mark.anyio
+async def test_streaming_40mb_stream_part_count_order_and_sha():
+    """A 40 MB stream with a small test part_size has the right part count, parts in order,
+    no part over part_size, and sha and size match the whole file."""
+    # 40 chunks of 1 MB = 40 MB
+    one_mb = b"A" * (1024 * 1024)
+    part_size = 8 * 1024 * 1024  # 8 MB parts -> exactly 5 parts
+
+    hasher = hashlib.sha256()
+    for _ in range(40):
+        hasher.update(one_mb)
+    expected_sha = hasher.hexdigest()
+
+    async def chunk_gen():
+        for _ in range(40):
+            yield one_mb
+
+    async def stream_handler(request: httpx.Request):
+        url = str(request.url)
+        if url == TOKEN_URL:
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        return httpx.Response(200, content=chunk_gen())
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(stream_handler))
+    sp_client = SharePointClient(tenant_id="t", client_id="c", client_secret="s", drive_id="D")
+    sp_client._custom_http_client = mock_client
+
+    fake_r2 = RecordingFakeR2()
+    url, sha, size = await sp_client.stream_item_to_r2(
+        drive_id="D", item_id="item_40m", key="raw-uploads/test40.pptx",
+        max_bytes=50 * 1024 * 1024, r2=fake_r2, part_size=part_size
+    )
+
+    assert size == 40 * 1024 * 1024
+    assert sha == expected_sha
+    assert url == "https://pub.r2.dev/raw-uploads/test40.pptx"
+    assert len(fake_r2.uploaded_parts) == 5
+    # Parts in order
+    assert [p["part_number"] for p in fake_r2.uploaded_parts] == [1, 2, 3, 4, 5]
+    # No part over part_size
+    assert all(p["size"] == part_size for p in fake_r2.uploaded_parts)
+    assert len(fake_r2.completed_uploads) == 1
+    assert len(fake_r2.completed_uploads[0][2]) == 5
+
+
+@pytest.mark.anyio
+async def test_streaming_overlap_upload_and_download_at_most_one_pending():
+    """The upload of one part overlaps the download of the next (slow fake upload_part),
+    but never more than one upload is pending per file."""
+    # 3 parts of 2 MB each
+    part_size = 2 * 1024 * 1024
+    chunk_1mb = b"B" * (1024 * 1024)
+
+    downloaded_chunks = []
+
+    async def chunk_gen():
+        for i in range(6):
+            downloaded_chunks.append(i)
+            yield chunk_1mb
+
+    async def stream_handler(request: httpx.Request):
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        return httpx.Response(200, content=chunk_gen())
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(stream_handler))
+    sp_client = SharePointClient(tenant_id="t", client_id="c", client_secret="s", drive_id="D")
+    sp_client._custom_http_client = mock_client
+
+    fake_r2 = RecordingFakeR2(slow_upload_delay=0.03)
+    url, sha, size = await sp_client.stream_item_to_r2(
+        drive_id="D", item_id="item_overlap", key="raw-uploads/test_overlap.pptx",
+        max_bytes=10 * 1024 * 1024, r2=fake_r2, part_size=part_size
+    )
+
+    assert size == 6 * 1024 * 1024
+    assert len(fake_r2.uploaded_parts) == 3
+    # Exactly at most one pending upload task at all times
+    assert fake_r2.max_pending_uploads == 1
+    assert len(downloaded_chunks) == 6
+
+
+@pytest.mark.anyio
+async def test_streaming_file_under_one_part_uses_upload_bytes():
+    """A file under one part uses upload_bytes and no multipart calls."""
+    data = b"small file content under one part"
+    part_size = 10 * 1024 * 1024
+
+    async def stream_handler(request: httpx.Request):
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        return httpx.Response(200, content=data)
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(stream_handler))
+    sp_client = SharePointClient(tenant_id="t", client_id="c", client_secret="s", drive_id="D")
+    sp_client._custom_http_client = mock_client
+
+    fake_r2 = RecordingFakeR2()
+    url, sha, size = await sp_client.stream_item_to_r2(
+        drive_id="D", item_id="item_small", key="raw-uploads/small.pptx",
+        max_bytes=20 * 1024 * 1024, r2=fake_r2, part_size=part_size
+    )
+
+    assert size == len(data)
+    assert sha == hashlib.sha256(data).hexdigest()
+    assert len(fake_r2.created_uploads) == 0  # No multipart calls
+    assert len(fake_r2.uploaded_parts) == 0
+    assert len(fake_r2.uploaded_bytes) == 1
+    assert fake_r2.uploaded_bytes[0][0] == "raw-uploads/small.pptx"
+    assert fake_r2.uploaded_bytes[0][1] == len(data)
+
+
+@pytest.mark.anyio
+async def test_streaming_over_max_bytes_aborts_multipart():
+    """A stream over max_bytes aborts the multipart upload and raises the same error."""
+    chunk = b"C" * (1024 * 1024)  # 1 MB
+    max_bytes = 3 * 1024 * 1024      # 3 MB limit
+    part_size = 1 * 1024 * 1024      # 1 MB part
+
+    async def chunk_gen():
+        for _ in range(5):  # 5 MB > 3 MB limit
+            yield chunk
+
+    async def stream_handler(request: httpx.Request):
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        return httpx.Response(200, content=chunk_gen())
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(stream_handler))
+    sp_client = SharePointClient(tenant_id="t", client_id="c", client_secret="s", drive_id="D")
+    sp_client._custom_http_client = mock_client
+
+    fake_r2 = RecordingFakeR2()
+    with pytest.raises(ValueError, match="limit"):
+        await sp_client.stream_item_to_r2(
+            drive_id="D", item_id="item_oversize", key="raw-uploads/oversize.pptx",
+            max_bytes=max_bytes, r2=fake_r2, part_size=part_size
+        )
+
+    # Multipart was started when first 1 MB was filled, then aborted when 4 MB arrived
+    assert len(fake_r2.created_uploads) == 1
+    assert len(fake_r2.aborted_uploads) == 1
+    assert fake_r2.aborted_uploads[0] == fake_r2.created_uploads[0]
+
+
+@pytest.mark.anyio
+async def test_streaming_midstream_exception_and_upload_part_failure_abort_multipart():
+    """An exception mid-stream, and a failing upload_part, abort the multipart upload and leave no pending task."""
+    part_size = 1024 * 1024
+    chunk = b"D" * (1024 * 1024)
+
+    # Subtest 1: Exception mid-stream
+    async def broken_chunk_gen():
+        yield chunk
+        yield chunk
+        raise RuntimeError("SharePoint stream connection dropped")
+
+    async def broken_handler(request: httpx.Request):
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        return httpx.Response(200, content=broken_chunk_gen())
+
+    mock_client1 = httpx.AsyncClient(transport=httpx.MockTransport(broken_handler))
+    sp_client1 = SharePointClient(tenant_id="t", client_id="c", client_secret="s", drive_id="D")
+    sp_client1._custom_http_client = mock_client1
+
+    fake_r2_1 = RecordingFakeR2()
+    with pytest.raises(RuntimeError, match="SharePoint stream connection dropped"):
+        await sp_client1.stream_item_to_r2(
+            drive_id="D", item_id="item_broken", key="raw-uploads/broken.pptx",
+            max_bytes=10 * 1024 * 1024, r2=fake_r2_1, part_size=part_size
+        )
+
+    assert len(fake_r2_1.aborted_uploads) == 1
+
+    # Subtest 2: Failing upload_part
+    async def good_chunk_gen():
+        yield chunk
+        yield chunk
+
+    async def good_handler(request: httpx.Request):
+        if str(request.url) == TOKEN_URL:
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        return httpx.Response(200, content=good_chunk_gen())
+
+    mock_client2 = httpx.AsyncClient(transport=httpx.MockTransport(good_handler))
+    sp_client2 = SharePointClient(tenant_id="t", client_id="c", client_secret="s", drive_id="D")
+    sp_client2._custom_http_client = mock_client2
+
+    fake_r2_2 = RecordingFakeR2(fail_upload_part=True)
+    with pytest.raises(RuntimeError, match="R2 upload_part network failure"):
+        await sp_client2.stream_item_to_r2(
+            drive_id="D", item_id="item_r2_fail", key="raw-uploads/r2_fail.pptx",
+            max_bytes=10 * 1024 * 1024, r2=fake_r2_2, part_size=part_size
+        )
+
+    assert len(fake_r2_2.aborted_uploads) == 1
+
+
+@pytest.mark.anyio
+async def test_transfer_next_duplicate_deletes_staged_r2_and_creates_no_document(db, client, monkeypatch):
+    """A duplicate hash deletes the staged object, creates no Document, and marks SKIPPED_DUPLICATE."""
+    from backend.app.config import settings
+    from backend.app.services.storage import r2_storage
+    monkeypatch.setattr(settings, "INGESTION_MODE", "cloud_run_job")
+    fake_r2 = RecordingFakeR2()
+    monkeypatch.setattr(r2_storage, "get_media_storage", lambda: fake_r2)
+
+    # Pre-existing Document with the same hash as f2
+    f2_sha = hashlib.sha256(CONTENT["f2"]).hexdigest()
+    db.add(Document(id="existing_doc", filename="old.pptx", title="Old", file_type="pptx", storage_path="x",
+                    file_sha256=f2_sha))
+    db.add(SharePointFile(id="f2", name="Prelims.pptx", etag="e1", drive_id="D", sync_status="SELECTED"))
+    db.commit()
+
+    res = await importer.transfer_next(db, client)
+    assert res["skipped_duplicate"] == 1
+    assert res["queued"] == 0
+    # Staged object was deleted from R2
+    assert len(fake_r2.deleted_objects) == 1
+    assert fake_r2.deleted_objects[0].startswith("raw-uploads/")
+    # No new Document created
+    assert db.query(Document).count() == 1
+    row = db.query(SharePointFile).filter_by(id="f2").one()
+    assert row.sync_status == "SKIPPED_DUPLICATE"
+    assert row.match_document_id == "existing_doc"
+
+
+@pytest.mark.anyio
+async def test_transfer_next_document_uses_pregenerated_id_and_returned_url(db, client, monkeypatch):
+    """The new Document uses the pre-generated id and the returned URL, size and sha."""
+    from backend.app.config import settings
+    from backend.app.services.storage import r2_storage
+    monkeypatch.setattr(settings, "INGESTION_MODE", "cloud_run_job")
+    fake_r2 = RecordingFakeR2()
+    monkeypatch.setattr(r2_storage, "get_media_storage", lambda: fake_r2)
+
+    db.add(SharePointFile(id="f2", name="Prelims.pptx", etag="e1", drive_id="D", sync_status="SELECTED"))
+    db.commit()
+
+    res = await importer.transfer_next(db, client)
+    assert res["queued"] == 1
+    doc_id = res["document_ids"][0]
+    doc = db.query(Document).filter_by(id=doc_id).one()
+
+    expected_sha = hashlib.sha256(CONTENT["f2"]).hexdigest()
+    assert doc.file_sha256 == expected_sha
+    assert doc.file_size_bytes == len(CONTENT["f2"])
+    assert doc.blob_url == f"https://pub.r2.dev/raw-uploads/{doc_id}.pptx"
+    assert doc.storage_path.endswith(f"{doc_id}.pptx")
+    assert db.query(SharePointFile).filter_by(id="f2").one().blob_url == doc.blob_url
+
+
+@pytest.mark.anyio
+async def test_transfer_next_25_files_concurrency_and_failure_resilience(db, monkeypatch):
+    """A 25-file transfer_next runs files concurrently, never exceeds SHAREPOINT_MAX_INFLIGHT active streams,
+    and a batch where one file fails still queues the others with correct counts."""
+    # Create 25 files
+    for i in range(25):
+        db.add(SharePointFile(
+            id=f"file_{i:02d}", name=f"Deck_{i:02d}.pptx", etag=f"e_{i}",
+            drive_id="D", sync_status="SELECTED"
+        ))
+    db.commit()
+
+    active_streams = 0
+    max_active_streams = 0
+
+    class MockClient:
+        async def download_item_capped(self, drive_id, item_id, max_bytes):
+            nonlocal active_streams, max_active_streams
+            active_streams += 1
+            if active_streams > max_active_streams:
+                max_active_streams = active_streams
+            try:
+                import anyio
+                await anyio.sleep(0.01)
+                if item_id == "file_13":
+                    raise httpx.HTTPStatusError("Server error", request=None, response=httpx.Response(500))
+                return f"content for {item_id}".encode()
+            finally:
+                active_streams -= 1
+
+    mock_client = MockClient()
+    res = await importer.transfer_next(db, mock_client, limit=25)
+
+    assert res["queued"] == 24
+    assert res["failed"] == 1
+    assert len(res["job_ids"]) == 24
+    assert max_active_streams <= importer.SHAREPOINT_MAX_INFLIGHT
+    assert db.query(SharePointFile).filter_by(id="file_13").one().sync_status == "FAILED"
+    assert db.query(SharePointFile).filter(SharePointFile.sync_status == "QUEUED").count() == 24
+
+
+@pytest.mark.anyio
+async def test_concurrent_transfer_next_calls_never_claim_same_row(db):
+    """Two transfer_next calls at once never claim the same row."""
+    # Create 6 files
+    for i in range(6):
+        db.add(SharePointFile(
+            id=f"cf_{i}", name=f"Concurrent_{i}.pptx", etag=f"e_{i}",
+            drive_id="D", sync_status="SELECTED"
+        ))
+    db.commit()
+
+    class MockClient:
+        async def download_item_capped(self, drive_id, item_id, max_bytes):
+            import anyio
+            await anyio.sleep(0.01)
+            return f"content for {item_id}".encode()
+
+    mock_client = MockClient()
+    res1, res2 = await asyncio.gather(
+        importer.transfer_next(db, mock_client, limit=3),
+        importer.transfer_next(db, mock_client, limit=3)
+    )
+
+    assert res1["queued"] + res2["queued"] == 6
+    # No overlapping document IDs or job IDs
+    assert set(res1["document_ids"]).isdisjoint(set(res2["document_ids"]))
+    assert set(res1["job_ids"]).isdisjoint(set(res2["job_ids"]))
+    assert db.query(SharePointFile).filter(SharePointFile.sync_status == "QUEUED").count() == 6
+
+
+def test_transfer_next_limit_validation():
+    """limit=25 is accepted and limit=26 is rejected."""
+    from fastapi.testclient import TestClient
+    from backend.app.config import settings
+    from backend.app.main import app
+
+    test_client = TestClient(app)
+    endpoint = f"{settings.API_V1_STR}/sharepoint/transfer-next"
+    # limit=25 should pass validation (422 would indicate validation rejection)
+    resp25 = test_client.post(f"{endpoint}?limit=25")
+    assert resp25.status_code != 422
+
+    # limit=26 should fail FastAPI Query validation with 422
+    resp26 = test_client.post(f"{endpoint}?limit=26")
+    assert resp26.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_stage_and_plan_import_batch_cap_25(db):
+    """Where an import batch is staged (/import and its plan), refuse or truncate beyond
+    SHAREPOINT_BATCH_MAX files and return a clear message and the number left over."""
+    # 30 files in selection
+    items = []
+    for i in range(30):
+        fid = f"bc_file_{i:02d}"
+        fname = f"BatchCap_{i:02d}.pptx"
+        items.append({"id": fid, "kind": "file"})
+
+    class MockClient30:
+        async def get_item(self, drive_id, item_id):
+            return {
+                "id": item_id, "name": f"{item_id}.pptx", "size": 1000,
+                "eTag": "etag1", "cTag": "ctag1", "webUrl": f"https://sp/{item_id}",
+                "parentReference": {"path": "/drives/D/root:/Quizzes"},
+                "lastModifiedDateTime": "2024-05-01T10:00:00Z",
+                "file": {"hashes": {"quickXorHash": "xor1"}}
+            }
+
+    mock_client = MockClient30()
+    sel_obj = importer.Selection(drive_id="D", items=items)
+
+    plan = await importer.plan_import(db, mock_client, sel_obj)
+    assert plan["total_found"] == 30
+    assert plan["batch_capped"] is True
+    assert plan["to_import"] == 25
+    assert plan["leftover"] == 5
+    assert plan["message"] == "25 of 30 selected, import the rest in the next batch"
+
+    staged = await importer.stage_import(db, mock_client, sel_obj)
+    assert staged["selected"] == 25
+    assert staged["batch_capped"] is True
+    assert staged["leftover"] == 5
+    assert staged["message"] == "25 of 30 selected, import the rest in the next batch"
+    assert db.query(SharePointFile).filter(SharePointFile.sync_status == "SELECTED").count() == 25
+
+

@@ -37,6 +37,36 @@ SUPPORTED_EXT = {".pptx", ".pdf"}
 MAX_PLAN_ITEMS = int(os.getenv("SHAREPOINT_MAX_PLAN_ITEMS", "2000"))
 MAX_DEPTH = int(os.getenv("SHAREPOINT_MAX_DEPTH", "8"))
 MAX_FILE_BYTES = int(float(os.getenv("SHAREPOINT_MAX_FILE_MB", "1024")) * 1024 * 1024)
+SHAREPOINT_MAX_INFLIGHT = int(os.getenv("SHAREPOINT_MAX_INFLIGHT", getattr(settings, "SHAREPOINT_MAX_INFLIGHT", 4)))
+SHAREPOINT_BATCH_MAX = int(os.getenv("SHAREPOINT_BATCH_MAX", getattr(settings, "SHAREPOINT_BATCH_MAX", 25)))
+
+class _LoopBoundSemaphore:
+    """Module-level semaphore proxy ensuring each asyncio event loop gets its own Semaphore instance,
+    avoiding 'bound to a different event loop' errors during testing or across separate event loops."""
+    def __init__(self, default_value: int = 4):
+        self.default_value = default_value
+        self._sems: Dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
+
+    def _get_sem(self) -> asyncio.Semaphore:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.Semaphore(self.default_value)
+        if loop not in self._sems:
+            limit = int(os.getenv("SHAREPOINT_MAX_INFLIGHT", getattr(settings, "SHAREPOINT_MAX_INFLIGHT", self.default_value)))
+            self._sems[loop] = asyncio.Semaphore(limit)
+        return self._sems[loop]
+
+    async def __aenter__(self):
+        return await self._get_sem().__aenter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        return await self._get_sem().__aexit__(exc_type, exc_val, exc_tb)
+
+    def locked(self) -> bool:
+        return self._get_sem().locked()
+
+SHAREPOINT_STREAM_SEMAPHORE = _LoopBoundSemaphore(SHAREPOINT_MAX_INFLIGHT)
 STALE_TRANSFER = timedelta(minutes=10)
 PLAN_FILE_LIST_CAP = 500
 _IN_CHUNK = 400   # stay under SQLite's bound-variable limit
@@ -326,14 +356,24 @@ async def collect_candidates(client, sel: Selection) -> Dict[str, Any]:
 
 
 def _summarise(cands: List[Dict[str, Any]], sel: Selection, truncated: bool) -> Dict[str, Any]:
+    batch_max = int(os.getenv("SHAREPOINT_BATCH_MAX", getattr(settings, "SHAREPOINT_BATCH_MAX", 25)))
     counts: Dict[str, int] = {}
     for c in cands:
         counts[c["status"]] = counts.get(c["status"], 0) + 1
     wanted = [c for c in cands if _wanted(c, sel)]
+    leftover = max(0, len(wanted) - batch_max)
     ordered = sorted(cands, key=lambda c: (0 if _wanted(c, sel) else 1, c["folder_path"] or "", c["name"].lower()))
+    to_import_cands = wanted[:batch_max] if leftover > 0 else wanted
+    msg = f"{len(to_import_cands)} of {len(wanted)} selected, import the rest in the next batch" if leftover > 0 else None
     return {
-        "total_found": len(cands), "truncated": truncated, "counts": counts,
-        "to_import": len(wanted), "bytes_to_import": sum(c["size"] for c in wanted),
+        "total_found": len(cands),
+        "truncated": truncated or (leftover > 0),
+        "counts": counts,
+        "to_import": len(to_import_cands),
+        "bytes_to_import": sum(c["size"] for c in to_import_cands),
+        "batch_capped": leftover > 0,
+        "leftover": leftover,
+        "message": msg,
         "files": [{
             "id": c["id"], "name": c["name"], "size": c["size"], "folder_path": c["folder_path"],
             "modified": c["modified"].isoformat() if c.get("modified") else None,
@@ -350,15 +390,17 @@ async def plan_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
 
 async def stage_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
     """Mark the wanted files SELECTED under one new batch id. Downloads nothing."""
+    batch_max = int(os.getenv("SHAREPOINT_BATCH_MAX", getattr(settings, "SHAREPOINT_BATCH_MAX", 25)))
     got = await collect_candidates(client, sel)
     cands = got["candidates"]
     classify(db, cands)
     batch_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     staged = 0
-    for c in cands:
-        if not _wanted(c, sel):
-            continue
+    wanted = [c for c in cands if _wanted(c, sel)]
+    leftover = max(0, len(wanted) - batch_max)
+    to_stage = wanted[:batch_max] if leftover > 0 else wanted
+    for c in to_stage:
         row = db.query(SharePointFile).filter(SharePointFile.id == c["id"]).first()
         if row is None:
             row = SharePointFile(id=c["id"], name=c["name"])
@@ -380,36 +422,61 @@ async def stage_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
         staged += 1
     db.commit()
     summary = _summarise(cands, sel, got["truncated"])
-    return {"batch_id": batch_id, "selected": staged, "counts": summary["counts"], "truncated": got["truncated"],
-            "bytes": summary["bytes_to_import"]}
+    msg = f"{staged} of {len(wanted)} selected, import the rest in the next batch" if leftover > 0 else None
+    return {
+        "batch_id": batch_id,
+        "selected": staged,
+        "counts": summary["counts"],
+        "truncated": got["truncated"] or (leftover > 0),
+        "bytes": summary["bytes_to_import"],
+        "batch_capped": leftover > 0,
+        "leftover": leftover,
+        "message": msg,
+    }
 
 
 # ------------------------------------------------------------------------------------------------ transfer
 
-async def _hand_off_to_pipeline(db: Session, row: SharePointFile, data: bytes, sha: str) -> Dict[str, Optional[str]]:
+async def _hand_off_to_pipeline(
+    db: Session,
+    row: SharePointFile,
+    data: Optional[bytes] = None,
+    sha: Optional[str] = None,
+    *,
+    pre_staged: Optional[Tuple[str, Optional[str], int, str]] = None,
+) -> Dict[str, Optional[str]]:
     """Hand a downloaded deck to the SAME ingestion path a manual upload uses: a Document row, the raw deck staged in R2 where
     the Cloud Run worker fetches it (raw-uploads/<document id><ext>), and a queued upload job. Progress then shows on the
     Uploads page like any other deck. R2 trouble raises, so the file is marked FAILED, never saved where the worker cannot see it."""
     from backend.app.services.ingestion import upload_queue
     ext = Path(row.name or "").suffix.lower()
-    doc_id = str(uuid.uuid4())
-    storage_path = str(settings.UPLOAD_DIR / f"{doc_id}{ext}")
-    cloud_worker = settings.INGESTION_MODE == "cloud_run_job"
 
-    raw_url: Optional[str] = None
-    r2 = r2_storage.get_media_storage()
-    if r2 is not None:
-        raw_url = await asyncio.to_thread(r2.upload_bytes, f"raw-uploads/{doc_id}{ext}", data)
-    elif cloud_worker:
-        raise RuntimeError("R2 storage must be configured so the ingestion worker can read the deck")
-    if not cloud_worker:                       # in-process ingestion reads the deck from local disk
-        Path(storage_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(storage_path).write_bytes(data)
+    if pre_staged is not None:
+        doc_id, raw_url, size_bytes, file_sha = pre_staged
+        storage_path = str(settings.UPLOAD_DIR / f"{doc_id}{ext}")
+    else:
+        if data is None or sha is None:
+            raise ValueError("Either data+sha or pre_staged must be provided to _hand_off_to_pipeline")
+        doc_id = str(uuid.uuid4())
+        storage_path = str(settings.UPLOAD_DIR / f"{doc_id}{ext}")
+        cloud_worker = settings.INGESTION_MODE == "cloud_run_job"
+        size_bytes = len(data)
+        file_sha = sha
+
+        raw_url = None
+        r2 = r2_storage.get_media_storage()
+        if r2 is not None:
+            raw_url = await asyncio.to_thread(r2.upload_bytes, f"raw-uploads/{doc_id}{ext}", data)
+        elif cloud_worker:
+            raise RuntimeError("R2 storage must be configured so the ingestion worker can read the deck")
+        if not cloud_worker:                       # in-process ingestion reads the deck from local disk
+            Path(storage_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(storage_path).write_bytes(data)
 
     doc = Document(
         id=doc_id, filename=row.name, title=Path(row.name).stem.replace("_", " ").title(),
         year=None, file_type=ext.lstrip("."), storage_path=storage_path, blob_url=raw_url,       # the deck's own year comes from its name; the import year is not it
-        source="SHAREPOINT", sharepoint_file_id=row.id, file_size_bytes=len(data), file_sha256=sha,
+        source="SHAREPOINT", sharepoint_file_id=row.id, file_size_bytes=size_bytes, file_sha256=file_sha,
         processing_status="PROCESSING",
     )
     db.add(doc)
@@ -426,8 +493,9 @@ def _remaining(db: Session, batch_id: Optional[str]) -> int:
 
 
 async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[str] = None) -> Dict[str, Any]:
-    """Transfer up to `limit` SELECTED files. Safe to call from several tabs at once: each file is claimed atomically."""
-    limit = max(1, min(int(limit), 10))
+    """Transfer up to `limit` SELECTED files concurrently (bounded by SHAREPOINT_MAX_INFLIGHT). Safe to call from several tabs at once."""
+    batch_max = int(os.getenv("SHAREPOINT_BATCH_MAX", getattr(settings, "SHAREPOINT_BATCH_MAX", 25)))
+    limit = max(1, min(int(limit), batch_max))
     now = datetime.now(timezone.utc)
     # a worker that died mid-download leaves TRANSFERRING behind; give those files back
     db.query(SharePointFile).filter(
@@ -435,46 +503,145 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
     ).update({"sync_status": "SELECTED"}, synchronize_session=False)
     db.commit()
 
+    # Atomically claim up to `limit` rows so concurrent calls never claim the same row
     q = db.query(SharePointFile).filter(SharePointFile.sync_status == "SELECTED")
     if batch_id:
         q = q.filter(SharePointFile.batch_id == batch_id)
-    rows = q.order_by(SharePointFile.selected_at, SharePointFile.id).limit(limit).all()
+    candidates = q.order_by(SharePointFile.selected_at, SharePointFile.id).limit(limit * 2).all()
 
-    out = {"queued": 0, "skipped_duplicate": 0, "failed": 0, "job_ids": [], "document_ids": []}
-    for row in rows:
+    claimed_rows: List[SharePointFile] = []
+    for cand in candidates:
+        if len(claimed_rows) >= limit:
+            break
         claimed = db.query(SharePointFile).filter(
-            SharePointFile.id == row.id, SharePointFile.sync_status == "SELECTED"
+            SharePointFile.id == cand.id, SharePointFile.sync_status == "SELECTED"
         ).update({"sync_status": "TRANSFERRING", "updated_at": datetime.now(timezone.utc)}, synchronize_session=False)
         db.commit()
-        if not claimed:
-            continue
-        db.refresh(row)
-        try:
-            data = await client.download_item_capped(row.drive_id, row.id, MAX_FILE_BYTES)
-            sha = hashlib.sha256(data).hexdigest()
-            row.file_sha256 = sha
-            twin = db.query(Document).filter(Document.file_sha256 == sha).first()
-            if twin is not None:
-                row.sync_status = "SKIPPED_DUPLICATE"
-                row.match_document_id = twin.id
-                row.error_message = f"Identical file already in QShala as “{twin.title or twin.filename}”"
-                out["skipped_duplicate"] += 1
-            else:
-                handoff = await _hand_off_to_pipeline(db, row, data, sha)
-                row.blob_url = handoff["raw_url"]
-                row.sync_status = "QUEUED"
-                row.error_message = None
-                out["job_ids"].append(handoff["job_id"])
-                out["document_ids"].append(handoff["document_id"])
-                out["queued"] += 1
-            db.commit()
-        except httpx.HTTPStatusError as e:
-            _fail(db, row, _http_message(e))
+        if claimed:
+            db.refresh(cand)
+            claimed_rows.append(cand)
+
+    if not claimed_rows:
+        return {"queued": 0, "skipped_duplicate": 0, "failed": 0, "job_ids": [], "document_ids": [], "remaining": _remaining(db, batch_id)}
+
+    db_lock = asyncio.Lock()
+
+    async def _transfer_one(row_id: str, row_drive_id: str, row_name: str) -> Dict[str, Any]:
+        r2 = r2_storage.get_media_storage()
+        cloud_worker = (settings.INGESTION_MODE == "cloud_run_job")
+        r2_configured = (r2 is not None and getattr(r2, "is_configured", True))
+        use_streaming = (cloud_worker and r2_configured)
+
+        if use_streaming:
+            doc_id = str(uuid.uuid4())
+            ext = Path(row_name or "").suffix.lower()
+            key = f"raw-uploads/{doc_id}{ext}"
+            part_size = int(os.getenv("SHAREPOINT_PART_MB", getattr(settings, "SHAREPOINT_PART_MB", 128))) * 1024 * 1024
+            staged_key: Optional[str] = None
+            try:
+                async with SHAREPOINT_STREAM_SEMAPHORE:
+                    raw_url, sha, size_bytes = await client.stream_item_to_r2(
+                        row_drive_id, row_id, key, MAX_FILE_BYTES, r2, part_size
+                    )
+                staged_key = key
+                async with db_lock:
+                    row = db.query(SharePointFile).filter_by(id=row_id).one()
+                    row.file_sha256 = sha
+                    twin = db.query(Document).filter(Document.file_sha256 == sha).first()
+                    if twin is not None:
+                        await asyncio.to_thread(r2.delete_object, key)
+                        staged_key = None
+                        row.sync_status = "SKIPPED_DUPLICATE"
+                        row.match_document_id = twin.id
+                        row.error_message = f"Identical file already in QShala as “{twin.title or twin.filename}”"
+                        db.commit()
+                        return {"status": "skipped_duplicate"}
+                    else:
+                        handoff = await _hand_off_to_pipeline(
+                            db, row, pre_staged=(doc_id, raw_url, size_bytes, sha)
+                        )
+                        row.blob_url = handoff["raw_url"]
+                        row.sync_status = "QUEUED"
+                        row.error_message = None
+                        db.commit()
+                        return {
+                            "status": "queued",
+                            "job_id": handoff["job_id"],
+                            "document_id": handoff["document_id"],
+                        }
+            except httpx.HTTPStatusError as e:
+                if staged_key:
+                    try:
+                        await asyncio.to_thread(r2.delete_object, staged_key)
+                    except Exception:
+                        pass
+                async with db_lock:
+                    row = db.query(SharePointFile).filter_by(id=row_id).one()
+                    _fail(db, row, _http_message(e))
+                return {"status": "failed"}
+            except Exception as e:
+                logger.warning("SharePoint transfer failed for %s: %s", row_name, e)
+                if staged_key:
+                    try:
+                        await asyncio.to_thread(r2.delete_object, staged_key)
+                    except Exception:
+                        pass
+                async with db_lock:
+                    row = db.query(SharePointFile).filter_by(id=row_id).one()
+                    _fail(db, row, str(e) or type(e).__name__)
+                return {"status": "failed"}
+        else:
+            try:
+                async with SHAREPOINT_STREAM_SEMAPHORE:
+                    data = await client.download_item_capped(row_drive_id, row_id, MAX_FILE_BYTES)
+                sha = hashlib.sha256(data).hexdigest()
+                async with db_lock:
+                    row = db.query(SharePointFile).filter_by(id=row_id).one()
+                    row.file_sha256 = sha
+                    twin = db.query(Document).filter(Document.file_sha256 == sha).first()
+                    if twin is not None:
+                        row.sync_status = "SKIPPED_DUPLICATE"
+                        row.match_document_id = twin.id
+                        row.error_message = f"Identical file already in QShala as “{twin.title or twin.filename}”"
+                        db.commit()
+                        return {"status": "skipped_duplicate"}
+                    else:
+                        handoff = await _hand_off_to_pipeline(db, row, data=data, sha=sha)
+                        row.blob_url = handoff["raw_url"]
+                        row.sync_status = "QUEUED"
+                        row.error_message = None
+                        db.commit()
+                        return {
+                            "status": "queued",
+                            "job_id": handoff["job_id"],
+                            "document_id": handoff["document_id"],
+                        }
+            except httpx.HTTPStatusError as e:
+                async with db_lock:
+                    row = db.query(SharePointFile).filter_by(id=row_id).one()
+                    _fail(db, row, _http_message(e))
+                return {"status": "failed"}
+            except Exception as e:
+                logger.warning("SharePoint transfer failed for %s: %s", row_name, e)
+                async with db_lock:
+                    row = db.query(SharePointFile).filter_by(id=row_id).one()
+                    _fail(db, row, str(e) or type(e).__name__)
+                return {"status": "failed"}
+
+    tasks = [_transfer_one(r.id, r.drive_id, r.name) for r in claimed_rows]
+    results = await asyncio.gather(*tasks)
+
+    out = {"queued": 0, "skipped_duplicate": 0, "failed": 0, "job_ids": [], "document_ids": []}
+    for res in results:
+        if res.get("status") == "queued":
+            out["queued"] += 1
+            out["job_ids"].append(res["job_id"])
+            out["document_ids"].append(res["document_id"])
+        elif res.get("status") == "skipped_duplicate":
+            out["skipped_duplicate"] += 1
+        elif res.get("status") == "failed":
             out["failed"] += 1
-        except Exception as e:  # one bad file never stops the batch
-            logger.warning("SharePoint transfer failed for %s: %s", row.name, e)
-            _fail(db, row, str(e) or type(e).__name__)
-            out["failed"] += 1
+
     out["remaining"] = _remaining(db, batch_id)
     return out
 

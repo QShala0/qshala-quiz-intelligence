@@ -697,8 +697,8 @@ export interface SpSelection {
   exclude_ids?: string[];
 }
 export interface SpPlanFile { id: string; name: string; size: number; folder_path: string; modified?: string | null; status: SpItemStatus; will_import: boolean; match_document_id?: string | null }
-export interface SpPlan { total_found: number; truncated: boolean; counts: Record<string, number>; to_import: number; bytes_to_import: number; files: SpPlanFile[] }
-export interface SpStage { batch_id: string; selected: number; counts: Record<string, number>; truncated: boolean; bytes: number }
+export interface SpPlan { total_found: number; truncated: boolean; counts: Record<string, number>; to_import: number; bytes_to_import: number; files: SpPlanFile[]; batch_capped?: boolean; leftover?: number; message?: string | null }
+export interface SpStage { batch_id: string; selected: number; counts: Record<string, number>; truncated: boolean; bytes: number; batch_capped?: boolean; leftover?: number; message?: string | null }
 export interface SpTransfer { queued: number; skipped_duplicate: number; failed: number; job_ids: string[]; remaining: number }
 export interface SpImportStatus {
   batch_id?: string | null;

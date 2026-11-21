@@ -133,7 +133,7 @@ class CloudflareR2Service:
         )
         return resp["UploadId"]
 
-    def upload_part(self, key: str, upload_id: str, part_number: int, data: bytes) -> str:
+    def upload_part(self, key: str, upload_id: str, part_number: int, data: Union[bytes, bytearray]) -> str:
         """
         Uploads one part of an in-progress multipart upload and returns its ETag (needed later
         to complete the upload). Parts may arrive out of order -- S3/R2 only cares about
