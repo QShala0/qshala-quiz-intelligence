@@ -160,7 +160,17 @@ class WhisperClient {
     }
 
     return new Promise<string>((resolve, reject) => {
-      this.pendingTranscriptions.set(id, { resolve, reject });
+      // Never leave the button stuck on "Transcribing": give up after 60 s and reset the worker.
+      const timer = setTimeout(() => {
+        if (this.pendingTranscriptions.delete(id)) {
+          this.terminate();
+          reject(new Error('Transcription timed out'));
+        }
+      }, 60000);
+      this.pendingTranscriptions.set(id, {
+        resolve: (text) => { clearTimeout(timer); resolve(text); },
+        reject: (err) => { clearTimeout(timer); reject(err); },
+      });
       worker.postMessage({
         type: 'transcribe',
         id,

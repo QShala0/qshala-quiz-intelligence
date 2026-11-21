@@ -53,25 +53,9 @@ async function getTranscriber(): Promise<AutomaticSpeechRecognitionPipeline> {
   };
 
   pipelinePromise = (async () => {
-    const hasWebGPU =
-      typeof navigator !== 'undefined' &&
-      'gpu' in navigator &&
-      Boolean(navigator.gpu);
-
+    // WebAssembly only. The WebGPU path with the q8 model never returned from a transcription in Chromium/Brave
+    // (stuck on "Transcribing"), while WASM does 6 s of audio in about 2.5 s. Do not re-add WebGPU without testing it.
     let transcriber: AutomaticSpeechRecognitionPipeline | null = null;
-
-    if (hasWebGPU) {
-      try {
-        transcriber = (await pipeline('automatic-speech-recognition', modelId, {
-          device: 'webgpu',
-          dtype: 'q8',
-          progress_callback: handleProgress,
-        })) as unknown as AutomaticSpeechRecognitionPipeline;
-      } catch (err) {
-        // Fall back to WASM if WebGPU initialization fails
-        console.warn('WebGPU init failed, falling back to WASM:', err);
-      }
-    }
 
     if (!transcriber) {
       transcriber = (await pipeline('automatic-speech-recognition', modelId, {
