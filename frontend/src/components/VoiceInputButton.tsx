@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Mic, MicOff } from 'lucide-react';
+import { Mic, MicOff, Loader2 } from 'lucide-react';
 import { useSpeechInput } from '../lib/useSpeechInput';
 import { formatTranscriptForMode } from '../lib/voiceVocabulary';
 
@@ -42,7 +42,16 @@ export default function VoiceInputButton({
     }
   };
 
-  const { supported, listening, error, start, stop } = useSpeechInput({
+  const {
+    supported,
+    listening,
+    error,
+    preparing,
+    transcribing,
+    progress,
+    start,
+    stop,
+  } = useSpeechInput({
     onFinal: handleFinal,
     onInterim: handleInterim,
     onStart,
@@ -65,10 +74,12 @@ export default function VoiceInputButton({
     return null;
   }
 
+  const isBusy = preparing || transcribing;
+
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    if (disabled) return;
+    if (disabled || isBusy) return;
 
     if (listening) {
       stop();
@@ -87,22 +98,50 @@ export default function VoiceInputButton({
       ? 'h-4 w-4'
       : 'h-3.5 w-3.5';
 
+  const pillText = preparing
+    ? progress > 0
+      ? `Preparing voice (one-time download)… ${progress}%`
+      : 'Preparing voice (one-time download)…'
+    : transcribing
+    ? 'Transcribing…'
+    : error;
+
   return (
     <div className={`relative inline-flex items-center ${className}`}>
       <button
         type="button"
         onClick={handleClick}
-        disabled={disabled}
-        aria-label={listening ? 'Stop listening' : `Voice input for ${mode}`}
+        disabled={disabled || isBusy}
+        aria-label={
+          preparing
+            ? 'Preparing voice'
+            : transcribing
+            ? 'Transcribing voice'
+            : listening
+            ? 'Stop listening'
+            : `Voice input for ${mode}`
+        }
         aria-pressed={listening}
-        title={listening ? 'Listening... click to stop' : `Voice input (${mode})`}
+        title={
+          preparing
+            ? 'Preparing voice (one-time download)…'
+            : transcribing
+            ? 'Transcribing…'
+            : listening
+            ? 'Listening... click to stop'
+            : `Voice input (${mode})`
+        }
         className={`relative flex items-center justify-center rounded-full transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-40 disabled:cursor-not-allowed ${sizeClasses} ${
           listening
             ? 'bg-rose-50 text-rose-600 ring-2 ring-rose-500/80 focus:ring-rose-500 animate-pulse'
+            : isBusy
+            ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-400 focus:ring-blue-500'
             : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100/90 focus:ring-blue-500/60'
         }`}
       >
-        {listening ? (
+        {isBusy ? (
+          <Loader2 className={`${iconSize} animate-spin text-blue-600`} />
+        ) : listening ? (
           <>
             <Mic className={`${iconSize} text-rose-600`} />
             {/* Pulsing red dot badge */}
@@ -120,16 +159,23 @@ export default function VoiceInputButton({
 
       {/* Screen reader live announcements */}
       <div className="sr-only" aria-live="polite" aria-atomic="true">
-        {listening ? 'Listening. Speak into your microphone.' : error || ''}
+        {preparing
+          ? 'Preparing voice'
+          : transcribing
+          ? 'Transcribing speech'
+          : listening
+          ? 'Listening. Speak into your microphone.'
+          : error || ''}
       </div>
 
-      {/* Visual error message pill */}
-      {hasVisibleError && error && (
+      {/* Visual status and error pill */}
+      {(isBusy || (hasVisibleError && error)) && (
         <div
-          role="alert"
-          className="absolute bottom-full right-0 mb-2 z-50 whitespace-nowrap rounded-lg bg-slate-900/95 px-2.5 py-1 text-[11px] font-medium text-white shadow-lg pointer-events-none transition-opacity"
+          role="status"
+          className="absolute bottom-full right-0 mb-2 z-50 flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-900/95 px-2.5 py-1 text-[11px] font-medium text-white shadow-lg pointer-events-none transition-opacity"
         >
-          {error}
+          {isBusy && <Loader2 className="h-3 w-3 animate-spin text-blue-400 shrink-0" />}
+          <span>{pillText}</span>
         </div>
       )}
     </div>

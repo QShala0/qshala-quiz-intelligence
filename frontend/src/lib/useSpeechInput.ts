@@ -2,6 +2,13 @@
 
 import { useState, useEffect, useRef, useCallback, useId, useSyncExternalStore } from 'react';
 import { countVocabMatches, correctTranscript, FIXED_VOCABULARY } from './voiceVocabulary';
+import {
+  getPreferredEngine,
+  setPreferredEngine,
+  isVoiceSupported,
+} from './voice/engine';
+import { VoiceRecorder } from './voice/recorder';
+import { whisperClient } from './voice/whisperClient';
 
 interface SpeechRecognitionAlternativeLike {
   readonly transcript: string;
@@ -58,8 +65,8 @@ function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null 
 
 const emptySubscribe = () => () => {};
 
-function getSpeechSupportedSnapshot(): boolean {
-  return getSpeechRecognitionConstructor() !== null;
+function getVoiceSupportedSnapshot(): boolean {
+  return isVoiceSupported();
 }
 
 function getServerSupportedSnapshot(): boolean {
@@ -79,6 +86,9 @@ export interface UseSpeechInputResult {
   listening: boolean;
   interimText: string;
   error: string | null;
+  preparing: boolean;
+  transcribing: boolean;
+  progress: number;
   start: () => void;
   stop: () => void;
 }
@@ -92,17 +102,22 @@ export function useSpeechInput({
 }: UseSpeechInputOptions): UseSpeechInputResult {
   const supported = useSyncExternalStore(
     emptySubscribe,
-    getSpeechSupportedSnapshot,
+    getVoiceSupportedSnapshot,
     getServerSupportedSnapshot
   );
 
   const [listening, setListening] = useState<boolean>(false);
   const [interimText, setInterimText] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState<boolean>(false);
+  const [transcribing, setTranscribing] = useState<boolean>(false);
+  const [progress, setProgress] = useState<number>(0);
 
   const recognitionRef = useRef<SpeechRecognitionInstanceLike | null>(null);
+  const recorderRef = useRef<VoiceRecorder | null>(null);
   const autoStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isListeningRef = useRef<boolean>(false);
+  const isBusyRef = useRef<boolean>(false);
   const rawId = useId();
   const instanceIdRef = useRef<string>(`speech-${rawId}`);
 
@@ -130,6 +145,8 @@ export function useSpeechInput({
 
   const stop = useCallback(() => {
     clearAutoStop();
+
+    // 1. Stop Web Speech if active
     if (recognitionRef.current && isListeningRef.current) {
       try {
         recognitionRef.current.stop();
@@ -137,7 +154,56 @@ export function useSpeechInput({
         // Safe to ignore if already stopped
       }
     }
+
+    // 2. Stop VoiceRecorder if active (Whisper path)
+    if (recorderRef.current && recorderRef.current.isRecording()) {
+      isListeningRef.current = false;
+      setListening(false);
+      setTranscribing(true);
+
+      const recorder = recorderRef.current;
+      recorder
+        .stop()
+        .then(async (recorded) => {
+          if (!recorded || !recorded.audio || recorded.audio.length === 0) {
+            setTranscribing(false);
+            isBusyRef.current = false;
+            return;
+          }
+
+          try {
+            const rawText = await whisperClient.transcribe(
+              recorded.audio,
+              vocabRef.current
+            );
+            const cleanText = rawText.trim();
+            if (!cleanText) {
+              setError("Didn't catch that");
+            } else {
+              const corrected = correctTranscript(cleanText, vocabRef.current);
+              onFinalRef.current(corrected);
+            }
+          } catch (txErr) {
+            const msg = txErr instanceof Error ? txErr.message : String(txErr);
+            if (msg.includes('download') || msg.includes('fetch')) {
+              setError('Voice download failed, tap to retry');
+            } else {
+              setError("Didn't catch that");
+            }
+          } finally {
+            setTranscribing(false);
+            isBusyRef.current = false;
+          }
+        })
+        .catch(() => {
+          setTranscribing(false);
+          isBusyRef.current = false;
+        });
+      return;
+    }
+
     isListeningRef.current = false;
+    isBusyRef.current = false;
     setListening(false);
   }, [clearAutoStop]);
 
@@ -152,7 +218,7 @@ export function useSpeechInput({
   useEffect(() => {
     const handleOtherStarted = (e: Event) => {
       const customEv = e as CustomEvent<{ id: string }>;
-      if (customEv.detail?.id !== instanceIdRef.current && isListeningRef.current) {
+      if (customEv.detail?.id !== instanceIdRef.current && (isListeningRef.current || isBusyRef.current)) {
         stop();
       }
     };
@@ -163,13 +229,9 @@ export function useSpeechInput({
     };
   }, [stop]);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     if (disabledRef.current) return;
-    const SpeechConstructor = getSpeechRecognitionConstructor();
-    if (!SpeechConstructor) return;
-
-    // Never start a second recognition while one is already running
-    if (isListeningRef.current) return;
+    if (isListeningRef.current || isBusyRef.current) return;
 
     // Notify other speech instances on the page to stop
     window.dispatchEvent(
@@ -180,114 +242,193 @@ export function useSpeechInput({
 
     setError(null);
     setInterimText('');
+    isBusyRef.current = true;
 
-    try {
-      const recognition = new SpeechConstructor();
-      recognition.lang = 'en-IN';
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 3;
+    const engine = getPreferredEngine();
 
-      recognition.onstart = () => {
-        isListeningRef.current = true;
-        setListening(true);
-        setError(null);
-        onStartRef.current?.();
+    // --- BROWSER ENGINE (WEB SPEECH) ---
+    if (engine === 'browser') {
+      const SpeechConstructor = getSpeechRecognitionConstructor();
+      if (!SpeechConstructor) {
+        // Fallback to Whisper immediately if constructor is unexpectedly missing
+        setPreferredEngine('whisper');
+        setError('Switched to offline voice, tap the mic again.');
+        isBusyRef.current = false;
+        return;
+      }
 
-        // Auto-stop after 30 seconds
-        clearAutoStop();
-        autoStopTimeoutRef.current = setTimeout(() => {
-          stop();
-        }, 30000);
-      };
+      try {
+        const recognition = new SpeechConstructor();
+        recognition.lang = 'en-IN';
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 3;
 
-      recognition.onresult = (event: SpeechRecognitionEventLike) => {
-        let interimCombined = '';
-        let finalBest = '';
+        recognition.onstart = () => {
+          isListeningRef.current = true;
+          setListening(true);
+          setError(null);
+          onStartRef.current?.();
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          if (!result) continue;
+          // Auto-stop after 30 seconds
+          clearAutoStop();
+          autoStopTimeoutRef.current = setTimeout(() => {
+            stop();
+          }, 30000);
+        };
 
-          if (result.isFinal) {
-            // When alternatives exist, pick the one that contains the most known vocabulary words
-            let chosenText = '';
-            let maxScore = -1;
+        recognition.onresult = (event: SpeechRecognitionEventLike) => {
+          let interimCombined = '';
+          let finalBest = '';
 
-            for (let a = 0; a < result.length; a++) {
-              const alt = result[a];
-              if (!alt || !alt.transcript) continue;
-              const score = countVocabMatches(alt.transcript, vocabRef.current);
-              if (score > maxScore) {
-                maxScore = score;
-                chosenText = alt.transcript;
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            if (!result) continue;
+
+            if (result.isFinal) {
+              let chosenText = '';
+              let maxScore = -1;
+
+              for (let a = 0; a < result.length; a++) {
+                const alt = result[a];
+                if (!alt || !alt.transcript) continue;
+                const score = countVocabMatches(alt.transcript, vocabRef.current);
+                if (score > maxScore) {
+                  maxScore = score;
+                  chosenText = alt.transcript;
+                }
+              }
+
+              if (!chosenText && result[0]) {
+                chosenText = result[0].transcript;
+              }
+
+              finalBest = chosenText;
+            } else {
+              if (result[0]?.transcript) {
+                interimCombined += result[0].transcript;
               }
             }
-
-            if (!chosenText && result[0]) {
-              chosenText = result[0].transcript;
-            }
-
-            finalBest = chosenText;
-          } else {
-            // Interim result
-            if (result[0]?.transcript) {
-              interimCombined += result[0].transcript;
-            }
           }
-        }
 
-        if (interimCombined) {
-          setInterimText(interimCombined);
-          onInterimRef.current?.(interimCombined);
-        }
+          if (interimCombined) {
+            setInterimText(interimCombined);
+            onInterimRef.current?.(interimCombined);
+          }
 
-        if (finalBest) {
-          const corrected = correctTranscript(finalBest, vocabRef.current);
+          if (finalBest) {
+            const corrected = correctTranscript(finalBest, vocabRef.current);
+            setInterimText('');
+            onFinalRef.current(corrected);
+          }
+        };
+
+        recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+          clearAutoStop();
+          isListeningRef.current = false;
+          isBusyRef.current = false;
+          setListening(false);
           setInterimText('');
-          onFinalRef.current(corrected);
-        }
-      };
 
-      recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
-        clearAutoStop();
+          if (
+            event.error === 'network' ||
+            event.error === 'service-not-allowed' ||
+            event.error === 'language-not-supported'
+          ) {
+            // Runtime fallback to on-device Whisper, persisted in localStorage
+            setPreferredEngine('whisper');
+            setError('Switched to offline voice, tap the mic again.');
+          } else if (event.error === 'not-allowed') {
+            setError('Allow microphone access in your browser');
+          } else if (event.error === 'audio-capture') {
+            setError('No microphone found');
+          } else if (event.error === 'no-speech') {
+            setError("Didn't catch that");
+          } else if (event.error === 'aborted') {
+            setError(null);
+          } else {
+            setError("Didn't catch that");
+          }
+        };
+
+        recognition.onend = () => {
+          clearAutoStop();
+          isListeningRef.current = false;
+          isBusyRef.current = false;
+          setListening(false);
+          setInterimText('');
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+      } catch {
+        // Fallback to Whisper
+        setPreferredEngine('whisper');
+        setError('Switched to offline voice, tap the mic again.');
         isListeningRef.current = false;
+        isBusyRef.current = false;
         setListening(false);
-        setInterimText('');
+      }
+      return;
+    }
 
-        if (event.error === 'not-allowed') {
-          setError('Allow microphone access in your browser');
-        } else if (event.error === 'no-speech') {
-          setError("Didn’t catch that, try again");
-        } else if (event.error === 'audio-capture') {
-          setError('No microphone found');
-        } else if (event.error === 'network') {
-          setError('Network error occurred. Retry?');
-        } else if (event.error === 'aborted') {
-          // Ignored per spec
-          setError(null);
-        } else {
-          setError('Could not recognize speech, try again');
-        }
-      };
+    // --- WHISPER OFFLINE ENGINE ---
+    setPreparing(true);
+    setProgress(0);
 
-      recognition.onend = () => {
-        clearAutoStop();
-        isListeningRef.current = false;
-        setListening(false);
-        setInterimText('');
-      };
+    try {
+      // 1. Ensure worker and model are initialized
+      await whisperClient.init((percent) => {
+        setProgress(percent);
+      });
+      setPreparing(false);
 
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch {
-      setError('Could not access microphone');
+      // 2. Start audio recorder
+      if (!recorderRef.current) {
+        recorderRef.current = new VoiceRecorder();
+      }
+
+      await recorderRef.current.start(() => {
+        // Auto-stop at 60s
+        stop();
+      });
+
+      isListeningRef.current = true;
+      setListening(true);
+      setError(null);
+      onStartRef.current?.();
+    } catch (err: unknown) {
+      setPreparing(false);
       isListeningRef.current = false;
+      isBusyRef.current = false;
       setListening(false);
+
+      const errObj = err as { name?: string; message?: string };
+      const errName = errObj?.name || '';
+      const errMsg = errObj?.message || '';
+
+      if (
+        errName === 'NotAllowedError' ||
+        errName === 'PermissionDeniedError' ||
+        errMsg.includes('Permission') ||
+        errMsg.includes('not allowed')
+      ) {
+        setError('Allow microphone access in your browser');
+      } else if (
+        errName === 'NotFoundError' ||
+        errName === 'DevicesNotFoundError' ||
+        errMsg.includes('not found')
+      ) {
+        setError('No microphone found');
+      } else {
+        // Model download failed or worker initialization failed
+        whisperClient.terminate();
+        setError('Voice download failed, tap to retry');
+      }
     }
   }, [clearAutoStop, stop]);
 
-  // Cleanup and release microphone on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       clearAutoStop();
@@ -299,6 +440,10 @@ export function useSpeechInput({
         }
         recognitionRef.current = null;
       }
+      if (recorderRef.current) {
+        recorderRef.current.abort();
+        recorderRef.current = null;
+      }
     };
   }, [clearAutoStop]);
 
@@ -307,6 +452,9 @@ export function useSpeechInput({
     listening,
     interimText,
     error,
+    preparing,
+    transcribing,
+    progress,
     start,
     stop,
   };
