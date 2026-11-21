@@ -46,9 +46,8 @@ export default function VoiceInputButton({
     supported,
     listening,
     error,
-    preparing,
     transcribing,
-    progress,
+    waking,
     start,
     stop,
   } = useSpeechInput({
@@ -74,7 +73,7 @@ export default function VoiceInputButton({
     return null;
   }
 
-  const isBusy = preparing || transcribing;
+  const isBusy = transcribing;
 
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -100,12 +99,10 @@ export default function VoiceInputButton({
       ? 'h-4 w-4'
       : 'h-3.5 w-3.5';
 
-  const pillText = preparing
-    ? progress > 0
-      ? `Preparing voice (one-time download)… ${progress}%`
-      : 'Preparing voice (one-time download)…'
-    : transcribing
-    ? 'Transcribing…'
+  const pillText = transcribing
+    ? waking
+      ? 'Waking up voice, one moment…'
+      : 'Transcribing…'
     : error;
 
   return (
@@ -115,9 +112,7 @@ export default function VoiceInputButton({
         onClick={handleClick}
         disabled={disabled || isBusy}
         aria-label={
-          preparing
-            ? 'Preparing voice'
-            : transcribing
+          transcribing
             ? 'Transcribing voice'
             : listening
             ? 'Stop listening'
@@ -125,10 +120,10 @@ export default function VoiceInputButton({
         }
         aria-pressed={listening}
         title={
-          preparing
-            ? 'Preparing voice (one-time download)…'
-            : transcribing
-            ? 'Transcribing…'
+          transcribing
+            ? waking
+              ? 'Waking up voice, one moment…'
+              : 'Transcribing…'
             : listening
             ? 'Listening... click to stop'
             : `Voice input (${mode})`
@@ -161,10 +156,10 @@ export default function VoiceInputButton({
 
       {/* Screen reader live announcements */}
       <div className="sr-only" aria-live="polite" aria-atomic="true">
-        {preparing
-          ? 'Preparing voice'
-          : transcribing
-          ? 'Transcribing speech'
+        {transcribing
+          ? waking
+            ? 'Waking up voice, one moment'
+            : 'Transcribing speech'
           : listening
           ? 'Listening. Speak into your microphone.'
           : error || ''}

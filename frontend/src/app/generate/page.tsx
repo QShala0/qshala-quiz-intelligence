@@ -13,6 +13,7 @@ import QT, { PawIcon } from '../../components/ui/QT';
 import YarnPlayCat from '../../components/mascot/YarnPlayCat';
 import VoiceInputButton from '../../components/VoiceInputButton';
 import { buildVocabulary } from '../../lib/voiceVocabulary';
+import { warmVoiceServiceIfNeeded } from '../../lib/voice/serverTranscribe';
 
 type DraftQ = {
   id: string;
@@ -138,6 +139,11 @@ export default function QuizzerHome() {
   const [bankOpen, setBankOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+
+  // Wake the voice service so the mic answers fast (skipped on Chrome and Edge, which use the browser engine).
+  useEffect(() => {
+    warmVoiceServiceIfNeeded();
+  }, []);
 
   // Mascot celebration when draft completes
   const prevDraftRef = useRef<Draft | null>(null);

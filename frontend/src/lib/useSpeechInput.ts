@@ -8,7 +8,11 @@ import {
   isVoiceSupported,
 } from './voice/engine';
 import { VoiceRecorder } from './voice/recorder';
-import { whisperClient } from './voice/whisperClient';
+import {
+  transcribeOnServer,
+  warmVoiceService,
+  VOICE_NOT_CONFIGURED,
+} from './voice/serverTranscribe';
 
 interface SpeechRecognitionAlternativeLike {
   readonly transcript: string;
@@ -86,9 +90,9 @@ export interface UseSpeechInputResult {
   listening: boolean;
   interimText: string;
   error: string | null;
-  preparing: boolean;
   transcribing: boolean;
-  progress: number;
+  /** True when the server has not answered after 4 seconds (it is probably waking up). */
+  waking: boolean;
   start: () => void;
   stop: () => void;
 }
@@ -109,9 +113,8 @@ export function useSpeechInput({
   const [listening, setListening] = useState<boolean>(false);
   const [interimText, setInterimText] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [preparing, setPreparing] = useState<boolean>(false);
   const [transcribing, setTranscribing] = useState<boolean>(false);
-  const [progress, setProgress] = useState<number>(0);
+  const [waking, setWaking] = useState<boolean>(false);
 
   const recognitionRef = useRef<SpeechRecognitionInstanceLike | null>(null);
   const recorderRef = useRef<VoiceRecorder | null>(null);
@@ -155,7 +158,7 @@ export function useSpeechInput({
       }
     }
 
-    // 2. Stop VoiceRecorder if active (Whisper path)
+    // 2. Stop VoiceRecorder if active (server path)
     if (recorderRef.current && recorderRef.current.isRecording()) {
       isListeningRef.current = false;
       setListening(false);
@@ -165,17 +168,16 @@ export function useSpeechInput({
       recorder
         .stop()
         .then(async (recorded) => {
-          if (!recorded || !recorded.audio || recorded.audio.length === 0) {
+          if (!recorded || recorded.blob.size === 0) {
             setTranscribing(false);
             isBusyRef.current = false;
             return;
           }
 
           try {
-            const rawText = await whisperClient.transcribe(
-              recorded.audio,
-              vocabRef.current
-            );
+            const rawText = await transcribeOnServer(recorded.blob, vocabRef.current, {
+              onSlow: () => setWaking(true),
+            });
             const cleanText = rawText.trim();
             if (!cleanText) {
               setError("Didn't catch that");
@@ -186,18 +188,22 @@ export function useSpeechInput({
           } catch (txErr) {
             const msg = txErr instanceof Error ? txErr.message : String(txErr);
             console.warn('[voice] transcription failed:', msg);
-            if (msg.includes('download') || msg.includes('fetch')) {
-              setError('Voice download failed, tap to retry');
+            if (msg === VOICE_NOT_CONFIGURED) {
+              setError(VOICE_NOT_CONFIGURED);
+            } else if (msg.includes('too large') || msg.includes('too long')) {
+              setError('That recording is too long, try a shorter one');
             } else {
-              setError("Didn't catch that");
+              setError('Voice is not available right now, tap to retry');
             }
           } finally {
             setTranscribing(false);
+            setWaking(false);
             isBusyRef.current = false;
           }
         })
         .catch(() => {
           setTranscribing(false);
+          setWaking(false);
           isBusyRef.current = false;
         });
       return;
@@ -251,9 +257,10 @@ export function useSpeechInput({
     if (engine === 'browser') {
       const SpeechConstructor = getSpeechRecognitionConstructor();
       if (!SpeechConstructor) {
-        // Fallback to Whisper immediately if constructor is unexpectedly missing
-        setPreferredEngine('whisper');
-        setError('Switched to offline voice, tap the mic again.');
+        // Fall back to the voice server immediately if the constructor is unexpectedly missing
+        setPreferredEngine('server');
+        warmVoiceService();
+        setError('Switched to server voice, tap the mic again.');
         isBusyRef.current = false;
         return;
       }
@@ -336,9 +343,10 @@ export function useSpeechInput({
             event.error === 'service-not-allowed' ||
             event.error === 'language-not-supported'
           ) {
-            // Runtime fallback to on-device Whisper, persisted in localStorage
-            setPreferredEngine('whisper');
-            setError('Switched to offline voice, tap the mic again.');
+            // Runtime fallback to the voice server, persisted in localStorage
+            setPreferredEngine('server');
+            warmVoiceService();
+            setError('Switched to server voice, tap the mic again.');
           } else if (event.error === 'not-allowed') {
             setError('Allow microphone access in your browser');
           } else if (event.error === 'audio-capture') {
@@ -363,9 +371,10 @@ export function useSpeechInput({
         recognitionRef.current = recognition;
         recognition.start();
       } catch {
-        // Fallback to Whisper
-        setPreferredEngine('whisper');
-        setError('Switched to offline voice, tap the mic again.');
+        // Fall back to the voice server
+        setPreferredEngine('server');
+        warmVoiceService();
+        setError('Switched to server voice, tap the mic again.');
         isListeningRef.current = false;
         isBusyRef.current = false;
         setListening(false);
@@ -373,18 +382,12 @@ export function useSpeechInput({
       return;
     }
 
-    // --- WHISPER OFFLINE ENGINE ---
-    setPreparing(true);
-    setProgress(0);
+    // --- SERVER ENGINE (our own voice service) ---
+    // Recording starts at once and never waits for the server; the upload happens after the user stops.
+    // Tapping the mic also wakes the service if it was not pinged in the last 4 minutes.
+    warmVoiceService();
 
     try {
-      // 1. Ensure worker and model are initialized
-      await whisperClient.init((percent) => {
-        setProgress(percent);
-      });
-      setPreparing(false);
-
-      // 2. Start audio recorder
       if (!recorderRef.current) {
         recorderRef.current = new VoiceRecorder();
       }
@@ -399,7 +402,6 @@ export function useSpeechInput({
       setError(null);
       onStartRef.current?.();
     } catch (err: unknown) {
-      setPreparing(false);
       isListeningRef.current = false;
       isBusyRef.current = false;
       setListening(false);
@@ -422,9 +424,7 @@ export function useSpeechInput({
       ) {
         setError('No microphone found');
       } else {
-        // Model download failed or worker initialization failed
-        whisperClient.terminate();
-        setError('Voice download failed, tap to retry');
+        setError('Could not access microphone');
       }
     }
   }, [clearAutoStop, stop]);
@@ -453,9 +453,8 @@ export function useSpeechInput({
     listening,
     interimText,
     error,
-    preparing,
     transcribing,
-    progress,
+    waking,
     start,
     stop,
   };
