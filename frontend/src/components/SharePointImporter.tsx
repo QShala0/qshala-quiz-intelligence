@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
-  ArrowLeft,
   Check,
-  CheckCheck,
   ChevronDown,
   ChevronRight,
   Cloud,
@@ -23,10 +21,10 @@ import {
   Sparkles,
   X,
   Calendar,
-  ExternalLink
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { SpBrowse, SpConfig, SpDrive, SpImportStatus, SpItemStatus, SpPlan, SpSelection } from '../lib/types';
+import { useToast } from './ui/Feedback';
 
 const STATUS_STYLE: Record<SpItemStatus, { label: string; cls: string; dotCls: string }> = {
   NEW: {
@@ -100,6 +98,7 @@ type Picked = { id: string; kind: 'file' | 'folder'; name: string };
 type Crumb = { id: string | null; name: string };
 
 export default function SharePointImporter() {
+  const toast = useToast();
   const [cfg, setCfg] = useState<SpConfig | null>(null);
   const [drives, setDrives] = useState<SpDrive[]>([]);
   const [driveId, setDriveId] = useState('');
@@ -182,8 +181,15 @@ export default function SharePointImporter() {
   function toggle(p: Picked) {
     setPicked((cur) => {
       const next = new Map(cur);
-      if (next.has(p.id)) next.delete(p.id);
-      else next.set(p.id, p);
+      if (next.has(p.id)) {
+        next.delete(p.id);
+      } else {
+        if (cur.size >= 25) {
+          toast.info('25 of N selected, import the rest in the next batch');
+          return cur;
+        }
+        next.set(p.id, p);
+      }
       return next;
     });
     setPlan(null);
@@ -191,27 +197,34 @@ export default function SharePointImporter() {
 
   function selectAllNewInCurrentView() {
     if (!filteredFiles) return;
-    setPicked((cur) => {
-      const next = new Map(cur);
-      for (const f of filteredFiles) {
-        if (f.status === 'NEW' || f.status === 'CHANGED' || f.status === 'RETRY') {
-          next.set(f.id, { id: f.id, kind: 'file', name: f.name });
-        }
+    const matching = filteredFiles.filter((f) => f.status === 'NEW' || f.status === 'CHANGED' || f.status === 'RETRY');
+    const capped = matching.slice(0, 25);
+    setPicked(() => {
+      const next = new Map<string, Picked>();
+      for (const f of capped) {
+        next.set(f.id, { id: f.id, kind: 'file', name: f.name });
       }
       return next;
     });
+    if (matching.length > 25) {
+      toast.info(`25 of ${matching.length} selected, import the rest in the next batch`);
+    }
     setPlan(null);
   }
 
   function selectAllFiles() {
     if (!filteredFiles) return;
-    setPicked((cur) => {
-      const next = new Map(cur);
-      for (const f of filteredFiles) {
+    const capped = filteredFiles.slice(0, 25);
+    setPicked(() => {
+      const next = new Map<string, Picked>();
+      for (const f of capped) {
         next.set(f.id, { id: f.id, kind: 'file', name: f.name });
       }
       return next;
     });
+    if (filteredFiles.length > 25) {
+      toast.info(`25 of ${filteredFiles.length} selected, import the rest in the next batch`);
+    }
     setPlan(null);
   }
 
@@ -221,9 +234,10 @@ export default function SharePointImporter() {
   }
 
   function selectionBody(items: Picked[]): SpSelection {
+    const cappedItems = items.slice(0, 25);
     return {
       drive_id: driveId,
-      items: items.map((i) => ({ id: i.id, kind: i.kind })),
+      items: cappedItems.map((i) => ({ id: i.id, kind: i.kind })),
       recursive,
       include_possible_duplicates: includeDups,
       filters: {
@@ -298,7 +312,7 @@ export default function SharePointImporter() {
     try {
       setProgress({ total, remaining });
       while (remaining > 0 && !cancelRef.current) {
-        const step = await api.spTransferNext(batchId, 3);
+        const step = await api.spTransferNext(batchId, 25);
         remaining = step.remaining;
         setProgress({ total, remaining });
         if (step.queued + step.skipped_duplicate + step.failed === 0) break;
@@ -321,8 +335,12 @@ export default function SharePointImporter() {
     setResult(null);
     setError('');
     setRunning(true);
+    const capped = items.slice(0, 25);
+    if (items.length > 25) {
+      toast.info(`25 of ${items.length} selected, import the rest in the next batch`);
+    }
     try {
-      const staged = await api.spImport(selectionBody(items));
+      const staged = await api.spImport(selectionBody(capped));
       setRunning(false);
       await drain(staged.batch_id, staged.selected);
     } catch (e) {
@@ -972,7 +990,13 @@ export default function SharePointImporter() {
               </div>
             </div>
 
-            {plan.truncated && (
+            {plan.batch_capped && (
+              <p className="text-[12.5px] text-amber-800 bg-amber-50 border border-amber-200 p-2.5 rounded-lg">
+                {plan.message || `25 of ${plan.to_import + (plan.leftover ?? 0)} selected, import the rest in the next batch`}
+              </p>
+            )}
+
+            {plan.truncated && !plan.batch_capped && (
               <p className="text-[12.5px] text-amber-800 bg-amber-50 border border-amber-200 p-2.5 rounded-lg">
                 Large selection: only the first part was scanned. Import it, then preview again to continue.
               </p>

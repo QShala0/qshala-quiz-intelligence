@@ -322,7 +322,7 @@ export const api = {
   },
   spPlan: (sel: SpSelection) => spPost<SpPlan>('/plan', sel),
   spImport: (sel: SpSelection) => spPost<SpStage>('/import', sel),
-  spTransferNext: (batchId?: string, limit = 3) => spPost<SpTransfer>(`/transfer-next?limit=${limit}${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`, {}),
+  spTransferNext: (batchId?: string, limit = 25) => spPost<SpTransfer>(`/transfer-next?limit=${limit}${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`, {}),
   spImportStatus: (batchId?: string) => spJson<SpImportStatus>(batchId ? `/import-status?batch_id=${encodeURIComponent(batchId)}` : '/import-status'),
 
 

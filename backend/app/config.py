@@ -161,6 +161,9 @@ class Settings(BaseSettings):
     # Optional: the importer can only see this folder (and below) inside the library, e.g. "Quizzes" or "Quizzes, QShala School Program".
     SHAREPOINT_ROOT_FOLDER: Optional[str] = None
     SHAREPOINT_ROOT_FOLDERS: Optional[str] = None
+    SHAREPOINT_PART_MB: int = 128
+    SHAREPOINT_MAX_INFLIGHT: int = 4
+    SHAREPOINT_BATCH_MAX: int = 25
     
     # AI Provider: 'gemini', 'openai', 'anthropic', or 'local'
     LLM_PROVIDER: str = "local"

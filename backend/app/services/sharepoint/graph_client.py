@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 import time
 import logging
@@ -229,6 +230,108 @@ class SharePointClient:
                         if len(buf) > max_bytes:
                             raise ValueError(f"File is over the {max_bytes // (1024 * 1024)} MB limit")
                     return bytes(buf)
+        finally:
+            if should_close:
+                await client.aclose()
+
+    async def stream_item_to_r2(
+        self,
+        drive_id: str,
+        item_id: str,
+        key: str,
+        max_bytes: int,
+        r2: Any,
+        part_size: int,
+    ) -> Tuple[str, str, int]:
+        """Stream a file directly from SharePoint to R2 under key, enforcing max_bytes and memory bounds."""
+        url = f"{self.GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content"
+        client = await self._get_http_client()
+        should_close = self._custom_http_client is None
+        upload_id: Optional[str] = None
+        pending_task: Optional[asyncio.Task] = None
+        parts: List[Dict[str, Any]] = []
+        part_number = 1
+        hasher = hashlib.sha256()
+        total_bytes = 0
+        buf = bytearray()
+
+        try:
+            token = await self.get_access_token()
+            target, headers, hops = url, {"Authorization": f"Bearer {token}"}, 0
+            while True:
+                async with client.stream("GET", target, headers=headers, follow_redirects=False) as resp:
+                    if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location") and hops < 3:
+                        target, headers, hops = resp.headers["location"], {}, hops + 1
+                        continue
+                    resp.raise_for_status()
+                    declared = int(resp.headers.get("content-length") or 0)
+                    if declared and declared > max_bytes:
+                        raise ValueError(f"File is {declared // (1024 * 1024)} MB, over the {max_bytes // (1024 * 1024)} MB limit")
+
+                    async for chunk in resp.aiter_bytes():
+                        if not chunk:
+                            continue
+                        chunk_len = len(chunk)
+                        total_bytes += chunk_len
+                        if total_bytes > max_bytes:
+                            raise ValueError(f"File is over the {max_bytes // (1024 * 1024)} MB limit")
+                        hasher.update(chunk)
+
+                        chunk_offset = 0
+                        while chunk_offset < chunk_len:
+                            needed = part_size - len(buf)
+                            take = min(needed, chunk_len - chunk_offset)
+                            buf.extend(chunk[chunk_offset : chunk_offset + take])
+                            chunk_offset += take
+
+                            if len(buf) == part_size:
+                                if upload_id is None:
+                                    upload_id = await asyncio.to_thread(r2.create_multipart_upload, key)
+                                if pending_task is not None:
+                                    prev_etag = await pending_task
+                                    parts.append({"PartNumber": part_number - 1, "ETag": prev_etag})
+                                    pending_task = None
+                                part_body = buf
+                                buf = bytearray()
+                                pending_task = asyncio.create_task(
+                                    asyncio.to_thread(r2.upload_part, key, upload_id, part_number, part_body)
+                                )
+                                part_number += 1
+                    break
+
+            # Stream finished successfully
+            if upload_id is None:
+                # File is smaller than one full part: finish with one upload_bytes and no multipart calls
+                public_url = await asyncio.to_thread(r2.upload_bytes, key, bytes(buf))
+                return public_url, hasher.hexdigest(), total_bytes
+
+            # Multipart upload was started: await any pending part
+            if pending_task is not None:
+                prev_etag = await pending_task
+                parts.append({"PartNumber": part_number - 1, "ETag": prev_etag})
+                pending_task = None
+
+            # Upload the final remainder part if any bytes left in buf
+            if len(buf) > 0:
+                final_etag = await asyncio.to_thread(r2.upload_part, key, upload_id, part_number, buf)
+                parts.append({"PartNumber": part_number, "ETag": final_etag})
+
+            public_url = await asyncio.to_thread(r2.complete_multipart_upload, key, upload_id, parts)
+            return public_url, hasher.hexdigest(), total_bytes
+
+        except BaseException:
+            if pending_task is not None and not pending_task.done():
+                pending_task.cancel()
+                try:
+                    await pending_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            if upload_id is not None:
+                try:
+                    await asyncio.to_thread(r2.abort_multipart_upload, key, upload_id)
+                except Exception as abort_err:
+                    logger.warning(f"Failed to abort multipart upload {upload_id} for {key}: {abort_err}")
+            raise
         finally:
             if should_close:
                 await client.aclose()

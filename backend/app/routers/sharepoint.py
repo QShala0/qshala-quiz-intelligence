@@ -273,7 +273,7 @@ async def sharepoint_import(sel: importer.Selection, db: Session = Depends(get_d
 @router.post("/transfer-next")
 async def sharepoint_transfer_next(
     background_tasks: BackgroundTasks,
-    limit: int = Query(3, ge=1, le=10),
+    limit: int = Query(3, ge=1, le=settings.SHAREPOINT_BATCH_MAX),
     batch_id: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
