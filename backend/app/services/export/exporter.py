@@ -1,3 +1,4 @@
+import os
 import re
 import csv
 import io
@@ -431,6 +432,14 @@ def _layout_named(prs, name: str):
     raise KeyError(f"layout {name!r} not in the School master deck")
 
 
+def _layout_named_safe(prs, candidate_names: List[str]):
+    for name in candidate_names:
+        for layout in prs.slide_layouts:
+            if layout.name and layout.name.lower() == name.lower():
+                return layout
+    return None
+
+
 def _school_cover(prs, layout, title: str, subtitle: str, Pt):
     """Cover on the template's Title Slide layout: real title/subtitle placeholders over the master artwork."""
     slide = prs.slides.add_slide(layout)
@@ -530,6 +539,56 @@ def _apply_causten_style(prs) -> None:
                 bold_face = sh.name in _BOLD_SHAPE_NAMES or _is_title_placeholder(sh)
                 for pi, par in enumerate(sh.text_frame.paragraphs):
                     # cover: only the title line is bold, the subtitle lines stay regular
+                    _style_para(par, bold_face and (sh.name != "CoverTitle" or pi == 0))
+            if getattr(sh, "has_table", False) and sh.has_table:
+                for row in sh.table.rows:
+                    for cell in row.cells:
+                        for par in cell.text_frame.paragraphs:
+                            _style_para(par, False)
+
+    for slide in prs.slides:
+        _walk(slide.shapes)
+
+
+def _apply_custom_style(prs, font_regular: str, font_bold: str) -> None:
+    """Make every run explicit with custom template fonts across Latin, East-Asian, and complex scripts."""
+    def _style_para(par, bold_face: bool):
+        d = par.font
+        size, color = d.size, None
+        try:
+            if d.color and d.color.type is not None and d.color.rgb is not None:
+                color = d.color.rgb
+        except Exception:
+            color = None
+        italic = getattr(d, 'italic', None)
+        runs = list(par.runs)
+        if not runs:
+            return
+        target_font = font_bold if bold_face else font_regular
+        for r in runs:
+            f = r.font
+            _set_run_font(r, target_font)
+            f.bold = True if bold_face else False
+            if italic is not None and f.italic is None:
+                f.italic = italic
+            if f.size is None and size is not None:
+                f.size = size
+            if color is not None:
+                try:
+                    if f.color is None or getattr(f.color, "type", None) is None:
+                        f.color.rgb = color
+                except Exception:
+                    pass
+        d.name = target_font
+
+    def _walk(shapes):
+        for sh in shapes:
+            if sh.shape_type == 6 and hasattr(sh, "shapes"):
+                _walk(sh.shapes)
+                continue
+            if sh.has_text_frame:
+                bold_face = sh.name in _BOLD_SHAPE_NAMES or _is_title_placeholder(sh)
+                for pi, par in enumerate(sh.text_frame.paragraphs):
                     _style_para(par, bold_face and (sh.name != "CoverTitle" or pi == 0))
             if getattr(sh, "has_table", False) and sh.has_table:
                 for row in sh.table.rows:
@@ -743,6 +802,8 @@ class QuizExporter:
         theme: Optional[str] = None,
         custom_subtitle: Optional[str] = None,
         show_answer_divider: Optional[bool] = None,
+        template_id: Optional[str] = None,
+        db: Optional[Any] = None,
         **kwargs: Any,
     ) -> bytes:
         """
@@ -796,6 +857,8 @@ class QuizExporter:
                 media_tmp_dir=media_tmp_dir,
                 custom_subtitle=custom_subtitle,
                 show_answer_divider=show_answer_divider,
+                template_id=template_id,
+                db=db,
                 **kwargs
             )
         finally:
@@ -817,6 +880,8 @@ class QuizExporter:
         media_tmp_dir: Path,
         custom_subtitle: Optional[str] = None,
         show_answer_divider: Optional[bool] = None,
+        template_id: Optional[str] = None,
+        db: Optional[Any] = None,
         **kwargs: Any,
     ) -> bytes:
         from pptx import Presentation
@@ -824,21 +889,43 @@ class QuizExporter:
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
         from pptx.enum.shapes import MSO_SHAPE
-        is_qshala_school = (quiz_type in ("qshala_school", "qshala"))
-        master_prs = _load_school_master() if is_qshala_school else None
-        if master_prs is not None:
-            # The artwork (backdrop, cover circle, Answer cats) lives in the slide master / layouts of this deck, so
-            # it is part of the template and not a selectable picture on each slide.
-            prs = master_prs
-            blank_layout = _layout_named(prs, "Blank")
-            cover_layout = _layout_named(prs, "Title Slide")
-            divider_layout = _layout_named(prs, "Section Header")
-        else:
-            prs = Presentation()
-            prs.slide_width = Inches(13.333)
-            prs.slide_height = Inches(7.5)
-            blank_layout = prs.slide_layouts[6]
-            cover_layout = divider_layout = None
+        custom_template = None
+        if template_id and db:
+            from backend.app.models.custom_template import CustomPptTemplate
+            custom_template = db.query(CustomPptTemplate).filter(CustomPptTemplate.id == template_id).first()
+
+        is_qshala_school = (quiz_type in ("qshala_school", "qshala")) or (custom_template and custom_template.category == "qshala_school")
+        master_prs = None
+
+        if custom_template and custom_template.storage_path and os.path.exists(custom_template.storage_path):
+            try:
+                prs = Presentation(custom_template.storage_path)
+                while len(prs.slides) > 0:
+                    rId = prs.slides._sldIdLst[0].rId
+                    prs.part.drop_rel(rId)
+                    del prs.slides._sldIdLst[0]
+                cover_layout = _layout_named_safe(prs, ["Title Slide", "Title", "Cover"]) or prs.slide_layouts[0]
+                blank_layout = _layout_named_safe(prs, ["Blank", "Title Only", "Title and Content"]) or prs.slide_layouts[-1]
+                divider_layout = _layout_named_safe(prs, ["Section Header", "Header", "Title Only"]) or blank_layout
+                master_prs = prs
+            except Exception as e:
+                logger.warning(f"Could not load custom master deck {custom_template.storage_path}: {e}")
+                master_prs = None
+
+        if master_prs is None:
+            if is_qshala_school:
+                master_prs = _load_school_master()
+            if master_prs is not None:
+                prs = master_prs
+                blank_layout = _layout_named(prs, "Blank")
+                cover_layout = _layout_named(prs, "Title Slide")
+                divider_layout = _layout_named(prs, "Section Header")
+            else:
+                prs = Presentation()
+                prs.slide_width = Inches(13.333)
+                prs.slide_height = Inches(7.5)
+                blank_layout = prs.slide_layouts[6]
+                cover_layout = divider_layout = None
 
         # -------------------------------------------------------------
         # Template Asset Directory Setup
@@ -881,7 +968,10 @@ class QuizExporter:
         # -------------------------------------------------------------
         # Typography & Color Standards (Inter for ZSV, Causten Round for QShala School)
         # -------------------------------------------------------------
-        if is_qshala_school:
+        if custom_template:
+            FONT_HEAD = custom_template.header_font or "Causten Round Bold"
+            FONT_BODY = custom_template.body_font or "Causten Round Regular"
+        elif is_qshala_school:
             # Causten Round family only: standard weight for body text, Bold for headings.
             FONT_HEAD = CAUSTEN_REGULAR   # bold headings are decided per shape in _apply_causten_style
             FONT_BODY = CAUSTEN_REGULAR
@@ -1903,7 +1993,9 @@ class QuizExporter:
                     f"Trivia Context: {explanation}"
                 )
 
-        if is_qshala_school:
+        if custom_template:
+            _apply_custom_style(prs, custom_template.body_font or FONT_BODY, custom_template.header_font or FONT_HEAD)
+        elif is_qshala_school:
             _apply_causten_style(prs)
 
         buffer = io.BytesIO()

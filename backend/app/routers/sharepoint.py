@@ -1,11 +1,14 @@
 import logging
-from typing import Optional, List
+import hashlib
+import hmac
+import time
+from typing import Optional, List, Dict, Any
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from backend.app.database import get_db
-from backend.app.models.sharepoint import SharePointSyncState, SharePointFile
+from backend.app.models.sharepoint import SharePointSyncState, SharePointFile, SharePointAllowedFolder
 from backend.app.models.job import IngestionJob
 from backend.app.config import settings
 from backend.app.services.sharepoint import importer
@@ -146,6 +149,244 @@ def requeue_sharepoint_file(
     return {"message": "File re-queued successfully", "job_id": job.id}
 
 
+# ------------------------------------------------------------------------------------------------ admin access control
+
+ADMIN_TOKEN_LIFETIME = 14400  # 4 hours
+
+
+def _get_admin_secret_key() -> bytes:
+    pw = (settings.SHAREPOINT_ADMIN_PASSWORD or "qshala-admin").strip()
+    secret = (getattr(settings, "API_KEY_SECRET", None) or "qshala-sp-salt").strip()
+    return hashlib.sha256(f"{pw}:{secret}".encode()).digest()
+
+
+def create_admin_token() -> str:
+    exp = int(time.time()) + ADMIN_TOKEN_LIFETIME
+    msg = f"sp_admin:{exp}".encode()
+    sig = hmac.new(_get_admin_secret_key(), msg, hashlib.sha256).hexdigest()
+    return f"{exp}:{sig}"
+
+
+def verify_admin_token(token: Optional[str]) -> bool:
+    if not token or ":" not in token:
+        return False
+    try:
+        parts = token.split(":", 1)
+        exp = int(parts[0])
+        sig = parts[1]
+        if time.time() > exp:
+            return False
+        expected = hmac.new(_get_admin_secret_key(), f"sp_admin:{exp}".encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(sig, expected)
+    except Exception:
+        return False
+
+
+def require_admin_auth(x_admin_token: Optional[str] = Header(None)) -> bool:
+    if not verify_admin_token(x_admin_token):
+        raise HTTPException(status_code=401, detail="Invalid or expired admin session. Please log in again.")
+    return True
+
+
+class AdminVerifyRequest(BaseModel):
+    password: str
+
+
+class AdminFolderRequest(BaseModel):
+    drive_id: str
+    folder_id: str
+    folder_name: Optional[str] = None
+    folder_path: Optional[str] = None
+    display_name: Optional[str] = None
+    is_active: bool = True
+
+
+@router.post("/admin/verify")
+def admin_verify(req: AdminVerifyRequest):
+    expected_pw = (settings.SHAREPOINT_ADMIN_PASSWORD or "qshala-admin").strip()
+    if not hmac.compare_digest(req.password.strip().encode(), expected_pw.encode()):
+        raise HTTPException(status_code=401, detail="Incorrect admin password")
+    token = create_admin_token()
+    return {"success": True, "token": token, "expires_in": ADMIN_TOKEN_LIFETIME}
+
+
+@router.get("/admin/browse")
+async def admin_browse(
+    drive_id: str,
+    folder_id: Optional[str] = None,
+    next_url: Optional[str] = None,
+    _auth: bool = Depends(require_admin_auth),
+    db: Session = Depends(get_db),
+):
+    """Admin full-drive SharePoint browser without scope restrictions.
+    Marks each folder with whether it is currently allowed for the team."""
+    client = get_sharepoint_client()
+    try:
+        eff = None if not folder_id or folder_id == "root" else folder_id
+        page = await client.list_children(drive_id, eff, next_url=next_url)
+    except Exception as e:
+        raise _graph_error(e)
+
+    allowed_records = db.query(SharePointAllowedFolder).filter(
+        SharePointAllowedFolder.drive_id == drive_id
+    ).all()
+    allowed_map = {rec.folder_id: rec for rec in allowed_records}
+
+    folders, files = [], []
+    for it in page.get("items", []):
+        if "folder" in it:
+            fid = it["id"]
+            rec = allowed_map.get(fid)
+            parent_ref = it.get("parentReference", {})
+            raw_path = parent_ref.get("path", "")
+            fpath = raw_path.split("root:", 1)[1].lstrip("/") if "root:" in raw_path else ""
+            full_path = f"{fpath}/{it.get('name')}".strip("/") if fpath else (it.get("name") or "")
+
+            folders.append({
+                "id": fid,
+                "name": it.get("name"),
+                "path": full_path,
+                "child_count": (it.get("folder") or {}).get("childCount"),
+                "is_allowed": rec.is_active if rec else False,
+                "allowed_id": rec.id if rec else None,
+                "display_name": rec.display_name if rec else None,
+            })
+        elif "file" in it:
+            files.append({
+                "id": it["id"],
+                "name": it.get("name"),
+                "size": int(it.get("size") or 0),
+                "modified": it.get("lastModifiedDateTime"),
+            })
+
+    return {
+        "drive_id": drive_id,
+        "folder_id": folder_id,
+        "next_url": page.get("next"),
+        "folders": sorted(folders, key=lambda f: (f["name"] or "").lower()),
+        "files": sorted(files, key=lambda f: (f["name"] or "").lower()),
+    }
+
+
+@router.get("/admin/allowed-folders")
+def admin_get_allowed_folders(
+    drive_id: Optional[str] = None,
+    _auth: bool = Depends(require_admin_auth),
+    db: Session = Depends(get_db),
+):
+    query = db.query(SharePointAllowedFolder)
+    if drive_id:
+        query = query.filter(SharePointAllowedFolder.drive_id == drive_id)
+    records = query.order_by(SharePointAllowedFolder.folder_name.asc()).all()
+    return {
+        "folders": [
+            {
+                "id": r.id,
+                "drive_id": r.drive_id,
+                "folder_id": r.folder_id,
+                "folder_name": r.folder_name,
+                "folder_path": r.folder_path,
+                "display_name": r.display_name,
+                "is_active": r.is_active,
+                "added_by": r.added_by,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in records
+        ]
+    }
+
+
+@router.post("/admin/allowed-folders")
+async def admin_save_allowed_folder(
+    req: AdminFolderRequest,
+    _auth: bool = Depends(require_admin_auth),
+    db: Session = Depends(get_db),
+):
+    client = get_sharepoint_client()
+    folder_name = req.folder_name
+    folder_path = req.folder_path
+    if not folder_name or not folder_path:
+        try:
+            item = await client.get_item(req.drive_id, req.folder_id)
+            if not folder_name:
+                folder_name = item.get("name") or req.folder_id
+            if not folder_path:
+                p = (item.get("parentReference") or {}).get("path") or ""
+                root_part = p.split("root:", 1)[1].lstrip("/") if "root:" in p else ""
+                folder_path = f"{root_part}/{folder_name}".strip("/") if root_part else folder_name
+        except Exception as e:
+            logger.warning(f"Could not retrieve folder details from SharePoint: {e}")
+            if not folder_name:
+                folder_name = req.folder_id
+            if not folder_path:
+                folder_path = folder_name
+
+    row = db.query(SharePointAllowedFolder).filter(
+        SharePointAllowedFolder.drive_id == req.drive_id,
+        SharePointAllowedFolder.folder_id == req.folder_id,
+    ).first()
+
+    if row:
+        row.is_active = req.is_active
+        if req.display_name is not None:
+            row.display_name = req.display_name
+        if folder_name:
+            row.folder_name = folder_name
+        if folder_path:
+            row.folder_path = folder_path
+    else:
+        row = SharePointAllowedFolder(
+            drive_id=req.drive_id,
+            folder_id=req.folder_id,
+            folder_name=folder_name,
+            folder_path=folder_path,
+            display_name=req.display_name,
+            is_active=req.is_active,
+            added_by="admin",
+        )
+        db.add(row)
+
+    db.commit()
+    db.refresh(row)
+    return {
+        "success": True,
+        "folder": {
+            "id": row.id,
+            "drive_id": row.drive_id,
+            "folder_id": row.folder_id,
+            "folder_name": row.folder_name,
+            "folder_path": row.folder_path,
+            "display_name": row.display_name,
+            "is_active": row.is_active,
+        }
+    }
+
+
+@router.delete("/admin/allowed-folders/{folder_id}")
+def admin_delete_allowed_folder(
+    folder_id: str,
+    drive_id: str = Query(...),
+    _auth: bool = Depends(require_admin_auth),
+    db: Session = Depends(get_db),
+):
+    row = db.query(SharePointAllowedFolder).filter(
+        SharePointAllowedFolder.drive_id == drive_id,
+        SharePointAllowedFolder.folder_id == folder_id,
+    ).first()
+    if not row:
+        row = db.query(SharePointAllowedFolder).filter(
+            SharePointAllowedFolder.id == folder_id
+        ).first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Allowed folder not found")
+
+    db.delete(row)
+    db.commit()
+    return {"success": True, "message": "Folder removed from allowed list"}
+
+
 # ------------------------------------------------------------------------------------------------ selective importer
 
 def _graph_error(e: Exception) -> HTTPException:
@@ -169,10 +410,25 @@ def _graph_error(e: Exception) -> HTTPException:
 
 
 @router.get("/config")
-def sharepoint_config():
+def sharepoint_config(db: Session = Depends(get_db)):
     """Whether the bridge is configured. Never returns secrets."""
+    active_folders = []
+    try:
+        active_folders = db.query(SharePointAllowedFolder).filter(
+            SharePointAllowedFolder.is_active == True
+        ).all()
+    except Exception as e:
+        logger.warning(f"Error querying active folders: {e}")
+
     raw_roots = (settings.SHAREPOINT_ROOT_FOLDERS or settings.SHAREPOINT_ROOT_FOLDER or "").strip().strip("/")
-    root_list = [f.strip() for f in raw_roots.split(",") if f.strip()]
+    env_root_list = [f.strip() for f in raw_roots.split(",") if f.strip()]
+    if active_folders:
+        root_list = [f.display_name or f.folder_name for f in active_folders]
+        is_custom = True
+    else:
+        root_list = env_root_list
+        is_custom = False
+
     return {
         "configured": bool(settings.AZURE_TENANT_ID and settings.AZURE_CLIENT_ID and settings.AZURE_CLIENT_SECRET
                            and (settings.SHAREPOINT_SITE_ID or settings.SHAREPOINT_DRIVE_ID)),
@@ -181,6 +437,9 @@ def sharepoint_config():
         "has_drive": bool(settings.SHAREPOINT_DRIVE_ID),
         "root_folder": ", ".join(root_list) if root_list else None,
         "root_folders": root_list,
+        "is_custom_folders": is_custom,
+        "allowed_folders_count": len(active_folders),
+        "admin_configured": bool(settings.SHAREPOINT_ADMIN_PASSWORD),
         "max_file_mb": int(importer.MAX_FILE_BYTES / (1024 * 1024)),
         "supported_extensions": sorted(importer.SUPPORTED_EXT),
     }
@@ -204,7 +463,7 @@ async def sharepoint_browse(
     """One page of a folder: sub-folders plus the importable decks in it, each tagged with its import status."""
     client = get_sharepoint_client()
     try:
-        roots = await importer.scope_roots(client, drive_id)
+        roots = await importer.scope_roots(client, drive_id, db=db)
         if len(roots) > 1 and (not folder_id or folder_id == "root"):
             return {
                 "drive_id": drive_id,
@@ -218,7 +477,7 @@ async def sharepoint_browse(
                 "files": [],
             }
 
-        eff = await importer.effective_folder(client, drive_id, folder_id)
+        eff = await importer.effective_folder(client, drive_id, folder_id, db=db)
         if next_url and roots:
             # a continuation link must belong to the folder just checked, never to a different one
             valid_prefix = any(

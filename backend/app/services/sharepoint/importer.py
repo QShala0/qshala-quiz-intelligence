@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import settings
 from backend.app.models.document import Document
-from backend.app.models.sharepoint import SharePointFile
+from backend.app.models.sharepoint import SharePointFile, SharePointAllowedFolder
 from backend.app.services.storage import r2_storage
 
 logger = logging.getLogger(__name__)
@@ -98,9 +98,27 @@ class Selection(BaseModel):
 
 # ------------------------------------------------------------------------------------------------ folder limit
 
-async def scope_roots(client, drive_id: str) -> List[Dict[str, str]]:
-    """When SHAREPOINT_ROOT_FOLDERS or SHAREPOINT_ROOT_FOLDER is set (e.g. "Quizzes" or "Quizzes, QShala School Program"),
-    the folders everything must stay inside; else empty list."""
+async def scope_roots(client, drive_id: str, db: Optional[Session] = None) -> List[Dict[str, str]]:
+    """When custom allowed folders are saved in the database for this drive, returns those folders.
+    Otherwise falls back to SHAREPOINT_ROOT_FOLDERS or SHAREPOINT_ROOT_FOLDER env vars; else empty list."""
+    if db is not None:
+        try:
+            records = db.query(SharePointAllowedFolder).filter(
+                SharePointAllowedFolder.drive_id == drive_id,
+                SharePointAllowedFolder.is_active == True,
+            ).all()
+            if records:
+                results = []
+                for rec in records:
+                    results.append({
+                        "id": rec.folder_id,
+                        "path": rec.folder_path,
+                        "name": rec.display_name or rec.folder_name,
+                    })
+                return sorted(results, key=lambda r: (r["name"] or "").lower())
+        except Exception as e:
+            logger.warning(f"Failed to query sharepoint_allowed_folders from database: {e}")
+
     raw = (getattr(settings, "SHAREPOINT_ROOT_FOLDERS", None)
            or getattr(settings, "SHAREPOINT_ROOT_FOLDER", None)
            or "").strip()
@@ -131,9 +149,9 @@ async def scope_roots(client, drive_id: str) -> List[Dict[str, str]]:
     return results
 
 
-async def scope_root(client, drive_id: str) -> Optional[Dict[str, str]]:
+async def scope_root(client, drive_id: str, db: Optional[Session] = None) -> Optional[Dict[str, str]]:
     """Single-root compatibility helper. Returns the root when exactly 1 is set, else None."""
-    roots = await scope_roots(client, drive_id)
+    roots = await scope_roots(client, drive_id, db=db)
     return roots[0] if len(roots) == 1 else None
 
 
@@ -153,14 +171,14 @@ def within_scope(item: Dict[str, Any], root: Union[Optional[Dict[str, str]], Lis
     return False
 
 
-async def effective_folder(client, drive_id: str, folder_id: Optional[str]) -> Optional[str]:
+async def effective_folder(client, drive_id: str, folder_id: Optional[str], db: Optional[Session] = None) -> Optional[str]:
     """The folder id to list.
     - With no folder limit, returns folder_id.
     - With 1 folder limit, library root ('root' or None) resolves to that folder's id.
     - With multiple folder limits, library root ('root' or None) returns None (virtual root handled by caller),
       and any requested folder_id must be inside one of the allowed roots.
     """
-    roots = await scope_roots(client, drive_id)
+    roots = await scope_roots(client, drive_id, db=db)
     if not roots:
         return folder_id
 
@@ -303,12 +321,12 @@ def _wanted(c: Dict[str, Any], sel: Selection) -> bool:
 
 # ------------------------------------------------------------------------------------------------ planning
 
-async def collect_candidates(client, sel: Selection) -> Dict[str, Any]:
+async def collect_candidates(client, sel: Selection, db: Optional[Session] = None) -> Dict[str, Any]:
     """Expand the chosen files/folders into supported, filtered, de-duplicated candidate files."""
     found: Dict[str, Dict[str, Any]] = {}
     state = {"truncated": False}
     excluded = set(sel.exclude_ids)
-    roots = await scope_roots(client, sel.drive_id)
+    roots = await scope_roots(client, sel.drive_id, db=db)
 
     def add(item: Dict[str, Any]) -> None:
         if "file" not in item or not item.get("id"):
@@ -345,7 +363,7 @@ async def collect_candidates(client, sel: Selection) -> Dict[str, Any]:
                 for r in roots:
                     await walk(r["id"], 0)
             else:
-                eff = await effective_folder(client, sel.drive_id, None if ref.id == "root" else ref.id)
+                eff = await effective_folder(client, sel.drive_id, None if ref.id == "root" else ref.id, db=db)
                 await walk(eff, 0)
         else:
             item = await client.get_item(sel.drive_id, ref.id)
@@ -383,7 +401,7 @@ def _summarise(cands: List[Dict[str, Any]], sel: Selection, truncated: bool) -> 
 
 
 async def plan_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
-    got = await collect_candidates(client, sel)
+    got = await collect_candidates(client, sel, db=db)
     classify(db, got["candidates"])
     return _summarise(got["candidates"], sel, got["truncated"])
 
@@ -391,7 +409,7 @@ async def plan_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
 async def stage_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
     """Mark the wanted files SELECTED under one new batch id. Downloads nothing."""
     batch_max = int(os.getenv("SHAREPOINT_BATCH_MAX", getattr(settings, "SHAREPOINT_BATCH_MAX", 25)))
-    got = await collect_candidates(client, sel)
+    got = await collect_candidates(client, sel, db=db)
     cands = got["candidates"]
     classify(db, cands)
     batch_id = str(uuid.uuid4())

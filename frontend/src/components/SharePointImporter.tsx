@@ -21,9 +21,29 @@ import {
   Sparkles,
   X,
   Calendar,
+  ExternalLink,
+  Lock,
+  Unlock,
+  ShieldCheck,
+  Trash2,
+  Plus,
+  CheckCircle2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { SpBrowse, SpConfig, SpDrive, SpImportStatus, SpItemStatus, SpPlan, SpSelection } from '../lib/types';
+import {
+  SpBrowse,
+  SpConfig,
+  SpDrive,
+  SpImportStatus,
+  SpItemStatus,
+  SpPlan,
+  SpSelection,
+  SpAdminFolder,
+  SpAdminBrowse,
+  SpAdminBrowseFolder
+} from '../lib/types';
 import { useToast } from './ui/Feedback';
 
 const STATUS_STYLE: Record<SpItemStatus, { label: string; cls: string; dotCls: string }> = {
@@ -128,6 +148,29 @@ export default function SharePointImporter() {
   const [waiting, setWaiting] = useState(0);
   const cancelRef = useRef(false);
 
+  // Admin Mode & Access Control States
+  const [adminToken, setAdminToken] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('sp_admin_token');
+    }
+    return null;
+  });
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showAdminManager, setShowAdminManager] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [verifyingPassword, setVerifyingPassword] = useState(false);
+
+  // Admin Folder Management States
+  const [adminTab, setAdminTab] = useState<'active' | 'browse'>('active');
+  const [adminAllowedFolders, setAdminAllowedFolders] = useState<SpAdminFolder[]>([]);
+  const [adminBrowsePage, setAdminBrowsePage] = useState<SpAdminBrowse | null>(null);
+  const [adminBrowseTrail, setAdminBrowseTrail] = useState<Crumb[]>([{ id: null, name: 'Library root' }]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState('');
+  const [adminTogglingId, setAdminTogglingId] = useState<string | null>(null);
+
   useEffect(() => {
     api.spConfig().then(setCfg).catch((e: Error) => setError(e.message));
     api.spImportStatus().then((s) => setWaiting(s.remaining)).catch(() => {});
@@ -176,6 +219,158 @@ export default function SharePointImporter() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadAdminData(token: string, drive: string) {
+    if (!token || !drive) return;
+    setAdminLoading(true);
+    setAdminError('');
+    try {
+      const [foldersRes, browseRes] = await Promise.all([
+        api.spAdminGetAllowedFolders(token, drive),
+        api.spAdminBrowse(token, drive, null)
+      ]);
+      setAdminAllowedFolders(foldersRes.folders);
+      setAdminBrowsePage(browseRes);
+      setAdminBrowseTrail([{ id: null, name: 'Library root' }]);
+    } catch (e) {
+      if (e instanceof Error && (e.message.includes('401') || e.message.includes('expired'))) {
+        setAdminToken(null);
+        if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token');
+        setShowAdminManager(false);
+        setShowPasswordModal(true);
+        setPasswordError('Admin session expired. Please enter the password again.');
+      } else {
+        setAdminError(e instanceof Error ? e.message : 'Failed to load folder configuration');
+      }
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function openAdminFolder(drive: string, trail: Crumb[]) {
+    if (!adminToken) return;
+    setAdminLoading(true);
+    setAdminError('');
+    try {
+      const folderId = trail[trail.length - 1].id;
+      const res = await api.spAdminBrowse(adminToken, drive, folderId);
+      setAdminBrowsePage(res);
+      setAdminBrowseTrail(trail);
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : 'Could not open folder in admin mode');
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function handleUnlockAdmin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!passwordInput.trim()) return;
+    setVerifyingPassword(true);
+    setPasswordError('');
+    try {
+      const res = await api.spAdminVerify(passwordInput);
+      setAdminToken(res.token);
+      if (typeof window !== 'undefined') sessionStorage.setItem('sp_admin_token', res.token);
+      setShowPasswordModal(false);
+      setPasswordInput('');
+      setShowAdminManager(true);
+      void loadAdminData(res.token, driveId);
+    } catch (e) {
+      setPasswordError(e instanceof Error ? e.message : 'Incorrect password');
+    } finally {
+      setVerifyingPassword(false);
+    }
+  }
+
+  function handleLogoutAdmin() {
+    setAdminToken(null);
+    if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token');
+    setShowAdminManager(false);
+  }
+
+  async function handleToggleAllowedStatus(folder: SpAdminFolder) {
+    if (!adminToken) return;
+    setAdminTogglingId(folder.id);
+    try {
+      await api.spAdminSaveAllowedFolder(adminToken, {
+        drive_id: folder.drive_id,
+        folder_id: folder.folder_id,
+        is_active: !folder.is_active
+      });
+      const updated = await api.spAdminGetAllowedFolders(adminToken, driveId);
+      setAdminAllowedFolders(updated.folders);
+      if (adminBrowsePage) {
+        setAdminBrowsePage({
+          ...adminBrowsePage,
+          folders: adminBrowsePage.folders.map(f =>
+            f.id === folder.folder_id ? { ...f, is_allowed: !folder.is_active } : f
+          )
+        });
+      }
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : 'Failed to update folder status');
+    } finally {
+      setAdminTogglingId(null);
+    }
+  }
+
+  async function handleRemoveAllowedFolder(folderId: string) {
+    if (!adminToken) return;
+    setAdminTogglingId(folderId);
+    try {
+      await api.spAdminDeleteAllowedFolder(adminToken, folderId, driveId);
+      const updated = await api.spAdminGetAllowedFolders(adminToken, driveId);
+      setAdminAllowedFolders(updated.folders);
+      if (adminBrowsePage) {
+        setAdminBrowsePage({
+          ...adminBrowsePage,
+          folders: adminBrowsePage.folders.map(f =>
+            f.id === folderId ? { ...f, is_allowed: false, allowed_id: null } : f
+          )
+        });
+      }
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : 'Failed to remove folder');
+    } finally {
+      setAdminTogglingId(null);
+    }
+  }
+
+  async function handleAddFolderToAllowed(folder: SpAdminBrowseFolder) {
+    if (!adminToken) return;
+    setAdminTogglingId(folder.id);
+    try {
+      await api.spAdminSaveAllowedFolder(adminToken, {
+        drive_id: driveId,
+        folder_id: folder.id,
+        folder_name: folder.name || '',
+        folder_path: folder.path,
+        is_active: true
+      });
+      const [foldersRes, browseRes] = await Promise.all([
+        api.spAdminGetAllowedFolders(adminToken, driveId),
+        api.spAdminBrowse(adminToken, driveId, adminBrowseTrail[adminBrowseTrail.length - 1].id)
+      ]);
+      setAdminAllowedFolders(foldersRes.folders);
+      setAdminBrowsePage(browseRes);
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : 'Failed to add folder to team access');
+    } finally {
+      setAdminTogglingId(null);
+    }
+  }
+
+  async function handleCloseAdminManager() {
+    setShowAdminManager(false);
+    try {
+      const refreshedCfg = await api.spConfig();
+      setCfg(refreshedCfg);
+      if (driveId) {
+        await open(driveId, [{ id: null, name: 'Library root' }]);
+      }
+    } catch { /* ignore */ }
   }
 
   function toggle(p: Picked) {
@@ -399,16 +594,55 @@ export default function SharePointImporter() {
               </div>
               <p className="mt-0.5 text-[13px] text-slate-500">
                 Browse quiz folders, search files, preview what is new, and import decks directly into QShala.
-                {cfg.root_folder && (
+                {cfg.is_custom_folders ? (
+                  <span className="ml-1.5 inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200/80 px-2 py-0.5 text-[11.5px] font-semibold text-amber-800">
+                    <ShieldCheck className="h-3 w-3 text-amber-600" />
+                    Scoped to {cfg.allowed_folders_count ?? cfg.root_folders?.length ?? 0} folder(s) approved by Admin
+                  </span>
+                ) : cfg.root_folder ? (
                   <span className="ml-1 text-slate-600 font-medium">
                     (Scoped to: <span className="font-semibold text-slate-800">“{cfg.root_folder}”</span>)
                   </span>
-                )}
+                ) : null}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            {/* Admin Folder Access Button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (adminToken) {
+                  setShowAdminManager(true);
+                  void loadAdminData(adminToken, driveId);
+                } else {
+                  setShowPasswordModal(true);
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold shadow-xs transition-colors cursor-pointer ${
+                adminToken
+                  ? 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100'
+                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+              title="Manage which SharePoint folders quizmasters can access"
+            >
+              {adminToken ? (
+                <>
+                  <ShieldCheck className="h-3.5 w-3.5 text-amber-700" />
+                  <span>Folder Access</span>
+                  <span className="rounded-full bg-amber-200 px-1.5 py-0.2 text-[10px] font-bold text-amber-800">
+                    Admin
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Lock className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Folder Access</span>
+                </>
+              )}
+            </button>
+
             {crumbs.length > 1 && (
               <button
                 type="button"
@@ -1135,6 +1369,394 @@ export default function SharePointImporter() {
                 Failed {f.name}: {f.error}
               </p>
             ))}
+          </div>
+        )}
+
+        {/* Admin Password Modal */}
+        {showPasswordModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-fadeIn">
+            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="rounded-xl bg-amber-100 p-2 text-amber-700">
+                    <Lock className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-[16px] font-bold text-slate-900">Admin Folder Access</h3>
+                    <p className="text-[12px] text-slate-500">Enter password to manage team folder permissions</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setPasswordInput('');
+                    setPasswordError('');
+                  }}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleUnlockAdmin} className="space-y-4">
+                <div>
+                  <label className="block text-[12.5px] font-semibold text-slate-700 mb-1.5">
+                    Admin Password / PIN
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={passwordInput}
+                      onChange={(e) => {
+                        setPasswordInput(e.target.value);
+                        setPasswordError('');
+                      }}
+                      placeholder="Enter admin password..."
+                      autoFocus
+                      className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-[13.5px] text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {passwordError && (
+                    <p className="mt-1.5 text-[12px] text-red-600 font-medium flex items-center gap-1">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      <span>{passwordError}</span>
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPasswordModal(false);
+                      setPasswordInput('');
+                      setPasswordError('');
+                    }}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-[13px] font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={verifyingPassword || !passwordInput.trim()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-[13px] font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                  >
+                    {verifyingPassword ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Verifying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Unlock className="h-4 w-4" />
+                        <span>Unlock Admin Mode</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Admin Folder Manager Modal */}
+        {showAdminManager && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 sm:p-6 animate-fadeIn">
+            <div className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
+              {/* Modal Header */}
+              <div className="border-b border-slate-100 bg-slate-50/80 p-5 sm:p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-xl bg-amber-600 p-2.5 text-white shadow-sm">
+                      <ShieldCheck className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-[17px] font-bold text-slate-900">SharePoint Folder Access Control</h3>
+                        <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10.5px] font-bold text-amber-800">
+                          Admin Active
+                        </span>
+                      </div>
+                      <p className="text-[12.5px] text-slate-500 mt-0.5">
+                        Choose which folders quizmasters can see and import from. All other SharePoint folders remain hidden and blocked.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleLogoutAdmin}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-slate-600 hover:text-red-600 hover:border-red-200 cursor-pointer"
+                      title="Lock Admin Session"
+                    >
+                      <Lock className="h-3 w-3" />
+                      <span>Lock Admin</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCloseAdminManager}
+                      className="rounded-lg p-1 text-slate-400 hover:bg-slate-200/60 hover:text-slate-700 cursor-pointer"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tab switch */}
+                <div className="flex items-center gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setAdminTab('active')}
+                    className={`rounded-lg px-3.5 py-1.5 text-[12.5px] font-bold transition-all cursor-pointer ${
+                      adminTab === 'active'
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Active Team Folders ({adminAllowedFolders.filter(f => f.is_active).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdminTab('browse')}
+                    className={`rounded-lg px-3.5 py-1.5 text-[12.5px] font-bold transition-all cursor-pointer ${
+                      adminTab === 'browse'
+                        ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Explore & Add Folders
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Body */}
+              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+                {adminError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-[12.5px] text-red-800 flex items-center justify-between">
+                    <span>{adminError}</span>
+                    <button type="button" onClick={() => setAdminError('')} className="text-red-500 hover:text-red-700 font-bold">&times;</button>
+                  </div>
+                )}
+
+                {adminLoading && (
+                  <div className="flex items-center justify-center p-8 text-slate-500 gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+                    <span className="text-[13px] font-medium">Loading SharePoint directory...</span>
+                  </div>
+                )}
+
+                {/* TAB 1: ACTIVE FOLDERS */}
+                {!adminLoading && adminTab === 'active' && (
+                  <div className="space-y-3">
+                    {adminAllowedFolders.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center space-y-2">
+                        <Folder className="h-8 w-8 text-slate-300 mx-auto" />
+                        <h4 className="text-[14px] font-bold text-slate-700">No custom folders configured yet</h4>
+                        <p className="text-[12.5px] text-slate-500 max-w-md mx-auto">
+                          Quizmasters currently have access to the default folder scope configured in environment variables.
+                          Switch to the <strong>&ldquo;Explore & Add Folders&rdquo;</strong> tab to choose custom folders from SharePoint.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setAdminTab('browse')}
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-[12.5px] font-bold text-white shadow-xs hover:bg-amber-700 cursor-pointer"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Choose Folders from SharePoint</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
+                        {adminAllowedFolders.map((folder) => (
+                          <div key={folder.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 gap-3 hover:bg-slate-50/50 transition-colors">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <div className={`rounded-lg p-2 shrink-0 ${folder.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                                <Folder className="h-4 w-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[14px] font-bold text-slate-900 truncate">
+                                    {folder.display_name || folder.folder_name}
+                                  </span>
+                                  <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold border ${
+                                    folder.is_active
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-slate-100 text-slate-500 border-slate-200'
+                                  }`}>
+                                    {folder.is_active ? 'Active for Team' : 'Paused'}
+                                  </span>
+                                </div>
+                                <p className="text-[12px] text-slate-500 font-mono truncate mt-0.5">
+                                  {folder.folder_path}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                              <button
+                                type="button"
+                                disabled={adminTogglingId === folder.id}
+                                onClick={() => void handleToggleAllowedStatus(folder)}
+                                className={`rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition-colors cursor-pointer ${
+                                  folder.is_active
+                                    ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                    : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                                }`}
+                              >
+                                {folder.is_active ? 'Pause Access' : 'Enable Access'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={adminTogglingId === folder.id}
+                                onClick={() => void handleRemoveAllowedFolder(folder.folder_id)}
+                                className="rounded-lg border border-red-200 bg-white p-1.5 text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer"
+                                title="Remove from allowed folders"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB 2: EXPLORE & ADD FOLDERS */}
+                {!adminLoading && adminTab === 'browse' && adminBrowsePage && (
+                  <div className="space-y-3">
+                    {/* Admin Breadcrumbs & Up Button */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                      <div className="flex items-center gap-1.5 text-[12.5px] flex-wrap">
+                        <span className="font-semibold text-slate-500">Location:</span>
+                        {adminBrowseTrail.map((crumb, idx) => {
+                          const isLast = idx === adminBrowseTrail.length - 1;
+                          return (
+                            <span key={crumb.id ?? 'root'} className="flex items-center gap-1">
+                              {idx > 0 && <span className="text-slate-400">/</span>}
+                              {isLast ? (
+                                <span className="font-bold text-slate-900">{crumb.name}</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => void openAdminFolder(driveId, adminBrowseTrail.slice(0, idx + 1))}
+                                  className="text-blue-600 hover:underline cursor-pointer"
+                                >
+                                  {crumb.name}
+                                </button>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+
+                      {adminBrowseTrail.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => void openAdminFolder(driveId, adminBrowseTrail.slice(0, -1))}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                        >
+                          <CornerLeftUp className="h-3.5 w-3.5" />
+                          <span>Up Level</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Folder list */}
+                    <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
+                      {adminBrowsePage.folders.length === 0 ? (
+                        <div className="p-8 text-center text-slate-500 text-[13px]">
+                          No subfolders found in this directory.
+                        </div>
+                      ) : (
+                        adminBrowsePage.folders.map((folder) => {
+                          const isAllowed = folder.is_allowed;
+                          const isToggling = adminTogglingId === folder.id;
+                          return (
+                            <div
+                              key={folder.id}
+                              className="flex items-center justify-between p-3.5 hover:bg-slate-50/60 transition-colors gap-3"
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openAdminFolder(driveId, [
+                                    ...adminBrowseTrail,
+                                    { id: folder.id, name: folder.name || 'Folder' }
+                                  ])
+                                }
+                                className="flex items-center gap-3 min-w-0 text-left hover:text-blue-600 group cursor-pointer flex-1"
+                              >
+                                <Folder className="h-5 w-5 text-amber-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                <div className="min-w-0">
+                                  <span className="text-[13.5px] font-semibold text-slate-800 group-hover:text-blue-600 truncate block">
+                                    {folder.name}
+                                  </span>
+                                  <span className="text-[11.5px] text-slate-400">
+                                    {folder.child_count != null ? `${folder.child_count} items` : 'Folder'} · Click to open subfolders
+                                  </span>
+                                </div>
+                              </button>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                {isAllowed ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                                      <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                      <span>Active for Team</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={isToggling}
+                                      onClick={() => void handleRemoveAllowedFolder(folder.id)}
+                                      className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                    >
+                                      {isToggling ? 'Removing...' : 'Remove'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={isToggling}
+                                    onClick={() => void handleAddFolderToAllowed(folder)}
+                                    className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-[12px] font-bold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    <span>{isToggling ? 'Adding...' : 'Allow for Team'}</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="border-t border-slate-100 bg-slate-50/70 p-4 flex items-center justify-between">
+                <span className="text-[12.5px] text-slate-600 font-medium">
+                  {adminAllowedFolders.filter(f => f.is_active).length} folder(s) currently accessible by quizmasters.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCloseAdminManager}
+                  className="rounded-xl bg-slate-900 px-5 py-2 text-[13px] font-bold text-white shadow-xs hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Done & Apply Changes
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   FileDown, 
@@ -13,10 +13,12 @@ import {
   IndianRupee,
   Award,
   Layers,
-  BookOpen
+  BookOpen,
+  Upload,
+  Palette
 } from 'lucide-react';
-import { Quiz } from '@/lib/types';
-import { ExportOptions } from '@/lib/api';
+import { Quiz, CustomPptTemplate } from '@/lib/types';
+import { api, ExportOptions } from '@/lib/api';
 
 interface ExportQuizModalProps {
   isOpen: boolean;
@@ -53,6 +55,13 @@ export default function ExportQuizModal({
   // ZSV Sub-Category: 'school' (Campus Edition) or 'corporate' (Corporate Master)
   const [zsvSubtype, setZsvSubtype] = useState<'school' | 'corporate'>('school');
   
+  // Custom Templates state
+  const [customTemplates, setCustomTemplates] = useState<CustomPptTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // QShala School Template Fields
   const [customSubtitle, setCustomSubtitle] = useState('Grades 6 - 8 • Middle School Assembly');
   const [showAnswerDivider, setShowAnswerDivider] = useState(true);
@@ -72,6 +81,44 @@ export default function ExportQuizModal({
     }
   }, [quiz]);
 
+  useEffect(() => {
+    if (isOpen) {
+      api.listTemplates()
+        .then((templates) => setCustomTemplates(templates))
+        .catch((err) => console.error('Failed to load custom templates:', err));
+    }
+  }, [isOpen]);
+
+  const targetCategory = templateCategory === 'qshala' ? 'qshala_school' : 'zvq';
+  const categoryTemplates = customTemplates.filter(t => t.category === targetCategory);
+
+  const handleQuickUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0]) return;
+    const file = e.target.files[0];
+    const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+
+    try {
+      setUploadingTemplate(true);
+      setUploadError(null);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('name', cleanName);
+      formData.append('category', targetCategory);
+      formData.append('description', `Extracted during export for ${quiz?.title || 'quiz'}`);
+
+      const newTpl = await api.extractTemplate(formData);
+      setCustomTemplates((prev) => [newTpl, ...prev]);
+      setSelectedTemplateId(newTpl.id);
+    } catch (err: any) {
+      setUploadError(err.message || 'Failed to extract template from sample PPT');
+    } finally {
+      setUploadingTemplate(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   if (!isOpen) return null;
 
   const handleDownload = async () => {
@@ -81,6 +128,7 @@ export default function ExportQuizModal({
       await onExport('pptx', {
         quizType: effectiveQuizType,
         templateCategory,
+        templateId: selectedTemplateId || undefined,
         campusEdition: templateCategory === 'zsv' ? (campusEdition.trim() || undefined) : undefined,
         prizeMoney: templateCategory === 'zsv' && zsvSubtype === 'school' ? (prizeMoney.trim() || undefined) : undefined,
         customTitle: customTitle.trim() || undefined,
@@ -133,7 +181,10 @@ export default function ExportQuizModal({
               {/* Option 1: QShala School Template */}
               <button
                 type="button"
-                onClick={() => setTemplateCategory('qshala')}
+                onClick={() => {
+                  setTemplateCategory('qshala');
+                  setSelectedTemplateId(null);
+                }}
                 className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition relative ${
                   templateCategory === 'qshala'
                     ? 'border-amber-500 bg-amber-50/60 shadow-sm ring-1 ring-amber-500/20'
@@ -160,7 +211,10 @@ export default function ExportQuizModal({
               {/* Option 2: Zerodha Varsity Quiz (ZSV) */}
               <button
                 type="button"
-                onClick={() => setTemplateCategory('zsv')}
+                onClick={() => {
+                  setTemplateCategory('zsv');
+                  setSelectedTemplateId(null);
+                }}
                 className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition relative ${
                   templateCategory === 'zsv'
                     ? 'border-orange-500 bg-orange-50/60 shadow-sm ring-1 ring-orange-500/20'
@@ -183,6 +237,128 @@ export default function ExportQuizModal({
                   Varsity tournament master decks, South Zone artwork & corporate tracks
                 </div>
               </button>
+            </div>
+          </div>
+
+          {/* Slide Layout & Custom Master Selection */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <Palette className="h-3.5 w-3.5 text-slate-400" />
+                Template Design & Layout Deck
+              </label>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingTemplate}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2.5 py-1 rounded-lg cursor-pointer transition disabled:opacity-50"
+                >
+                  {uploadingTemplate ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-600" />
+                      <span>Extracting PPTX...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-3.5 w-3.5 text-amber-600" />
+                      <span>+ Upload Sample PPT</span>
+                    </>
+                  )}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                  className="hidden"
+                  onChange={handleQuickUpload}
+                />
+              </div>
+            </div>
+
+            {uploadError && (
+              <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2.5">
+                {uploadError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* Built-in Default Master Option */}
+              <div
+                onClick={() => setSelectedTemplateId(null)}
+                className={`p-3 rounded-xl border text-left cursor-pointer transition relative ${
+                  selectedTemplateId === null
+                    ? 'border-amber-500 bg-amber-50/50 ring-1 ring-amber-500/20'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900">
+                    {templateCategory === 'qshala' 
+                      ? 'Official QShala School Master' 
+                      : (zsvSubtype === 'school' ? 'Varsity Campus Master' : 'Corporate Executive Master')}
+                  </span>
+                  {selectedTemplateId === null && (
+                    <div className="h-4 w-4 rounded-full bg-amber-600 text-white flex items-center justify-center shrink-0">
+                      <Check className="h-2.5 w-2.5" />
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                  {templateCategory === 'qshala'
+                    ? 'Official Causten Round master with certified 44pt title / 28pt body standards.'
+                    : 'Official tournament layout with signature graphics and question transitions.'}
+                </p>
+                <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-600">
+                  <span className="bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                    {templateCategory === 'qshala' ? 'Causten Round' : 'Poppins / Roboto'}
+                  </span>
+                  <span>•</span>
+                  <span className="bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded">
+                    28pt Uniform Body
+                  </span>
+                </div>
+              </div>
+
+              {/* Custom Extracted Templates */}
+              {categoryTemplates.map((tpl) => (
+                <div
+                  key={tpl.id}
+                  onClick={() => setSelectedTemplateId(tpl.id)}
+                  className={`p-3 rounded-xl border text-left cursor-pointer transition relative ${
+                    selectedTemplateId === tpl.id
+                      ? 'border-amber-500 bg-amber-50/50 ring-1 ring-amber-500/20'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900 truncate pr-2" title={tpl.name}>
+                      {tpl.name}
+                    </span>
+                    {selectedTemplateId === tpl.id && (
+                      <div className="h-4 w-4 rounded-full bg-amber-600 text-white flex items-center justify-center shrink-0">
+                        <Check className="h-2.5 w-2.5" />
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                    {tpl.description || `Extracted custom layout deck with ${tpl.title_font || 'Custom'} title.`}
+                  </p>
+                  <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-600">
+                    <span className="bg-slate-100 px-1.5 py-0.5 rounded font-mono truncate max-w-[90px]" title={tpl.title_font || 'Custom'}>
+                      {tpl.title_font || 'Custom'}
+                    </span>
+                    <span>•</span>
+                    <span className="bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded">
+                      28pt Body
+                    </span>
+                    <span>•</span>
+                    <span className="text-slate-400 font-mono">
+                      {tpl.aspect_ratio}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -419,10 +595,17 @@ export default function ExportQuizModal({
         <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-6 py-4">
           <div className="text-xs text-slate-500">
             Selected: <span className="font-semibold text-slate-800">
-              {templateCategory === 'qshala' 
-                ? 'QShala School Template' 
-                : (zsvSubtype === 'school' ? 'Zerodha Varsity School Quiz' : 'Zerodha Varsity Corporate Quiz')}
+              {selectedTemplateId 
+                ? (customTemplates.find(t => t.id === selectedTemplateId)?.name || 'Custom Template')
+                : (templateCategory === 'qshala' 
+                    ? 'Official QShala School Master' 
+                    : (zsvSubtype === 'school' ? 'Zerodha Varsity School Quiz' : 'Zerodha Varsity Corporate Quiz'))}
             </span>
+            {selectedTemplateId && (
+              <span className="ml-2 bg-amber-100 text-amber-800 font-semibold text-[10px] px-2 py-0.5 rounded-full">
+                Custom Master Deck
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <button
