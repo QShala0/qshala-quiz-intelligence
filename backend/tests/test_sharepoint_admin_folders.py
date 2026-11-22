@@ -59,6 +59,26 @@ def mock_graph_handler(request: httpx.Request):
         return httpx.Response(200, json=TREE["fold1"]["value"][1])
     if url.startswith(f"{BASE}/drives/D/items/f_fin"):
         return httpx.Response(200, json=TREE["fold2"]["value"][0])
+    if "search(q=" in url:
+        # Mock search response
+        if "Round1" in url or "pptx" in url:
+            return httpx.Response(200, json={"value": [
+                {
+                    "id": "f_q1",
+                    "name": "Round1.pptx",
+                    "size": 1024,
+                    "lastModifiedDateTime": "2024-01-01T00:00:00Z",
+                    "file": {"hashes": {"quickXorHash": "h"}},
+                    "parentReference": {"id": "fold1", "name": "Quizzes", "path": "/drives/D/root:/Quizzes"},
+                },
+                {
+                    "id": "fold1",
+                    "name": "Quizzes",
+                    "folder": {"childCount": 2},
+                    "parentReference": {"path": "/drives/D/root:"},
+                }
+            ]})
+        return httpx.Response(200, json={"value": []})
     return httpx.Response(404, json={"error": {"message": "Not found"}})
 
 
@@ -246,3 +266,43 @@ async def test_quizmaster_scope_enforcement_with_db(db_session, monkeypatch):
                 items=[importer.ItemRef(id="f_fin", kind="file")],
             ),
         )
+
+
+def test_admin_search_files_and_folders(api_client, monkeypatch):
+    """Admin keyword search queries SharePoint and returns matching files and folders with allowed status."""
+    monkeypatch.setattr(settings, "SHAREPOINT_ADMIN_PASSWORD", "secret123")
+    token = create_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Search without auth fails 401
+    unauth = api_client.get("/api/v1/sharepoint/admin/search?drive_id=D&q=Round1")
+    assert unauth.status_code == 401
+
+    # 2. Search with auth returns files and folders
+    res = api_client.get("/api/v1/sharepoint/admin/search?drive_id=D&q=Round1", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["query"] == "Round1"
+    assert len(data["files"]) == 1
+    assert data["files"][0]["name"] == "Round1.pptx"
+    assert data["files"][0]["parent_folder_id"] == "fold1"
+    assert data["files"][0]["parent_is_allowed"] is False
+    assert len(data["folders"]) == 1
+    assert data["folders"][0]["name"] == "Quizzes"
+
+    # 3. Save fold1 as allowed, then search again: parent_is_allowed is now True
+    api_client.post(
+        "/api/v1/sharepoint/admin/allowed-folders",
+        json={
+            "drive_id": "D",
+            "folder_id": "fold1",
+            "folder_name": "Quizzes",
+            "folder_path": "/drives/D/root:/Quizzes",
+            "is_active": True,
+        },
+        headers=headers,
+    )
+    res2 = api_client.get("/api/v1/sharepoint/admin/search?drive_id=D&q=Round1", headers=headers)
+    assert res2.status_code == 200
+    data2 = res2.json()
+    assert data2["files"][0]["parent_is_allowed"] is True
