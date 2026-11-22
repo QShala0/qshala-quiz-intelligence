@@ -40,13 +40,15 @@ import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem } from '@/li
 
 import SharePointImporter from '@/components/SharePointImporter';
 
+import CustomTemplateManager from '@/components/CustomTemplateManager';
+
 import QT from '@/components/ui/QT';
 
 
 
 export default function SettingsPage() {
 
-  const [activeTab, setActiveTab] = useState<'platform' | 'sharepoint'>('platform');
+  const [activeTab, setActiveTab] = useState<'platform' | 'sharepoint' | 'templates'>('platform');
 
   const [apiEndpoint, setApiEndpoint] = useState('/api/v1');
 
@@ -298,6 +300,30 @@ export default function SettingsPage() {
 
           </button>
 
+          <button
+
+            type="button"
+
+            onClick={() => setActiveTab('templates')}
+
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[13px] font-semibold transition-all cursor-pointer ${
+
+              activeTab === 'templates'
+
+                ? 'bg-amber-600 text-white shadow-sm'
+
+                : 'text-amber-800 hover:text-amber-900'
+
+            }`}
+
+          >
+
+            <Layers className="h-3.5 w-3.5" />
+
+            <span>PPT Templates</span>
+
+          </button>
+
         </div>
 
       </div>
@@ -398,7 +424,7 @@ export default function SettingsPage() {
 
         </>
 
-      ) : (
+      ) : activeTab === 'sharepoint' ? (
 
         /* SharePoint Sync & Jobs Admin Dashboard */
 
@@ -959,6 +985,10 @@ export default function SettingsPage() {
           </div>
 
         </div>
+
+      ) : (
+
+        <CustomTemplateManager />
 
       )}
 

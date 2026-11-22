@@ -35,6 +35,8 @@ backend/storage/slides/*
 !backend/storage/slides/.gitkeep
 !backend/storage/slides/668b4c1f-ca4e-483b-8fe4-cacd4cb82f75/
 !backend/storage/slides/668b4c1f-ca4e-483b-8fe4-cacd4cb82f75/**
+backend/storage/custom_templates/*
+!backend/storage/custom_templates/.gitkeep
 backend/storage/chroma/
 backend/storage/tmp_chunks/
 scratch/

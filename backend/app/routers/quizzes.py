@@ -157,6 +157,7 @@ def export_quiz(
     theme: Optional[str] = Query(None),
     custom_subtitle: Optional[str] = Query(None),
     show_answer_divider: Optional[bool] = Query(None),
+    template_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
@@ -194,6 +195,8 @@ def export_quiz(
             include_social_slides=include_social_slides,
             custom_subtitle=custom_subtitle,
             show_answer_divider=show_answer_divider,
+            template_id=template_id,
+            db=db,
         )
         return Response(
             content=pptx_bytes,
@@ -213,6 +216,8 @@ def export_quiz_payload(
     theme: Optional[str] = Query(None),
     custom_subtitle: Optional[str] = Query(None),
     show_answer_divider: Optional[bool] = Query(None),
+    template_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
 ):
     quiz_id = payload.get("id", "custom")
     clean_id = str(quiz_id)[:8] if quiz_id else "custom"
@@ -247,6 +252,8 @@ def export_quiz_payload(
             include_social_slides=include_social_slides,
             custom_subtitle=custom_subtitle,
             show_answer_divider=show_answer_divider,
+            template_id=template_id,
+            db=db,
         )
         return Response(
             content=pptx_bytes,
