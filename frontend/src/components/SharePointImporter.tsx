@@ -42,7 +42,9 @@ import {
   SpSelection,
   SpAdminFolder,
   SpAdminBrowse,
-  SpAdminBrowseFolder
+  SpAdminBrowseFolder,
+  SpAdminSearchResult,
+  SpAdminSearchFile
 } from '../lib/types';
 import { useToast } from './ui/Feedback';
 
@@ -170,6 +172,9 @@ export default function SharePointImporter() {
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState('');
   const [adminTogglingId, setAdminTogglingId] = useState<string | null>(null);
+  const [adminSearchQuery, setAdminSearchQuery] = useState('');
+  const [adminSearchResults, setAdminSearchResults] = useState<SpAdminSearchResult | null>(null);
+  const [adminSearching, setAdminSearching] = useState(false);
 
   useEffect(() => {
     api.spConfig().then(setCfg).catch((e: Error) => setError(e.message));
@@ -364,6 +369,8 @@ export default function SharePointImporter() {
 
   async function handleCloseAdminManager() {
     setShowAdminManager(false);
+    setAdminSearchQuery('');
+    setAdminSearchResults(null);
     try {
       const refreshedCfg = await api.spConfig();
       setCfg(refreshedCfg);
@@ -371,6 +378,54 @@ export default function SharePointImporter() {
         await open(driveId, [{ id: null, name: 'Library root' }]);
       }
     } catch { /* ignore */ }
+  }
+
+  async function handleAdminSearch(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!adminToken || !driveId || !adminSearchQuery.trim()) return;
+    setAdminSearching(true);
+    setAdminError('');
+    try {
+      const res = await api.spAdminSearch(adminToken, driveId, adminSearchQuery.trim());
+      setAdminSearchResults(res);
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : 'Search failed');
+    } finally {
+      setAdminSearching(false);
+    }
+  }
+
+  function handleClearAdminSearch() {
+    setAdminSearchQuery('');
+    setAdminSearchResults(null);
+  }
+
+  async function handleAllowParentFolderFromFile(file: SpAdminSearchFile) {
+    if (!adminToken || !file.parent_folder_id) return;
+    setAdminTogglingId(file.parent_folder_id);
+    try {
+      await api.spAdminSaveAllowedFolder(adminToken, {
+        drive_id: driveId,
+        folder_id: file.parent_folder_id,
+        folder_name: file.parent_folder_name || 'Folder',
+        folder_path: file.parent_folder_path || '',
+        is_active: true
+      });
+      const updated = await api.spAdminGetAllowedFolders(adminToken, driveId);
+      setAdminAllowedFolders(updated.folders);
+      if (adminSearchResults) {
+        setAdminSearchResults({
+          ...adminSearchResults,
+          files: adminSearchResults.files.map(f =>
+            f.parent_folder_id === file.parent_folder_id ? { ...f, parent_is_allowed: true } : f
+          )
+        });
+      }
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : 'Failed to allow folder');
+    } finally {
+      setAdminTogglingId(null);
+    }
   }
 
   function toggle(p: Picked) {
@@ -1633,112 +1688,281 @@ export default function SharePointImporter() {
                 {/* TAB 2: EXPLORE & ADD FOLDERS */}
                 {!adminLoading && adminTab === 'browse' && adminBrowsePage && (
                   <div className="space-y-3">
-                    {/* Admin Breadcrumbs & Up Button */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                      <div className="flex items-center gap-1.5 text-[12.5px] flex-wrap">
-                        <span className="font-semibold text-slate-500">Location:</span>
-                        {adminBrowseTrail.map((crumb, idx) => {
-                          const isLast = idx === adminBrowseTrail.length - 1;
-                          return (
-                            <span key={crumb.id ?? 'root'} className="flex items-center gap-1">
-                              {idx > 0 && <span className="text-slate-400">/</span>}
-                              {isLast ? (
-                                <span className="font-bold text-slate-900">{crumb.name}</span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => void openAdminFolder(driveId, adminBrowseTrail.slice(0, idx + 1))}
-                                  className="text-blue-600 hover:underline cursor-pointer"
-                                >
-                                  {crumb.name}
-                                </button>
-                              )}
-                            </span>
-                          );
-                        })}
+                    {/* Keyword Search Bar across SharePoint */}
+                    <form onSubmit={handleAdminSearch} className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                        <input
+                          type="text"
+                          value={adminSearchQuery}
+                          onChange={(e) => setAdminSearchQuery(e.target.value)}
+                          placeholder="Search files or folders across SharePoint (e.g. 'Prelims', 'Round 1', 'Kia')..."
+                          className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-8 py-2 text-[13px] text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        {adminSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={handleClearAdminSearch}
+                            className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
+                      <button
+                        type="submit"
+                        disabled={adminSearching || !adminSearchQuery.trim()}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50 cursor-pointer transition-colors"
+                      >
+                        {adminSearching ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span>Searching...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Search className="h-3.5 w-3.5" />
+                            <span>Search</span>
+                          </>
+                        )}
+                      </button>
+                    </form>
 
-                      {adminBrowseTrail.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => void openAdminFolder(driveId, adminBrowseTrail.slice(0, -1))}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                        >
-                          <CornerLeftUp className="h-3.5 w-3.5" />
-                          <span>Up Level</span>
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Folder list */}
-                    <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
-                      {adminBrowsePage.folders.length === 0 ? (
-                        <div className="p-8 text-center text-slate-500 text-[13px]">
-                          No subfolders found in this directory.
+                    {/* SEARCH RESULTS VIEW */}
+                    {adminSearchResults ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+                          <span className="text-[12.5px] font-medium text-blue-900">
+                            Found <strong className="font-bold">{adminSearchResults.files.length}</strong> matching file(s) and{' '}
+                            <strong className="font-bold">{adminSearchResults.folders.length}</strong> matching folder(s) for &ldquo;{adminSearchResults.query}&rdquo;
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleClearAdminSearch}
+                            className="text-[12px] font-semibold text-blue-700 hover:underline cursor-pointer"
+                          >
+                            ← Back to folder tree
+                          </button>
                         </div>
-                      ) : (
-                        adminBrowsePage.folders.map((folder) => {
-                          const isAllowed = folder.is_allowed;
-                          const isToggling = adminTogglingId === folder.id;
-                          return (
-                            <div
-                              key={folder.id}
-                              className="flex items-center justify-between p-3.5 hover:bg-slate-50/60 transition-colors gap-3"
-                            >
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void openAdminFolder(driveId, [
-                                    ...adminBrowseTrail,
-                                    { id: folder.id, name: folder.name || 'Folder' }
-                                  ])
-                                }
-                                className="flex items-center gap-3 min-w-0 text-left hover:text-blue-600 group cursor-pointer flex-1"
-                              >
-                                <Folder className="h-5 w-5 text-amber-500 shrink-0 group-hover:scale-110 transition-transform" />
-                                <div className="min-w-0">
-                                  <span className="text-[13.5px] font-semibold text-slate-800 group-hover:text-blue-600 truncate block">
-                                    {folder.name}
-                                  </span>
-                                  <span className="text-[11.5px] text-slate-400">
-                                    {folder.child_count != null ? `${folder.child_count} items` : 'Folder'} · Click to open subfolders
-                                  </span>
-                                </div>
-                              </button>
 
-                              <div className="flex items-center gap-2 shrink-0">
-                                {isAllowed ? (
-                                  <div className="flex items-center gap-2">
-                                    <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                                      <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                                      <span>Active for Team</span>
-                                    </span>
+                        {adminSearchResults.folders.length === 0 && adminSearchResults.files.length === 0 && (
+                          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-[13px] text-slate-500">
+                            No files or folders found matching &ldquo;{adminSearchResults.query}&rdquo;.
+                          </div>
+                        )}
+
+                        {/* Matching Folders */}
+                        {adminSearchResults.folders.length > 0 && (
+                          <div className="space-y-1.5">
+                            <span className="text-[12px] font-bold text-slate-600 uppercase tracking-wider block px-1">
+                              Matching Folders ({adminSearchResults.folders.length})
+                            </span>
+                            <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
+                              {adminSearchResults.folders.map((folder) => {
+                                const isAllowed = adminAllowedFolders.some(f => f.folder_id === folder.id && f.is_active);
+                                const isToggling = adminTogglingId === folder.id;
+                                return (
+                                  <div key={folder.id} className="flex items-center justify-between p-3.5 hover:bg-slate-50/60 transition-colors gap-3">
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                      <Folder className="h-5 w-5 text-amber-500 shrink-0" />
+                                      <div className="min-w-0">
+                                        <span className="text-[13.5px] font-semibold text-slate-800 truncate block">
+                                          {folder.name}
+                                        </span>
+                                        <span className="text-[11.5px] text-slate-400">
+                                          {folder.child_count != null ? `${folder.child_count} items` : 'Folder'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0">
+                                      {isAllowed ? (
+                                        <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                                          <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                          <span>Active for Team</span>
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          disabled={isToggling}
+                                          onClick={() => void handleAddFolderToAllowed(folder)}
+                                          className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-[12px] font-bold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer"
+                                        >
+                                          <Plus className="h-3.5 w-3.5" />
+                                          <span>{isToggling ? 'Adding...' : 'Allow for Team'}</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Matching Files */}
+                        {adminSearchResults.files.length > 0 && (
+                          <div className="space-y-1.5">
+                            <span className="text-[12px] font-bold text-slate-600 uppercase tracking-wider block px-1">
+                              Matching Files ({adminSearchResults.files.length})
+                            </span>
+                            <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden max-h-[420px] overflow-y-auto">
+                              {adminSearchResults.files.map((file) => {
+                                const isAllowed = file.parent_is_allowed || adminAllowedFolders.some(f => f.folder_id === file.parent_folder_id && f.is_active);
+                                const isToggling = adminTogglingId === file.parent_folder_id;
+                                const isPpt = file.name.toLowerCase().endsWith('.pptx') || file.name.toLowerCase().endsWith('.ppt');
+                                return (
+                                  <div key={file.id} className="flex items-center justify-between p-3.5 hover:bg-slate-50/60 transition-colors gap-3">
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                      {isPpt ? (
+                                        <Presentation className="h-5 w-5 text-orange-500 shrink-0" />
+                                      ) : (
+                                        <FileText className="h-5 w-5 text-blue-500 shrink-0" />
+                                      )}
+                                      <div className="min-w-0">
+                                        <span className="text-[13px] font-semibold text-slate-800 truncate block">
+                                          {file.name}
+                                        </span>
+                                        <span className="text-[11.5px] text-slate-400 block truncate">
+                                          Folder: <strong className="text-slate-600">{file.parent_folder_name || 'Root'}</strong> {file.size ? `· ${fmtBytes(file.size)}` : ''} {file.last_modified_date_time ? `· ${file.last_modified_date_time.slice(0, 10)}` : ''}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0">
+                                      {isAllowed ? (
+                                        <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                                          <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                          <span>Folder Allowed</span>
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          disabled={isToggling || !file.parent_folder_id}
+                                          onClick={() => void handleAllowParentFolderFromFile(file)}
+                                          className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-[12px] font-bold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer"
+                                          title={`Add '${file.parent_folder_name}' to allowed team folders`}
+                                        >
+                                          <Plus className="h-3.5 w-3.5" />
+                                          <span>{isToggling ? 'Allowing...' : 'Allow Folder'}</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {/* Admin Breadcrumbs & Up Button */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                          <div className="flex items-center gap-1.5 text-[12.5px] flex-wrap">
+                            <span className="font-semibold text-slate-500">Location:</span>
+                            {adminBrowseTrail.map((crumb, idx) => {
+                              const isLast = idx === adminBrowseTrail.length - 1;
+                              return (
+                                <span key={crumb.id ?? 'root'} className="flex items-center gap-1">
+                                  {idx > 0 && <span className="text-slate-400">/</span>}
+                                  {isLast ? (
+                                    <span className="font-bold text-slate-900">{crumb.name}</span>
+                                  ) : (
                                     <button
                                       type="button"
-                                      disabled={isToggling}
-                                      onClick={() => void handleRemoveAllowedFolder(folder.id)}
-                                      className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                      onClick={() => void openAdminFolder(driveId, adminBrowseTrail.slice(0, idx + 1))}
+                                      className="text-blue-600 hover:underline cursor-pointer"
                                     >
-                                      {isToggling ? 'Removing...' : 'Remove'}
+                                      {crumb.name}
                                     </button>
-                                  </div>
-                                ) : (
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+
+                          {adminBrowseTrail.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => void openAdminFolder(driveId, adminBrowseTrail.slice(0, -1))}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                            >
+                              <CornerLeftUp className="h-3.5 w-3.5" />
+                              <span>Up Level</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Folder list */}
+                        <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
+                          {adminBrowsePage.folders.length === 0 ? (
+                            <div className="p-8 text-center text-slate-500 text-[13px]">
+                              No subfolders found in this directory.
+                            </div>
+                          ) : (
+                            adminBrowsePage.folders.map((folder) => {
+                              const isAllowed = folder.is_allowed;
+                              const isToggling = adminTogglingId === folder.id;
+                              return (
+                                <div
+                                  key={folder.id}
+                                  className="flex items-center justify-between p-3.5 hover:bg-slate-50/60 transition-colors gap-3"
+                                >
                                   <button
                                     type="button"
-                                    disabled={isToggling}
-                                    onClick={() => void handleAddFolderToAllowed(folder)}
-                                    className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-[12px] font-bold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer"
+                                    onClick={() =>
+                                      void openAdminFolder(driveId, [
+                                        ...adminBrowseTrail,
+                                        { id: folder.id, name: folder.name || 'Folder' }
+                                      ])
+                                    }
+                                    className="flex items-center gap-3 min-w-0 text-left hover:text-blue-600 group cursor-pointer flex-1"
                                   >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    <span>{isToggling ? 'Adding...' : 'Allow for Team'}</span>
+                                    <Folder className="h-5 w-5 text-amber-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                    <div className="min-w-0">
+                                      <span className="text-[13.5px] font-semibold text-slate-800 group-hover:text-blue-600 truncate block">
+                                        {folder.name}
+                                      </span>
+                                      <span className="text-[11.5px] text-slate-400">
+                                        {folder.child_count != null ? `${folder.child_count} items` : 'Folder'} · Click to open subfolders
+                                      </span>
+                                    </div>
                                   </button>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {isAllowed ? (
+                                      <div className="flex items-center gap-2">
+                                        <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                                          <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                          <span>Active for Team</span>
+                                        </span>
+                                        <button
+                                          type="button"
+                                          disabled={isToggling}
+                                          onClick={() => void handleRemoveAllowedFolder(folder.id)}
+                                          className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                        >
+                                          {isToggling ? 'Removing...' : 'Remove'}
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={isToggling}
+                                        onClick={() => void handleAddFolderToAllowed(folder)}
+                                        className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-[12px] font-bold text-white shadow-xs hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer"
+                                      >
+                                        <Plus className="h-3.5 w-3.5" />
+                                        <span>{isToggling ? 'Adding...' : 'Allow for Team'}</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

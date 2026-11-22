@@ -71,7 +71,13 @@ def test_templates_api_crud_and_categories():
     assert any(t["id"] == zvq_tpl["id"] for t in zvq_only)
     assert not any(t["id"] == school_tpl["id"] for t in zvq_only)
 
-    # 5. Clean up
+    # 5. Download master PPTX
+    dl_res = client.get(f"/api/v1/templates/{school_tpl['id']}/download")
+    assert dl_res.status_code == 200
+    assert len(dl_res.content) > 1000
+    assert "application/vnd.openxmlformats-officedocument.presentationml.presentation" in dl_res.headers["content-type"]
+
+    # 6. Clean up
     del1 = client.delete(f"/api/v1/templates/{school_tpl['id']}")
     assert del1.status_code == 200
     del2 = client.delete(f"/api/v1/templates/{zvq_tpl['id']}")

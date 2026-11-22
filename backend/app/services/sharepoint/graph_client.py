@@ -207,6 +207,19 @@ class SharePointClient:
         clean = quote(path.strip("/"), safe="/")
         return await self._graph_get(f"{self.GRAPH_BASE}/drives/{drive_id}/root:/{clean}", params={"$select": self._SELECT})
 
+    async def search_items(self, drive_id: str, query: str, item_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Search items in a drive or within a specific folder using Graph search(q='...')."""
+        from urllib.parse import quote
+        if not query or not query.strip():
+            return []
+        q = quote(query.strip())
+        if item_id and item_id != "root":
+            url = f"{self.GRAPH_BASE}/drives/{drive_id}/items/{item_id}/search(q='{q}')"
+        else:
+            url = f"{self.GRAPH_BASE}/drives/{drive_id}/root/search(q='{q}')"
+        data = await self._graph_get(url, params={"$select": self._SELECT, "$top": "100"})
+        return data.get("value", [])
+
     async def download_item_capped(self, drive_id: str, item_id: str, max_bytes: int) -> bytes:
         """Download a file, refusing anything over max_bytes (checked from Content-Length and again while streaming)."""
         url = f"{self.GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content"

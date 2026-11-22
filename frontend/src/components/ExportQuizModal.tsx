@@ -15,10 +15,12 @@ import {
   Layers,
   BookOpen,
   Upload,
-  Palette
+  Palette,
+  Eye
 } from 'lucide-react';
 import { Quiz, CustomPptTemplate } from '@/lib/types';
 import { api, ExportOptions } from '@/lib/api';
+import CustomTemplateViewModal from './CustomTemplateViewModal';
 
 interface ExportQuizModalProps {
   isOpen: boolean;
@@ -58,6 +60,7 @@ export default function ExportQuizModal({
   // Custom Templates state
   const [customTemplates, setCustomTemplates] = useState<CustomPptTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [viewingTemplate, setViewingTemplate] = useState<CustomPptTemplate | null>(null);
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -109,6 +112,8 @@ export default function ExportQuizModal({
       const newTpl = await api.extractTemplate(formData);
       setCustomTemplates((prev) => [newTpl, ...prev]);
       setSelectedTemplateId(newTpl.id);
+      // Auto-open template preview viewer
+      setViewingTemplate(newTpl);
     } catch (err: any) {
       setUploadError(err.message || 'Failed to extract template from sample PPT');
     } finally {
@@ -335,11 +340,24 @@ export default function ExportQuizModal({
                     <span className="text-xs font-bold text-slate-900 truncate pr-2" title={tpl.name}>
                       {tpl.name}
                     </span>
-                    {selectedTemplateId === tpl.id && (
-                      <div className="h-4 w-4 rounded-full bg-amber-600 text-white flex items-center justify-center shrink-0">
-                        <Check className="h-2.5 w-2.5" />
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setViewingTemplate(tpl);
+                        }}
+                        className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition"
+                        title="View template layout & specifications"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                      {selectedTemplateId === tpl.id && (
+                        <div className="h-4 w-4 rounded-full bg-amber-600 text-white flex items-center justify-center shrink-0">
+                          <Check className="h-2.5 w-2.5" />
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
                     {tpl.description || `Extracted custom layout deck with ${tpl.title_font || 'Custom'} title.`}
@@ -602,9 +620,21 @@ export default function ExportQuizModal({
                     : (zsvSubtype === 'school' ? 'Zerodha Varsity School Quiz' : 'Zerodha Varsity Corporate Quiz'))}
             </span>
             {selectedTemplateId && (
-              <span className="ml-2 bg-amber-100 text-amber-800 font-semibold text-[10px] px-2 py-0.5 rounded-full">
-                Custom Master Deck
-              </span>
+              <>
+                <span className="ml-2 bg-amber-100 text-amber-800 font-semibold text-[10px] px-2 py-0.5 rounded-full">
+                  Custom Master Deck
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = customTemplates.find((ct) => ct.id === selectedTemplateId);
+                    if (t) setViewingTemplate(t);
+                  }}
+                  className="ml-2 text-xs font-semibold text-amber-700 hover:text-amber-800 underline cursor-pointer"
+                >
+                  View Layout
+                </button>
+              </>
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -637,6 +667,14 @@ export default function ExportQuizModal({
           </div>
         </div>
       </div>
+
+      {/* Custom Template Viewer Modal */}
+      <CustomTemplateViewModal
+        isOpen={!!viewingTemplate}
+        onClose={() => setViewingTemplate(null)}
+        template={viewingTemplate}
+        onUseTemplate={(t) => setSelectedTemplateId(t.id)}
+      />
     </div>
   );
 }

@@ -13,10 +13,12 @@ import {
   Plus,
   Layers,
   Type,
-  Maximize2
+  Maximize2,
+  Eye
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { CustomPptTemplate } from '@/lib/types';
+import CustomTemplateViewModal from './CustomTemplateViewModal';
 
 interface CustomTemplateManagerProps {
   onTemplateCreated?: (template: CustomPptTemplate) => void;
@@ -47,6 +49,9 @@ export default function CustomTemplateManager({
   const [tplDesc, setTplDesc] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Template Viewer Modal state
+  const [selectedViewTemplate, setSelectedViewTemplate] = useState<CustomPptTemplate | null>(null);
 
   const loadTemplates = async () => {
     try {
@@ -106,6 +111,8 @@ export default function CustomTemplateManager({
       setTplName('');
       setTplDesc('');
       await loadTemplates();
+      // Automatically open the template viewer to inspect the extracted template
+      setSelectedViewTemplate(created);
       if (onTemplateCreated) {
         onTemplateCreated(created);
       }
@@ -281,13 +288,24 @@ export default function CustomTemplateManager({
                   <span className="text-[11px] text-slate-400">
                     {tpl.created_at ? new Date(tpl.created_at).toLocaleDateString() : 'Extracted'}
                   </span>
-                  <button
-                    onClick={() => handleDelete(tpl.id, tpl.name)}
-                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                    title="Delete template"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedViewTemplate(tpl)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                      title="View template layout, fonts, and safe media boxes"
+                    >
+                      <Eye className="h-3.5 w-3.5 text-slate-600" />
+                      <span>View</span>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(tpl.id, tpl.name)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                      title="Delete template"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -449,6 +467,14 @@ export default function CustomTemplateManager({
           </div>
         </div>
       )}
+
+      {/* Template View Modal */}
+      <CustomTemplateViewModal
+        isOpen={!!selectedViewTemplate}
+        onClose={() => setSelectedViewTemplate(null)}
+        template={selectedViewTemplate}
+        onDelete={handleDelete}
+      />
     </div>
   );
 }

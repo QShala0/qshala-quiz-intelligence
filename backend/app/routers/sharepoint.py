@@ -268,6 +268,69 @@ async def admin_browse(
     }
 
 
+@router.get("/admin/search")
+async def admin_search(
+    drive_id: str,
+    q: str = Query(..., min_length=1),
+    folder_id: Optional[str] = None,
+    _auth: bool = Depends(require_admin_auth),
+    db: Session = Depends(get_db),
+):
+    """Keyword search across file and folder names in SharePoint.
+    Returns matching files (with parent folder context) and matching folders (with allowed status)."""
+    client = get_sharepoint_client()
+    try:
+        raw_items = await client.search_items(drive_id, q, folder_id=folder_id)
+    except Exception as e:
+        raise _graph_error(e)
+
+    allowed_records = db.query(SharePointAllowedFolder).filter(
+        SharePointAllowedFolder.drive_id == drive_id
+    ).all()
+    allowed_folder_ids = {rec.folder_id: rec for rec in allowed_records if rec.is_active}
+
+    folders, files = [], []
+    for it in raw_items:
+        parent_ref = it.get("parentReference", {})
+        raw_path = parent_ref.get("path", "")
+        parent_id = parent_ref.get("id")
+        fpath = raw_path.split("root:", 1)[1].lstrip("/") if "root:" in raw_path else ""
+
+        if "folder" in it:
+            fid = it["id"]
+            rec = allowed_folder_ids.get(fid)
+            full_path = f"{fpath}/{it.get('name')}".strip("/") if fpath else (it.get("name") or "")
+            folders.append({
+                "id": fid,
+                "name": it.get("name"),
+                "path": full_path,
+                "child_count": (it.get("folder") or {}).get("childCount"),
+                "is_allowed": rec is not None,
+                "allowed_id": rec.id if rec else None,
+                "display_name": rec.display_name if rec else None,
+            })
+        elif "file" in it:
+            parent_is_allowed = parent_id in allowed_folder_ids if parent_id else False
+            files.append({
+                "id": it["id"],
+                "name": it.get("name"),
+                "size": int(it.get("size") or 0),
+                "modified": it.get("lastModifiedDateTime"),
+                "parent_folder_id": parent_id,
+                "parent_folder_path": fpath,
+                "parent_folder_name": fpath.split("/")[-1] if fpath else "Root",
+                "parent_is_allowed": parent_is_allowed,
+            })
+
+    return {
+        "drive_id": drive_id,
+        "query": q,
+        "total_results": len(folders) + len(files),
+        "folders": sorted(folders, key=lambda f: (f["name"] or "").lower()),
+        "files": sorted(files, key=lambda f: (f["name"] or "").lower()),
+    }
+
+
 @router.get("/admin/allowed-folders")
 def admin_get_allowed_folders(
     drive_id: Optional[str] = None,

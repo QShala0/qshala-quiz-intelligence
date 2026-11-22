@@ -764,6 +764,25 @@ export interface SpAdminBrowse {
   files: SpAdminBrowseFile[];
 }
 
+export interface SpAdminSearchFile {
+  id: string;
+  name: string;
+  size: number;
+  modified?: string | null;
+  parent_folder_id?: string | null;
+  parent_folder_path?: string;
+  parent_folder_name?: string;
+  parent_is_allowed?: boolean;
+}
+
+export interface SpAdminSearchResult {
+  drive_id: string;
+  query: string;
+  total_results: number;
+  folders: SpAdminBrowseFolder[];
+  files: SpAdminSearchFile[];
+}
+
 // ---- Custom PPT Templates ----
 export interface CustomPptTemplate {
   id: string;
@@ -778,8 +797,26 @@ export interface CustomPptTemplate {
   title_color_hex?: string | null;
   body_font?: string | null;
   body_size_pt?: number | null;
+  body_color_hex?: string | null;
   header_font?: string | null;
   header_size_pt?: number | null;
+  header_color_hex?: string | null;
   has_preview?: boolean;
+  file_size_bytes?: number | null;
+  layout_metadata?: {
+    layouts?: {
+      cover_layout?: string | null;
+      question_layout?: string | null;
+      answer_layout?: string | null;
+      geometry?: {
+        question_box?: { left: number; top: number; width: number; height: number };
+        media_box?: { left: number; top: number; width: number; height: number };
+        answer_box?: { left: number; top: number; width: number; height: number };
+      };
+    };
+    backgrounds?: Record<string, string>;
+    theme_fonts?: { major?: string; minor?: string };
+  } | null;
   created_at?: string | null;
+  updated_at?: string | null;
 }

@@ -34,7 +34,12 @@ def _template_response(tpl: CustomPptTemplate) -> Dict[str, Any]:
         "header_font": tpl.header_font,
         "header_size_pt": tpl.header_size_pt,
         "header_color_hex": tpl.header_color_hex,
-        "has_preview": bool(tpl.preview_image_path and os.path.exists(tpl.preview_image_path)),
+        "has_preview": bool(
+            (tpl.preview_image_path and os.path.exists(tpl.preview_image_path))
+            or (tpl.storage_path and os.path.exists(os.path.join(os.path.dirname(tpl.storage_path), "cover_bg.png")))
+        ),
+        "file_size_bytes": tpl.file_size_bytes,
+        "layout_metadata": tpl.layout_metadata or {},
         "created_at": tpl.created_at.isoformat() if tpl.created_at else None,
         "updated_at": tpl.updated_at.isoformat() if tpl.updated_at else None,
     }
@@ -166,6 +171,37 @@ def get_template_preview(
 ):
     """Serves the preview thumbnail image for the template."""
     tpl = db.query(CustomPptTemplate).filter(CustomPptTemplate.id == template_id).first()
-    if not tpl or not tpl.preview_image_path or not os.path.exists(tpl.preview_image_path):
-        raise HTTPException(status_code=404, detail="Preview image not found")
-    return FileResponse(tpl.preview_image_path, media_type="image/png")
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    if tpl.preview_image_path and os.path.exists(tpl.preview_image_path):
+        return FileResponse(tpl.preview_image_path, media_type="image/png")
+
+    # Check for cover_bg in storage directory as fallback
+    if tpl.storage_path:
+        storage_dir = Path(tpl.storage_path).parent
+        for candidate in ["cover_bg.png", "cover_bg.jpg", "cover_bg.jpeg"]:
+            p = storage_dir / candidate
+            if p.exists():
+                return FileResponse(str(p), media_type="image/png" if candidate.endswith(".png") else "image/jpeg")
+
+    raise HTTPException(status_code=404, detail="Preview image not found")
+
+
+@router.get("/{template_id}/download")
+def download_template_master(
+    template_id: str,
+    db: Session = Depends(get_db),
+):
+    """Downloads the clean master presentation (.pptx) file."""
+    tpl = db.query(CustomPptTemplate).filter(CustomPptTemplate.id == template_id).first()
+    if not tpl or not tpl.storage_path or not os.path.exists(tpl.storage_path):
+        raise HTTPException(status_code=404, detail="Template master presentation file not found")
+
+    safe_name = "".join(c for c in tpl.name if c.isalnum() or c in (" ", "-", "_")).strip().replace(" ", "_")
+    filename = f"{safe_name or 'template'}_master.pptx"
+    return FileResponse(
+        tpl.storage_path,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=filename,
+    )

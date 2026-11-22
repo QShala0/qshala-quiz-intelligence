@@ -18,7 +18,7 @@ import {
   IngestionJobItem,
   SharePointSyncResponse,
   SpConfig, SpDrive, SpBrowse, SpSelection, SpPlan, SpStage, SpTransfer, SpImportStatus,
-  SpAdminVerifyResponse, SpAdminFolder, SpAdminBrowse,
+  SpAdminVerifyResponse, SpAdminFolder, SpAdminBrowse, SpAdminSearchResult, SpAdminSearchFile,
   CustomPptTemplate,
   RequeueResponse,
   JobActionResponse,
@@ -376,6 +376,14 @@ export const api = {
       }
     ),
 
+  spAdminSearch: (token: string, driveId: string, query: string, folderId?: string | null) => {
+    const q = new URLSearchParams({ drive_id: driveId, q: query });
+    if (folderId) q.set('folder_id', folderId);
+    return spJson<SpAdminSearchResult>(`/admin/search?${q.toString()}`, {
+      headers: { 'x-admin-token': token },
+    });
+  },
+
   // ---- Custom PPT Templates ----
   listTemplates: async (category?: string): Promise<CustomPptTemplate[]> => {
     const url = category ? `${getApiBase()}/templates?category=${encodeURIComponent(category)}` : `${getApiBase()}/templates`;
@@ -401,6 +409,14 @@ export const api = {
       method: 'DELETE',
     });
     return handleResponse<{ message: string; id: string }>(res);
+  },
+
+  getTemplatePreviewUrl: (id: string): string => {
+    return `${getApiBase()}/templates/${id}/preview`;
+  },
+
+  getTemplateDownloadUrl: (id: string): string => {
+    return `${getApiBase()}/templates/${id}/download`;
   },
 
 
