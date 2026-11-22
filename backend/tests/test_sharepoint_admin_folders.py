@@ -272,7 +272,7 @@ def test_admin_search_files_and_folders(api_client, monkeypatch):
     """Admin keyword search queries SharePoint and returns matching files and folders with allowed status."""
     monkeypatch.setattr(settings, "SHAREPOINT_ADMIN_PASSWORD", "secret123")
     token = create_admin_token()
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {"x-admin-token": token}
 
     # 1. Search without auth fails 401
     unauth = api_client.get("/api/v1/sharepoint/admin/search?drive_id=D&q=Round1")

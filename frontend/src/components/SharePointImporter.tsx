@@ -1823,7 +1823,7 @@ export default function SharePointImporter() {
                                           {file.name}
                                         </span>
                                         <span className="text-[11.5px] text-slate-400 block truncate">
-                                          Folder: <strong className="text-slate-600">{file.parent_folder_name || 'Root'}</strong> {file.size ? `· ${fmtBytes(file.size)}` : ''} {file.last_modified_date_time ? `· ${file.last_modified_date_time.slice(0, 10)}` : ''}
+                                          Folder: <strong className="text-slate-600">{file.parent_folder_name || 'Root'}</strong> {file.size ? `· ${mb(file.size)}` : ''} {file.modified ? `· ${file.modified.slice(0, 10)}` : ''}
                                         </span>
                                       </div>
                                     </div>
