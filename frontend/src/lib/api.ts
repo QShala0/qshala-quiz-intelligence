@@ -18,6 +18,8 @@ import {
   IngestionJobItem,
   SharePointSyncResponse,
   SpConfig, SpDrive, SpBrowse, SpSelection, SpPlan, SpStage, SpTransfer, SpImportStatus,
+  SpAdminVerifyResponse, SpAdminFolder, SpAdminBrowse,
+  CustomPptTemplate,
   RequeueResponse,
   JobActionResponse,
   JobRetryResponse,
@@ -324,6 +326,82 @@ export const api = {
   spImport: (sel: SpSelection) => spPost<SpStage>('/import', sel),
   spTransferNext: (batchId?: string, limit = 3) => spPost<SpTransfer>(`/transfer-next?limit=${limit}${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`, {}),
   spImportStatus: (batchId?: string) => spJson<SpImportStatus>(batchId ? `/import-status?batch_id=${encodeURIComponent(batchId)}` : '/import-status'),
+
+  // SharePoint Admin Access Control
+  spAdminVerify: (password: string) =>
+    spPost<SpAdminVerifyResponse>('/admin/verify', { password }),
+
+  spAdminBrowse: (token: string, driveId: string, folderId?: string | null, nextUrl?: string | null) => {
+    const q = new URLSearchParams({ drive_id: driveId });
+    if (folderId) q.set('folder_id', folderId);
+    if (nextUrl) q.set('next_url', nextUrl);
+    return spJson<SpAdminBrowse>(`/admin/browse?${q.toString()}`, {
+      headers: { 'x-admin-token': token },
+    });
+  },
+
+  spAdminGetAllowedFolders: (token: string, driveId?: string) => {
+    const q = driveId ? `?drive_id=${encodeURIComponent(driveId)}` : '';
+    return spJson<{ folders: SpAdminFolder[] }>(`/admin/allowed-folders${q}`, {
+      headers: { 'x-admin-token': token },
+    });
+  },
+
+  spAdminSaveAllowedFolder: (
+    token: string,
+    data: {
+      drive_id: string;
+      folder_id: string;
+      folder_name?: string;
+      folder_path?: string;
+      display_name?: string;
+      is_active?: boolean;
+    }
+  ) =>
+    spJson<{ success: boolean; folder: SpAdminFolder }>('/admin/allowed-folders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-token': token,
+      },
+      body: JSON.stringify(data),
+    }),
+
+  spAdminDeleteAllowedFolder: (token: string, folderId: string, driveId: string) =>
+    spJson<{ success: boolean; message: string }>(
+      `/admin/allowed-folders/${encodeURIComponent(folderId)}?drive_id=${encodeURIComponent(driveId)}`,
+      {
+        method: 'DELETE',
+        headers: { 'x-admin-token': token },
+      }
+    ),
+
+  // ---- Custom PPT Templates ----
+  listTemplates: async (category?: string): Promise<CustomPptTemplate[]> => {
+    const url = category ? `${getApiBase()}/templates?category=${encodeURIComponent(category)}` : `${getApiBase()}/templates`;
+    const res = await fetch(url);
+    return handleResponse<CustomPptTemplate[]>(res);
+  },
+
+  getTemplate: async (id: string): Promise<CustomPptTemplate> => {
+    const res = await fetch(`${getApiBase()}/templates/${id}`);
+    return handleResponse<CustomPptTemplate>(res);
+  },
+
+  extractTemplate: async (formData: FormData): Promise<CustomPptTemplate> => {
+    const res = await fetch(`${getApiBase()}/templates/extract`, {
+      method: 'POST',
+      body: formData,
+    });
+    return handleResponse<CustomPptTemplate>(res);
+  },
+
+  deleteTemplate: async (id: string): Promise<{ message: string; id: string }> => {
+    const res = await fetch(`${getApiBase()}/templates/${id}`, {
+      method: 'DELETE',
+    });
+    return handleResponse<{ message: string; id: string }>(res);
+  },
 
 
   // Stats
@@ -1082,6 +1160,7 @@ export const api = {
       if (options?.customSubtitle) url += `&custom_subtitle=${encodeURIComponent(options.customSubtitle)}`;
       if (options?.includeSocialSlides !== undefined) url += `&include_social_slides=${options.includeSocialSlides}`;
       if (options?.showAnswerDivider !== undefined) url += `&show_answer_divider=${options.showAnswerDivider}`;
+      if (options?.templateId) url += `&template_id=${encodeURIComponent(options.templateId)}`;
     }
     return url;
   },
@@ -1101,6 +1180,7 @@ export const api = {
       if (options?.customSubtitle) params.append('custom_subtitle', options.customSubtitle);
       if (options?.includeSocialSlides !== undefined) params.append('include_social_slides', String(options.includeSocialSlides));
       if (options?.showAnswerDivider !== undefined) params.append('show_answer_divider', String(options.showAnswerDivider));
+      if (options?.templateId) params.append('template_id', options.templateId);
     }
     const queryStr = params.toString();
 
@@ -1130,6 +1210,7 @@ export const api = {
 export interface ExportOptions {
   quizType?: 'school' | 'corporate' | 'minimalist' | 'qshala_school';
   templateCategory?: 'qshala' | 'zsv';
+  templateId?: string;
   theme?: string;
   campusEdition?: string;
   prizeMoney?: string;

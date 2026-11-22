@@ -161,6 +161,7 @@ class Settings(BaseSettings):
     # Optional: the importer can only see this folder (and below) inside the library, e.g. "Quizzes" or "Quizzes, QShala School Program".
     SHAREPOINT_ROOT_FOLDER: Optional[str] = None
     SHAREPOINT_ROOT_FOLDERS: Optional[str] = None
+    SHAREPOINT_ADMIN_PASSWORD: str = "qshala-admin"
     
     # AI Provider: 'gemini', 'openai', 'anthropic', or 'local'
     LLM_PROVIDER: str = "local"
@@ -394,6 +395,13 @@ class Settings(BaseSettings):
         if v == "" or v is None:
             return None
         return str(v)
+
+    @field_validator("SHAREPOINT_ADMIN_PASSWORD", mode="before")
+    @classmethod
+    def parse_sharepoint_admin_password(cls, v):
+        if not v or not str(v).strip():
+            return "qshala-admin"
+        return str(v).strip()
 
     @field_validator("PROJECT_NAME", mode="before")
     @classmethod

@@ -1,5 +1,6 @@
+import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, BigInteger, Text, DateTime, Index
+from sqlalchemy import Column, String, Integer, BigInteger, Text, DateTime, Index, Boolean, UniqueConstraint
 from backend.app.database import Base
 
 class SharePointSyncState(Base):
@@ -42,3 +43,24 @@ class SharePointFile(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("ix_sharepoint_files_batch_id", "batch_id"), Index("ix_sharepoint_files_sync_status", "sync_status"))
+
+
+class SharePointAllowedFolder(Base):
+    __tablename__ = "sharepoint_allowed_folders"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    drive_id = Column(String(255), nullable=False, index=True)
+    folder_id = Column(String(255), nullable=False)          # Graph item id
+    folder_name = Column(String(255), nullable=False)        # e.g. "Sunday Club 2024"
+    folder_path = Column(Text, nullable=False)               # e.g. "Quizzes/Sunday Club 2024"
+    display_name = Column(String(255), nullable=True)        # Optional custom label
+    is_active = Column(Boolean, default=True, index=True)    # Easy toggle on/off
+    added_by = Column(String(100), default="admin")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("drive_id", "folder_id", name="uq_sharepoint_drive_folder"),
+        Index("ix_sharepoint_allowed_folders_active", "drive_id", "is_active"),
+    )
+

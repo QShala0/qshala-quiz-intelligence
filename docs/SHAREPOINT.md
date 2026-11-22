@@ -38,7 +38,17 @@ The older `POST /sharepoint/sync` (delta sync of a whole library) is unchanged.
 | "over the N MB limit" | Raise `SHAREPOINT_MAX_FILE_MB` or import that file by hand. |
 | "Identical file already in QShala" | Byte-identical deck exists (same sha256); it was skipped on purpose. |
 
-## Limiting QShala to one folder
-Set `SHAREPOINT_ROOT_FOLDER` (for example `Quizzes`, or `Quizzes/2024`). The importer then starts in that folder, quizmasters cannot
-browse above it, and the server refuses any file or folder outside it (even if someone crafts a request). The old whole-library
-`POST /sharepoint/sync` is switched off while this is set. Use this when the site holds documents other than quizzes.
+## Limiting QShala to specific folders
+
+There are two complementary ways to restrict folder access:
+
+### 1. Dynamic Admin Folder Management (Recommended)
+Admins can customize exactly which folders quizmasters can access directly in the web UI without redeploying:
+1. In **Settings > SharePoint**, click the **Folder Access** button in the header.
+2. Enter the admin password (configured via `SHAREPOINT_ADMIN_PASSWORD`, defaults to `qshala-admin` for development).
+3. In **Explore & Add Folders**, browse the full SharePoint drive and click **Allow for Team** on any folder.
+4. Active folders are stored in the database (`sharepoint_allowed_folders`).
+5. Quizmasters will only see and be able to import from the approved folders. Requests targeting folders outside these are strictly rejected by the backend.
+
+### 2. Static Environment Scoping (Fallback)
+Set `SHAREPOINT_ROOT_FOLDERS` or `SHAREPOINT_ROOT_FOLDER` (e.g. `Quizzes` or `Quizzes, QShala School Program`). When no database folders have been configured by an admin yet, this environment variable is used as the fallback scope. The old whole-library `POST /sharepoint/sync` is switched off while any folder limit is active.

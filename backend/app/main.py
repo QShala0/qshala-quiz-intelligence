@@ -27,7 +27,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend.app.config import settings
 from backend.app.database import engine, Base
-from backend.app.routers import documents, questions, quizzes, stats, jobs, sharepoint, qshala_tagging, question_meta, prompt_quiz
+from backend.app.routers import documents, questions, quizzes, stats, jobs, sharepoint, qshala_tagging, question_meta, prompt_quiz, templates
 
 # Register ALL SQLAlchemy models here so Base.metadata.create_all sees them before
 # the first create_all call below. Importing the module is enough; the class
@@ -40,6 +40,10 @@ from backend.app.models.qshala_tag import (  # noqa: F401
 from backend.app.models.question_meta import (  # noqa: F401
     DeckMetadata, QuestionTopicPath, QuestionRepeat, QuestionEditHistory,
 )
+from backend.app.models.sharepoint import (  # noqa: F401
+    SharePointSyncState, SharePointFile, SharePointAllowedFolder,
+)
+from backend.app.models.custom_template import CustomPptTemplate  # noqa: F401
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -331,6 +335,7 @@ app.include_router(sharepoint.router, prefix=settings.API_V1_STR)
 app.include_router(qshala_tagging.router, prefix=settings.API_V1_STR)
 app.include_router(qshala_tagging.router)  # Also mount at /qshala/* directly
 app.include_router(prompt_quiz.router, prefix=settings.API_V1_STR)
+app.include_router(templates.router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 @app.get("/api")

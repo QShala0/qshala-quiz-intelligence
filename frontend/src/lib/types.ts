@@ -682,7 +682,19 @@ export interface BatchLocalItem {
 
 // ---- SharePoint selective importer ----
 export type SpItemStatus = 'NEW' | 'CHANGED' | 'RETRY' | 'ALREADY_IMPORTED' | 'IN_PROGRESS' | 'POSSIBLE_DUPLICATE';
-export interface SpConfig { configured: boolean; has_credentials: boolean; has_site: boolean; has_drive: boolean; root_folder?: string | null; root_folders?: string[] | null; max_file_mb: number; supported_extensions: string[] }
+export interface SpConfig {
+  configured: boolean;
+  has_credentials: boolean;
+  has_site: boolean;
+  has_drive: boolean;
+  root_folder?: string | null;
+  root_folders?: string[] | null;
+  is_custom_folders?: boolean;
+  allowed_folders_count?: number;
+  admin_configured?: boolean;
+  max_file_mb: number;
+  supported_extensions: string[];
+}
 export interface SpDrive { id: string; name?: string | null; web_url?: string | null }
 export interface SpFolder { id: string; name: string | null; child_count?: number | null }
 export interface SpBrowseFile { id: string; name: string; size: number; status: SpItemStatus; modified?: string | null; match_document_id?: string | null }
@@ -706,4 +718,68 @@ export interface SpImportStatus {
   remaining: number;
   failed: { id: string; name: string; error?: string | null }[];
   skipped_duplicates: { id: string; name: string; message?: string | null; match_document_id?: string | null }[];
+}
+
+export interface SpAdminVerifyResponse {
+  success: boolean;
+  token: string;
+  expires_in: number;
+}
+
+export interface SpAdminFolder {
+  id: string;
+  drive_id: string;
+  folder_id: string;
+  folder_name: string;
+  folder_path: string;
+  display_name?: string | null;
+  is_active: boolean;
+  added_by?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface SpAdminBrowseFolder {
+  id: string;
+  name: string | null;
+  path: string;
+  child_count?: number | null;
+  is_allowed: boolean;
+  allowed_id?: string | null;
+  display_name?: string | null;
+}
+
+export interface SpAdminBrowseFile {
+  id: string;
+  name: string | null;
+  size: number;
+  modified?: string | null;
+}
+
+export interface SpAdminBrowse {
+  drive_id: string;
+  folder_id?: string | null;
+  next_url?: string | null;
+  folders: SpAdminBrowseFolder[];
+  files: SpAdminBrowseFile[];
+}
+
+// ---- Custom PPT Templates ----
+export interface CustomPptTemplate {
+  id: string;
+  name: string;
+  category: 'qshala_school' | 'zvq';
+  description?: string | null;
+  aspect_ratio: string;
+  slide_width_in?: number | null;
+  slide_height_in?: number | null;
+  title_font?: string | null;
+  title_size_pt?: number | null;
+  title_color_hex?: string | null;
+  body_font?: string | null;
+  body_size_pt?: number | null;
+  header_font?: string | null;
+  header_size_pt?: number | null;
+  has_preview?: boolean;
+  created_at?: string | null;
 }
