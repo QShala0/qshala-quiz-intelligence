@@ -559,7 +559,28 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         );
         setVersion((v) => v + 1);
       } catch (err: unknown) {
-        if (isAbortError(err)) {
+        const errObj = typeof err === 'object' && err !== null ? (err as { code?: string }) : undefined;
+        const isDuplicate =
+          errObj?.code === 'duplicate_name' ||
+          (err instanceof Error && err.message.toLowerCase().includes('already in qshala'));
+
+        if (isDuplicate) {
+          setItems((prev) =>
+            prev.map((it) =>
+              it.clientItemId === item.clientItemId
+                ? {
+                    ...it,
+                    phase: 'CANCELLED' as BatchItemPhase,
+                    isDuplicate: true,
+                    step: 'Already in QShala',
+                    error: 'Already in QShala',
+                    file: undefined,
+                  }
+                : it
+            )
+          );
+          toast.info(`“${file.name}” was skipped (already in QShala).`);
+        } else if (isAbortError(err)) {
           setItems((prev) =>
             prev.map((it) =>
               it.clientItemId === item.clientItemId
@@ -588,7 +609,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     };
 
     uploadNextFile(nextItem);
-  }, [activeBatchId, items, triggerNextUpload, fmtMB]);
+  }, [activeBatchId, items, triggerNextUpload, fmtMB, toast]);
 
   // Multi-file upload entry point
   const handleMultiFileUpload = async (files: File[]) => {
@@ -621,16 +642,46 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
       const res = await api.createUploadBatch(regPayload);
       setActiveBatchId(res.batch_id);
-      setItems(initialItems);
+
+      const rejectedMap = new Map<string, string>();
+      for (const d of res.rejected_duplicates || []) {
+        rejectedMap.set(d.filename.toLowerCase(), d.filename);
+      }
+
+      let skippedCount = 0;
+      const initialItemsWithDupes = initialItems.map((it) => {
+        const isRej = rejectedMap.has(it.filename.toLowerCase());
+        if (isRej) {
+          skippedCount++;
+          return {
+            ...it,
+            phase: 'CANCELLED' as BatchItemPhase,
+            isDuplicate: true,
+            step: 'Already in QShala',
+            error: 'Already in QShala',
+            file: undefined,
+          };
+        }
+        return it;
+      });
+
+      setItems(initialItemsWithDupes);
+      const waitingCount = initialItemsWithDupes.filter((it) => it.phase === 'WAITING').length;
       setBatchTotals({
-        total: initialItems.length,
+        total: initialItemsWithDupes.length,
         completed: 0,
         processing: 0,
         queued: 0,
-        waiting: initialItems.length,
+        waiting: waitingCount,
         failed: 0,
-        cancelled: 0,
+        cancelled: skippedCount,
       });
+
+      if (skippedCount > 0) {
+        toast.info(
+          `${skippedCount} ${skippedCount === 1 ? 'deck was' : 'decks were'} skipped (already in QShala).`
+        );
+      }
 
       try {
         localStorage.setItem(STORAGE_BATCH_KEY, JSON.stringify({ batchId: res.batch_id }));

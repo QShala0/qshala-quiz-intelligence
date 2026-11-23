@@ -9,6 +9,7 @@ from backend.app.database import get_db
 from backend.app.models.document import Document
 from backend.app.models.job import IngestionJob
 from backend.app.models.upload_batch import UploadBatch
+from backend.app.services.deck_names import normalize_deck_name, find_deck_by_name
 from backend.app.services.jobs.job_queue import get_job_queue_service
 
 logger = logging.getLogger(__name__)
@@ -76,13 +77,44 @@ def create_upload_batch(payload: CreateBatchRequest, db: Session = Depends(get_d
         if not f.client_item_id or not f.client_item_id.strip():
             raise HTTPException(status_code=400, detail="Each file must have a non-empty client_item_id.")
 
-    items_data = [f.model_dump() for f in payload.files]
-    batch = UploadBatch(total_expected=len(payload.files), items=items_data,
+    rejected_duplicates: List[Dict[str, Any]] = []
+    accepted_files: List[BatchFileItem] = []
+    seen_in_batch: Dict[str, str] = {}
+
+    for f in payload.files:
+        norm = normalize_deck_name(f.filename)
+        if norm in seen_in_batch:
+            rejected_duplicates.append({
+                "client_item_id": f.client_item_id,
+                "filename": f.filename,
+                "existing_document_id": None,
+                "existing_title": seen_in_batch[norm],
+            })
+            continue
+
+        existing = find_deck_by_name(db, f.filename)
+        if existing:
+            rejected_duplicates.append({
+                "client_item_id": f.client_item_id,
+                "filename": f.filename,
+                "existing_document_id": existing.id,
+                "existing_title": existing.title or existing.filename,
+            })
+            continue
+
+        seen_in_batch[norm] = f.filename
+        accepted_files.append(f)
+
+    items_data = [f.model_dump() for f in accepted_files]
+    batch = UploadBatch(total_expected=len(accepted_files), items=items_data,
                         client_id=(payload.client_id or "").strip() or None)
     db.add(batch)
     db.commit()
     db.refresh(batch)
-    return {"batch_id": batch.id}
+    return {
+        "batch_id": batch.id,
+        "rejected_duplicates": rejected_duplicates,
+    }
 
 
 @router.post("/upload-batch/{batch_id}/heartbeat")

@@ -2,7 +2,7 @@ import logging
 import hashlib
 import hmac
 import time
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Header
 from sqlalchemy.orm import Session
@@ -614,3 +614,68 @@ async def sharepoint_transfer_next(
 @router.get("/import-status")
 def sharepoint_import_status(batch_id: Optional[str] = None, db: Session = Depends(get_db)):
     return importer.import_status(db, batch_id)
+
+
+_NOT_IMPORTED_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+CACHE_TTL = 300  # 5 minutes
+
+
+@router.get("/not-imported")
+async def sharepoint_not_imported(
+    drive_id: Optional[str] = None,
+    refresh: int = Query(0),
+    db: Session = Depends(get_db),
+):
+    """Candidates in SharePoint that are not yet imported into QShala (status NEW).
+    Capped at 500 and sorted by folder then name. Cached in memory for 5 minutes (bypass with refresh=1)."""
+    client = get_sharepoint_client()
+    drive = drive_id or settings.SHAREPOINT_DRIVE_ID
+    if not drive:
+        drives = await client.list_drives()
+        if not drives:
+            return {"count": 0, "truncated": False, "files": []}
+        drive = drives[0]["id"]
+
+    cache_key = drive
+    now = time.time()
+    if not refresh and cache_key in _NOT_IMPORTED_CACHE:
+        cached_time, cached_res = _NOT_IMPORTED_CACHE[cache_key]
+        if now - cached_time < CACHE_TTL:
+            return cached_res
+
+    try:
+        roots = await importer.scope_roots(client, drive, db=db)
+        if len(roots) > 1:
+            items = [importer.ItemRef(id=r["id"], kind="folder") for r in roots]
+        elif len(roots) == 1:
+            items = [importer.ItemRef(id=roots[0]["id"], kind="folder")]
+        else:
+            items = [importer.ItemRef(id="root", kind="folder")]
+
+        sel = importer.Selection(drive_id=drive, items=items, recursive=True)
+        got = await importer.collect_candidates(client, sel, db=db)
+        importer.classify(db, got["candidates"])
+
+        new_cands = [c for c in got["candidates"] if c.get("status") == "NEW"]
+        new_cands.sort(key=lambda c: ((c.get("folder_path") or "").lower(), (c.get("name") or "").lower()))
+
+        truncated = got.get("truncated", False) or len(new_cands) > 500
+        capped_files = new_cands[:500]
+
+        result = {
+            "count": len(capped_files),
+            "truncated": truncated,
+            "files": [{
+                "id": c["id"],
+                "drive_id": c["drive_id"],
+                "name": c["name"],
+                "folder_path": c.get("folder_path") or "",
+                "size": c.get("size") or 0,
+                "last_modified": c["modified"].isoformat() if c.get("modified") else None,
+            } for c in capped_files],
+        }
+
+        _NOT_IMPORTED_CACHE[cache_key] = (now, result)
+        return result
+    except Exception as e:
+        raise _graph_error(e)

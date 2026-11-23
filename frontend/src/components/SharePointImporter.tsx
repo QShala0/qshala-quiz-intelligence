@@ -647,19 +647,6 @@ export default function SharePointImporter() {
                   Connected
                 </span>
               </div>
-              <p className="mt-0.5 text-[13px] text-slate-500">
-                Browse quiz folders, search files, preview what is new, and import decks directly into QShala.
-                {cfg.is_custom_folders ? (
-                  <span className="ml-1.5 inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200/80 px-2 py-0.5 text-[11.5px] font-semibold text-amber-800">
-                    <ShieldCheck className="h-3 w-3 text-amber-600" />
-                    Scoped to {cfg.allowed_folders_count ?? cfg.root_folders?.length ?? 0} folder(s) approved by Admin
-                  </span>
-                ) : cfg.root_folder ? (
-                  <span className="ml-1 text-slate-600 font-medium">
-                    (Scoped to: <span className="font-semibold text-slate-800">“{cfg.root_folder}”</span>)
-                  </span>
-                ) : null}
-              </p>
             </div>
           </div>
 
