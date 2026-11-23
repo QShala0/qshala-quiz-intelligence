@@ -177,6 +177,7 @@ def interpret_with_gemini(
             "response_mime_type": "application/json",
             "response_schema": BRIEF_SCHEMA,
             "temperature": 0.0,
+            "maxOutputTokens": 800,
         },
     }
 

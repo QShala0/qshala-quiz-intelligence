@@ -210,7 +210,7 @@ class Settings(BaseSettings):
     # questions) and accuracy matters more than API cost. Once you've accumulated
     # enough Gemini-tagged questions to train your own local classifier on them, flip
     # this back to False to re-enable the cost-saving hybrid gate.
-    FORCE_AI_TAGGING: bool = True
+    FORCE_AI_TAGGING: bool = False
 
     # Upload mechanism. Default (False) = the direct path: each upload processes immediately in the
     # background with live progress, server-memory metrics, an activity log, and a working Cancel
