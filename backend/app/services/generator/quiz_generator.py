@@ -158,7 +158,7 @@ class QuizGenerator:
         # Reserve spares and example slides never go into a generated quiz
         retrieved_items = [it for it in retrieved_items if (getattr(it["question"], "slot", None) or "LIVE") == "LIVE"]
 
-        context_data = ContextBuilder.build_prompt_context(retrieved_items)
+        context_data = ContextBuilder.build_prompt_context(retrieved_items, max_items=req.question_count * 2)
         evidence_context = context_data["evidence_context"]
         source_mapping = context_data["source_mapping"]
         style_examples = context_data["style_examples"]

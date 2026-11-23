@@ -177,7 +177,8 @@ INTENT_SCHEMA: Dict[str, Any] = {
 def _build_system_prompt(taxonomy: Dict[str, List[str]]) -> str:
     tax_summary = []
     for l1, l2s in sorted(taxonomy.items()):
-        tax_summary.append(f"  - {l1}: {', '.join(l2s[:6])}")
+        cleaned_l2s = [re.sub(r"\s*\([^)]*\)", "", l2).strip() for l2 in l2s if l2]
+        tax_summary.append(f"  - {l1}: {', '.join(cleaned_l2s[:6])}")
     tax_str = "\n".join(tax_summary)
 
     return (

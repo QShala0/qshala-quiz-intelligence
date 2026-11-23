@@ -244,11 +244,19 @@ class GeminiLLMProvider(LLMProvider):
             raise ValueError("GEMINI_API_KEY is not configured")
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        gen_cfg: Dict[str, Any] = {
+            "response_mime_type": "application/json",
+            "maxOutputTokens": 1024,
+            "temperature": 0.0,
+        }
+        if any(tag in self.model for tag in ("3.1", "3.5", "3.6", "3.8", "4-")):
+            gen_cfg["thinking_config"] = {"thinking_level": "MINIMAL"}
+        else:
+            gen_cfg["thinking_config"] = {"thinking_budget": 0}
+
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "response_mime_type": "application/json"
-            }
+            "generationConfig": gen_cfg,
         }
         if system_instruction:
             payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
@@ -257,7 +265,11 @@ class GeminiLLMProvider(LLMProvider):
         async with _shared_client(60.0) as client:
             resp = await _post_with_retry(client, url, payload, self.api_key, retry_transport=False)
             if resp.is_error:
-                logger.error(f"[GeminiLLMProvider] API error ({resp.status_code}): {resp.text}")
+                if "thinking" in resp.text.lower() and "thinking_config" in gen_cfg:
+                    gen_cfg.pop("thinking_config", None)
+                    resp = await _post_with_retry(client, url, payload, self.api_key, retry_transport=False)
+                if resp.is_error:
+                    logger.error(f"[GeminiLLMProvider] API error ({resp.status_code}): {resp.text}")
             resp.raise_for_status()
             data = resp.json()
             text = self._extract_text(data)
