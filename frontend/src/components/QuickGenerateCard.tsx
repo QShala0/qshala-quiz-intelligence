@@ -12,6 +12,9 @@ import {
   X,
   Search,
   Plus,
+  Trophy,
+  BookOpen,
+  HelpCircle,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { TopicItem, TopicSummary, TagItem } from '../lib/types';
@@ -83,6 +86,9 @@ export default function QuickGenerateCard() {
 
   // Format
   const [questionTypes, setQuestionTypes] = useState<string[]>(['SLIDE_QA']);
+
+  // Quizmaster Personality
+  const [personality, setPersonality] = useState<string>('DEFAULT');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -239,6 +245,7 @@ export default function QuickGenerateCard() {
         question_types: questionTypes,
         generation_mode: 'HISTORICAL',
         tags: selectedTags.length > 0 ? selectedTags : undefined,
+        personality: personality !== 'DEFAULT' ? personality : undefined,
         style: 'QSHALA_HISTORICAL',
         raw_prompt: promptSummary,
       });
@@ -578,6 +585,74 @@ export default function QuickGenerateCard() {
                 className="mt-1 w-full text-center text-[16px] font-bold text-slate-900 bg-transparent border-0 focus:ring-0"
               />
             </div>
+          </div>
+        </div>
+
+        {/* Section 4: Quizmaster Host Personality */}
+        <div className="space-y-3 rounded-lg border border-slate-200/80 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] font-semibold text-slate-800 flex items-center gap-1.5">
+              <Sparkles className="h-4 w-4 text-amber-500" />
+              Quizmaster Personality
+            </label>
+            <span className="text-[12px] text-slate-400">
+              Adapts tone, clues &amp; host discussion style
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {[
+              {
+                id: 'DEFAULT',
+                title: 'Standard Quizmaster',
+                desc: 'Direct, balanced, professional competition tone',
+              },
+              {
+                id: 'CURIOSITY_STORYTELLER',
+                title: 'Curiosity Storyteller',
+                desc: 'Narrative storytelling with rich context & curiosity hooks',
+              },
+              {
+                id: 'DETECTIVE_PUZZLER',
+                title: 'Detective Puzzler',
+                desc: 'Mystery clues, step-by-step logic, and deduction riddles',
+              },
+              {
+                id: 'TOURNAMENT_PRO',
+                title: 'Tournament Pro',
+                desc: 'High-energy, buzzer-ready, precise contest phrasing',
+              },
+              {
+                id: 'SOCRATIC_EXPLORER',
+                title: 'Socratic Explorer',
+                desc: 'Inquiry-driven questions with discussion prompts for debate',
+              },
+            ].map((p) => {
+              const active = personality === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPersonality(p.id)}
+                  className={`flex flex-col items-start p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                    active
+                      ? 'border-blue-600 bg-blue-50/50 ring-1 ring-blue-500/20'
+                      : 'border-slate-200 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`text-[12.5px] font-semibold ${
+                      active ? 'text-blue-700' : 'text-slate-800'
+                    }`}
+                  >
+                    {p.title}
+                  </span>
+                  <span className="text-[11px] text-slate-500 mt-0.5 leading-snug line-clamp-2">
+                    {p.desc}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 

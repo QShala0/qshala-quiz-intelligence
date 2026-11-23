@@ -915,9 +915,15 @@ def update_question(
     if payload.difficulty is not None:
         q.difficulty = payload.difficulty.strip()
     if payload.question_text is not None:
-        q.question_text = payload.question_text.strip()
+        clean_qt = payload.question_text.strip()
+        if not clean_qt:
+            raise HTTPException(status_code=400, detail="Question text cannot be empty")
+        q.question_text = clean_qt
     if payload.answer is not None:
-        q.answer = payload.answer.strip()
+        clean_ans = payload.answer.strip()
+        if not clean_ans:
+            raise HTTPException(status_code=400, detail="Answer cannot be empty")
+        q.answer = clean_ans
     if payload.explanation is not None:
         q.explanation = payload.explanation.strip()
     if payload.visual_clues is not None:

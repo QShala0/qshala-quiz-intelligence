@@ -1091,6 +1091,23 @@ class QuizExporter:
         C_CARD_BG = RGBColor(248, 250, 252)       # Slate 50
         C_CARD_BORDER = RGBColor(226, 232, 240)   # Slate 200
 
+        def _parse_hex_rgb(hex_code: Optional[str], default_rgb: RGBColor) -> RGBColor:
+            if not hex_code:
+                return default_rgb
+            clean = hex_code.strip().lstrip("#")
+            if len(clean) == 6:
+                try:
+                    return RGBColor(int(clean[0:2], 16), int(clean[2:4], 16), int(clean[4:6], 16))
+                except ValueError:
+                    pass
+            return default_rgb
+
+        if custom_template:
+            if custom_template.header_color_hex:
+                C_TEXT_DARK = _parse_hex_rgb(custom_template.header_color_hex, C_TEXT_DARK)
+            if custom_template.body_color_hex:
+                C_TEXT_BODY = _parse_hex_rgb(custom_template.body_color_hex, C_TEXT_BODY)
+
         raw_title = _get_val(quiz, "title", "")
         topic_text = _get_val(quiz, "topic", "General Knowledge")
         difficulty = _get_val(quiz, "difficulty", "Balanced")

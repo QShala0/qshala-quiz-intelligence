@@ -159,6 +159,9 @@ async def extract_template_chunk(
     if clean_category not in ("qshala_school", "zvq"):
         raise HTTPException(status_code=400, detail="Category must be either 'qshala_school' or 'zvq'")
 
+    if chunk_index < 0 or total_chunks <= 0 or chunk_index >= total_chunks:
+        raise HTTPException(status_code=400, detail="Invalid chunk_index or total_chunks")
+
     chunk_dir = Path(tempfile.gettempdir()) / f"tpl_chunk_{clean_upload_id}"
     chunk_dir.mkdir(parents=True, exist_ok=True)
 
