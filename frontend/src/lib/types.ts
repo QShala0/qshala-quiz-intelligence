@@ -694,10 +694,18 @@ export interface SpNotImportedFile {
   id: string;
   drive_id: string;
   name: string;
+  folder_id?: string | null;
   folder_path: string;
   size: number;
   last_modified: string | null;
   root?: string | null;
+  bucket?: 'likely' | 'other' | 'excluded';
+}
+
+export interface SpBuckets {
+  likely: number;
+  other: number;
+  excluded: number;
 }
 
 export interface SpIndexState {
@@ -717,7 +725,14 @@ export interface SpNotImportedResponse {
   count: number;
   total: number;
   files: SpNotImportedFile[];
+  buckets: SpBuckets;
   index: SpIndexState;
+}
+
+export interface SpHideFolderResponse {
+  success: boolean;
+  folder_id: string;
+  message?: string;
 }
 
 // ---- SharePoint selective importer ----

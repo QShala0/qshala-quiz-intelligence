@@ -2,6 +2,7 @@ import logging
 import hashlib
 import hmac
 import time
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Header
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from backend.app.database import get_db
 from backend.app.models.sharepoint import SharePointSyncState, SharePointFile, SharePointAllowedFolder
+from backend.app.models.sharepoint_index import SharePointHiddenFolder, SharePointIndexItem
 from backend.app.models.job import IngestionJob
 from backend.app.config import settings
 from backend.app.services.sharepoint import importer
@@ -643,19 +645,87 @@ def sharepoint_index_status(
     return sp_index.get_index_status(db, drive_id=drive_id)
 
 
+class HideFolderRequest(BaseModel):
+    folder_id: str
+    drive_id: Optional[str] = None
+    path: Optional[str] = None
+
+
+@router.post("/not-imported/hide-folder")
+def hide_sharepoint_folder(req: HideFolderRequest, db: Session = Depends(get_db)):
+    """Hide a folder and all its items from not-imported queries."""
+    if not req.folder_id:
+        raise HTTPException(status_code=400, detail="folder_id is required")
+
+    drive_id = req.drive_id
+    path = req.path
+    if not drive_id or not path:
+        folder_item = db.query(SharePointIndexItem).filter(
+            SharePointIndexItem.id == req.folder_id,
+            SharePointIndexItem.is_folder == True,
+        ).first()
+        if folder_item:
+            drive_id = drive_id or folder_item.drive_id
+            path = path or folder_item.name
+
+    existing = db.query(SharePointHiddenFolder).filter(
+        SharePointHiddenFolder.folder_id == req.folder_id
+    ).first()
+    if existing:
+        if drive_id:
+            existing.drive_id = drive_id
+        if path:
+            existing.path = path
+    else:
+        new_hidden = SharePointHiddenFolder(
+            folder_id=req.folder_id,
+            drive_id=drive_id,
+            path=path,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(new_hidden)
+    db.commit()
+    return {"success": True, "folder_id": req.folder_id, "message": "Folder hidden"}
+
+
+@router.delete("/not-imported/hide-folder/{folder_id}")
+def unhide_sharepoint_folder(folder_id: str, db: Session = Depends(get_db)):
+    """Unhide a previously hidden folder."""
+    existing = db.query(SharePointHiddenFolder).filter(
+        SharePointHiddenFolder.folder_id == folder_id
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+    return {"success": True, "folder_id": folder_id, "message": "Folder unhidden"}
+
+
 @router.get("/not-imported")
 async def sharepoint_not_imported(
     drive_id: Optional[str] = None,
+    view: str = Query("likely"),
+    include_pdf: int = Query(0, ge=0, le=1),
+    folder: Optional[str] = None,
+    q: Optional[str] = None,
     limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     """Candidates in SharePoint that are not yet imported into QShala (read from index).
-    Scoped to allowed folders / env roots, duplicate deck names omitted, sorted newest first."""
+    Scoped to allowed folders / env roots, duplicate deck names omitted, classified by relevance,
+    and sorted newest first."""
     client = get_sharepoint_client()
     try:
         return await sp_index.get_not_imported_from_index(
-            db, client=client, drive_id=drive_id, limit=limit, offset=offset
+            db,
+            client=client,
+            drive_id=drive_id,
+            limit=limit,
+            offset=offset,
+            view=view,
+            include_pdf=bool(include_pdf),
+            folder=folder,
+            q=q,
         )
     except Exception as e:
         raise _graph_error(e)

@@ -44,7 +44,7 @@ from backend.app.models.sharepoint import (  # noqa: F401
     SharePointSyncState, SharePointFile, SharePointAllowedFolder,
 )
 from backend.app.models.sharepoint_index import (  # noqa: F401
-    SharePointIndexItem, SharePointIndexState,
+    SharePointIndexItem, SharePointIndexState, SharePointHiddenFolder,
 )
 from backend.app.models.custom_template import CustomPptTemplate  # noqa: F401
 

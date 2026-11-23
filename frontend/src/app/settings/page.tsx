@@ -2,7 +2,7 @@
 
 
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 import {
   HardDrive,
@@ -15,7 +15,9 @@ import {
   FileText,
   Cloud,
   Layers,
-  X
+  X,
+  Search,
+  EyeOff
 } from 'lucide-react';
 import { api, getApiBase } from '@/lib/api';
 import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem, SpNotImportedResponse } from '@/lib/types';
@@ -63,6 +65,15 @@ export default function SettingsPage() {
   const [importingDrawer, setImportingDrawer] = useState(false);
   const [drawerImportProgress, setDrawerImportProgress] = useState<{ total: number; remaining: number } | null>(null);
 
+  // Filter state for drawer
+  const [drawerFilterView, setDrawerFilterView] = useState<'likely' | 'other' | 'all'>('likely');
+  const [drawerIncludePdf, setDrawerIncludePdf] = useState(false);
+  const [drawerRootFolder, setDrawerRootFolder] = useState<string>('all');
+  const [drawerSearchQuery, setDrawerSearchQuery] = useState<string>('');
+  const [hiddenFolderToast, setHiddenFolderToast] = useState<{ folderId: string; folderPath: string } | null>(null);
+  const [hidingFolderId, setHidingFolderId] = useState<string | null>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     fetch(`${getApiBase()}/health`)
       .then((res) => setServerOnline(res.ok))
@@ -85,12 +96,33 @@ export default function SettingsPage() {
     }
   };
 
-  const fetchNotImported = async (offset = 0, append = false) => {
+  const fetchNotImported = async (
+    offset = 0,
+    append = false,
+    opts?: {
+      view?: 'likely' | 'other' | 'all';
+      includePdf?: boolean;
+      folder?: string;
+      q?: string;
+    }
+  ) => {
     if (append) setLoadingMore(true);
     else setLoadingNotImported(true);
     setNotImportedError(null);
     try {
-      const res = await api.spNotImported(undefined, 200, offset);
+      const activeView = opts?.view ?? drawerFilterView;
+      const activeIncludePdf = opts?.includePdf !== undefined ? opts.includePdf : drawerIncludePdf;
+      const activeFolder = opts?.folder !== undefined ? opts.folder : drawerRootFolder;
+      const activeQ = opts?.q !== undefined ? opts.q : drawerSearchQuery;
+
+      const res = await api.spNotImported({
+        limit: 200,
+        offset,
+        view: activeView,
+        includePdf: activeIncludePdf,
+        folder: activeFolder === 'all' ? undefined : activeFolder,
+        q: activeQ.trim() || undefined,
+      });
       if (append) {
         setNotImportedData((prev) => (prev ? { ...res, files: [...prev.files, ...res.files] } : res));
         setSelectedIds((prev) => {
@@ -110,6 +142,55 @@ export default function SettingsPage() {
     } finally {
       if (append) setLoadingMore(false);
       else setLoadingNotImported(false);
+    }
+  };
+
+  const handleViewChange = (v: 'likely' | 'other' | 'all') => {
+    setDrawerFilterView(v);
+    void fetchNotImported(0, false, { view: v });
+  };
+
+  const handleIncludePdfChange = (checked: boolean) => {
+    setDrawerIncludePdf(checked);
+    void fetchNotImported(0, false, { includePdf: checked });
+  };
+
+  const handleRootChange = (folder: string) => {
+    setDrawerRootFolder(folder);
+    void fetchNotImported(0, false, { folder });
+  };
+
+  const handleSearchChange = (val: string) => {
+    setDrawerSearchQuery(val);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      void fetchNotImported(0, false, { q: val });
+    }, 300);
+  };
+
+  const handleHideFolder = async (folderId: string, driveId?: string, folderPath?: string) => {
+    if (!folderId || hidingFolderId) return;
+    setHidingFolderId(folderId);
+    try {
+      await api.spHideFolder(folderId, driveId, folderPath);
+      setHiddenFolderToast({ folderId, folderPath: folderPath || 'Folder' });
+      await fetchNotImported(0, false);
+    } catch (err) {
+      console.error('Failed to hide folder:', err);
+    } finally {
+      setHidingFolderId(null);
+    }
+  };
+
+  const handleUnhideFolder = async () => {
+    if (!hiddenFolderToast) return;
+    const { folderId } = hiddenFolderToast;
+    try {
+      await api.spUnhideFolder(folderId);
+      setHiddenFolderToast(null);
+      await fetchNotImported(0, false);
+    } catch (err) {
+      console.error('Failed to unhide folder:', err);
     }
   };
 
@@ -872,7 +953,7 @@ export default function SettingsPage() {
             onClick={() => setDrawerOpen(false)}
           />
           <div className="fixed inset-y-0 right-0 flex max-w-full pl-10">
-            <div className="w-[380px] max-w-full bg-white shadow-2xl border-l border-slate-200 flex flex-col z-50">
+            <div className="w-[420px] max-w-full bg-white shadow-2xl border-l border-slate-200 flex flex-col z-50">
               {/* Header */}
               <div className="p-4 border-b border-slate-100 flex items-start justify-between">
                 <div>
@@ -918,6 +999,101 @@ export default function SettingsPage() {
                   </span>
                 </div>
               )}
+
+              {/* Hidden Folder Toast */}
+              {hiddenFolderToast && (
+                <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-[12px] text-amber-800">
+                  <span className="truncate mr-2">
+                    Folder hidden: <span className="font-semibold">{hiddenFolderToast.folderPath}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleUnhideFolder}
+                    className="font-bold text-amber-900 underline hover:text-amber-950 cursor-pointer shrink-0"
+                  >
+                    Undo
+                  </button>
+                </div>
+              )}
+
+              {/* Drawer Filter Controls */}
+              <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 space-y-2">
+                {/* Bucket Chips */}
+                <div className="flex items-center gap-1.5 text-[11.5px]">
+                  <button
+                    type="button"
+                    onClick={() => handleViewChange('likely')}
+                    className={`px-2.5 py-0.5 rounded-full font-medium transition-colors cursor-pointer ${
+                      drawerFilterView === 'likely'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Likely quiz decks ({notImportedData?.buckets?.likely ?? 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleViewChange('other')}
+                    className={`px-2.5 py-0.5 rounded-full font-medium transition-colors cursor-pointer ${
+                      drawerFilterView === 'other'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Other .pptx ({notImportedData?.buckets?.other ?? 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleViewChange('all')}
+                    className={`px-2.5 py-0.5 rounded-full font-medium transition-colors cursor-pointer ${
+                      drawerFilterView === 'all'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    All ({((notImportedData?.buckets?.likely ?? 0) + (notImportedData?.buckets?.other ?? 0))})
+                  </button>
+                </div>
+
+                {/* Search & Root Row */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search files or folders..."
+                      value={drawerSearchQuery}
+                      onChange={(e) => handleSearchChange(e.target.value)}
+                      className="w-full pl-8 pr-2.5 py-1 text-[12px] bg-white border border-slate-200 rounded-lg placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <select
+                    value={drawerRootFolder}
+                    onChange={(e) => handleRootChange(e.target.value)}
+                    className="text-[12px] py-1 px-2 bg-white border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="all">All roots</option>
+                    <option value="Quizzes">Quizzes</option>
+                    <option value="QShala School Program">QShala School Program</option>
+                  </select>
+                </div>
+
+                {/* PDF Toggle & Excluded Count */}
+                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={drawerIncludePdf}
+                      onChange={(e) => handleIncludePdfChange(e.target.checked)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5 cursor-pointer"
+                    />
+                    <span>Include PDFs</span>
+                  </label>
+                  <span className="text-slate-400 truncate ml-2">
+                    {(notImportedData?.buckets?.excluded ?? 0).toLocaleString()} files excluded by rules (PDFs, non-decks, &lt;30KB)
+                  </span>
+                </div>
+              </div>
 
               {/* Body */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -996,9 +1172,22 @@ export default function SettingsPage() {
                                 </span>
                               )}
                               {file.folder_path && (
-                                <span className="text-[11px] text-slate-400 truncate" title={file.folder_path}>
-                                  {file.folder_path}
-                                </span>
+                                <div className="flex items-center gap-1 min-w-0 group/folder">
+                                  <span className="text-[11px] text-slate-400 truncate" title={file.folder_path}>
+                                    {file.folder_path}
+                                  </span>
+                                  {file.folder_id && (
+                                    <button
+                                      type="button"
+                                      title="Hide folder"
+                                      onClick={() => handleHideFolder(file.folder_id!, file.drive_id, file.folder_path)}
+                                      disabled={hidingFolderId === file.folder_id}
+                                      className="opacity-0 group-hover/folder:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded transition-opacity cursor-pointer shrink-0"
+                                    >
+                                      <EyeOff className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-0.5">

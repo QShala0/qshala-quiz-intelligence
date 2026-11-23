@@ -460,7 +460,7 @@ async def test_sharepoint_not_imported_lists_newest_first(db):
             name=f"{pfx}_{name}.pptx",
             is_folder=False,
             ext=".pptx",
-            size=1,
+            size=50000,
             modified=when_dt,
         )
 
