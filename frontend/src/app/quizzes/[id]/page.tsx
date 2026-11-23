@@ -405,26 +405,46 @@ export default function QuizReviewStudioPage() {
           </span>
         </div>
 
-        {quiz.raw_prompt?.trim() && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3.5 py-2.5">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Original prompt</span>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(quiz.raw_prompt ?? '').then(
-                    () => toast.success('Prompt copied'),
-                    () => toast.error('Could not copy'),
-                  );
-                }}
-                className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
-              >
-                Copy
-              </button>
+        {quiz.raw_prompt?.trim() && (() => {
+          const promptLines = quiz.raw_prompt.split('\n').map((l: string) => l.trim()).filter(Boolean);
+          const isMulti = promptLines.length > 1;
+          return (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3.5 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  {isMulti ? `Prompts (${promptLines.length})` : 'Original prompt'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(promptLines.join('\n')).then(
+                      () => toast.success('Prompt copied'),
+                      () => toast.error('Could not copy'),
+                    );
+                  }}
+                  className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
+                >
+                  Copy
+                </button>
+              </div>
+              {isMulti ? (
+                <ol className="mt-1 space-y-0.5 text-[13.5px] leading-relaxed text-slate-800 list-none pl-0">
+                  {promptLines.map((line: string, idx: number) => (
+                    <li key={idx} className="flex gap-1.5">
+                      <span className="font-medium text-slate-500 shrink-0">{idx + 1}.</span>
+                      <span>
+                        {idx === 0 && <span className="font-semibold text-slate-600">Original: </span>}
+                        {line}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-800">{quiz.raw_prompt}</p>
+              )}
             </div>
-            <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-800">{quiz.raw_prompt}</p>
-          </div>
-        )}
+          );
+        })()}
 
         <div className="flex flex-wrap items-center gap-3 text-[13px] text-slate-500 font-normal">
           <span className="inline-flex items-center gap-1 font-semibold text-slate-700">

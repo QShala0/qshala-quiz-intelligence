@@ -135,6 +135,7 @@ export default function QuizzerHome() {
   // The prompt the quiz was first created from. Follow-ups ("make it harder") change lastPrompt, but the saved
   // quiz is named after, and remembers, this one.
   const [initialPrompt, setInitialPrompt] = useState('');
+  const [promptHistory, setPromptHistory] = useState<string[]>([]);
   const [bankOpen, setBankOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -253,7 +254,7 @@ export default function QuizzerHome() {
       setQs(d.questions);
       setChecked(new Set(d.questions.map((q) => q.id)));
       setLastPrompt(p);
-      if (!restPayload.previous_brief) setInitialPrompt(p);
+      if (!restPayload.previous_brief) { setInitialPrompt(p); setPromptHistory([p]); }
       syncChipsFromBrief(d.brief);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong');
@@ -351,7 +352,8 @@ export default function QuizzerHome() {
     setSaving(true);
     try {
       const r = await apiFetch<{ quiz_id: string }>('/prompt-quiz/save', {
-        prompt: initialPrompt || lastPrompt,
+        prompt: promptHistory[0] || initialPrompt || lastPrompt,
+        ...(promptHistory.length > 1 ? { prompts: promptHistory } : {}),
         question_ids: selectedIds,
         brief: draft?.brief,
       });
@@ -397,6 +399,10 @@ export default function QuizzerHome() {
 
       setRefineText('');
       setLastPrompt(textToUse);
+      setPromptHistory((prev) => {
+        if (prev[prev.length - 1] === textToUse) return prev;
+        return [...prev, textToUse];
+      });
       syncChipsFromBrief(d.brief);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Refinement failed');

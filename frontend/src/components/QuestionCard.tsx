@@ -12,7 +12,6 @@ import {
   Image as ImageIcon,
   X,
   ZoomIn,
-  Eye,
   Volume2,
   Headphones,
   Video,
@@ -246,17 +245,6 @@ export default function QuestionCard({
                     </div>
                   </button>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {/* Visual Clues / OCR description badge */}
-          {question.visual_clues && (
-            <div className="rounded-md bg-indigo-50/80 border border-indigo-100 p-2 text-[11.5px] text-indigo-900 flex items-start gap-1.5 mt-2">
-              <Eye className="h-3.5 w-3.5 text-indigo-600 mt-0.5 shrink-0" />
-              <div className="leading-snug">
-                <span className="font-semibold text-indigo-950">Vision OCR / Context: </span>
-                <span className="text-indigo-800 line-clamp-2">{question.visual_clues}</span>
               </div>
             </div>
           )}
