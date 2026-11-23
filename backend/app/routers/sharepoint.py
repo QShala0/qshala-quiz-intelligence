@@ -627,7 +627,7 @@ async def sharepoint_not_imported(
     db: Session = Depends(get_db),
 ):
     """Candidates in SharePoint that are not yet imported into QShala (status NEW).
-    Capped at 500 and sorted by folder then name. Cached in memory for 5 minutes (bypass with refresh=1)."""
+    Capped at 500 and sorted newest first. Cached in memory for 5 minutes (bypass with refresh=1)."""
     client = get_sharepoint_client()
     drive = drive_id or settings.SHAREPOINT_DRIVE_ID
     if not drive:
@@ -657,7 +657,9 @@ async def sharepoint_not_imported(
         importer.classify(db, got["candidates"])
 
         new_cands = [c for c in got["candidates"] if c.get("status") == "NEW"]
-        new_cands.sort(key=lambda c: ((c.get("folder_path") or "").lower(), (c.get("name") or "").lower()))
+        # newest first (by the date SharePoint last changed the file); undated files go last, ties by name
+        new_cands.sort(key=lambda c: (c.get("name") or "").lower())
+        new_cands.sort(key=lambda c: c.get("modified").timestamp() if c.get("modified") else float("-inf"), reverse=True)
 
         truncated = got.get("truncated", False) or len(new_cands) > 500
         capped_files = new_cands[:500]
