@@ -35,3 +35,13 @@ class SharePointIndexState(Base):
     last_step_at = Column(DateTime(timezone=True), nullable=True)
     items_indexed = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
+
+
+class SharePointHiddenFolder(Base):
+    __tablename__ = "sharepoint_hidden_folders"
+
+    folder_id = Column(String(255), primary_key=True)
+    drive_id = Column(String(255), nullable=True, index=True)
+    path = Column(String(1024), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+

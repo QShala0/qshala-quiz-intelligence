@@ -18,7 +18,7 @@ import {
   IngestionJobItem,
   SharePointSyncResponse,
   SpConfig, SpDrive, SpBrowse, SpSelection, SpPlan, SpStage, SpTransfer, SpImportStatus,
-  SpNotImportedResponse, SpIndexStepResponse, SpIndexState,
+  SpNotImportedResponse, SpIndexStepResponse, SpIndexState, SpHideFolderResponse,
   SpAdminVerifyResponse, SpAdminFolder, SpAdminBrowse, SpAdminSearchResult,
   CustomPptTemplate,
   RequeueResponse,
@@ -324,6 +324,8 @@ async function spJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 const spPost = <T,>(path: string, body: unknown) =>
   spJson<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const spDelete = <T,>(path: string) =>
+  spJson<T>(path, { method: 'DELETE' });
 
 export const api = {
   // SharePoint selective importer
@@ -352,14 +354,50 @@ export const api = {
     const qs = q.toString();
     return spJson<SpIndexState>(`/index/status${qs ? `?${qs}` : ''}`);
   },
-  spNotImported: (driveId?: string, limit = 200, offset = 0) => {
+  spNotImported: (params?: {
+    driveId?: string;
+    limit?: number;
+    offset?: number;
+    view?: 'likely' | 'other' | 'all';
+    includePdf?: boolean;
+    folder?: string;
+    q?: string;
+  } | string, limit = 200, offset = 0) => {
+    let driveId: string | undefined;
+    let l = limit;
+    let o = offset;
+    let view: string | undefined;
+    let includePdf: boolean | undefined;
+    let folder: string | undefined;
+    let qStr: string | undefined;
+
+    if (typeof params === 'object' && params !== null) {
+      driveId = params.driveId;
+      if (params.limit !== undefined) l = params.limit;
+      if (params.offset !== undefined) o = params.offset;
+      view = params.view;
+      includePdf = params.includePdf;
+      folder = params.folder;
+      qStr = params.q;
+    } else {
+      driveId = params;
+    }
+
     const q = new URLSearchParams();
     if (driveId) q.set('drive_id', driveId);
-    if (limit) q.set('limit', String(limit));
-    if (offset) q.set('offset', String(offset));
+    if (l) q.set('limit', String(l));
+    if (o) q.set('offset', String(o));
+    if (view) q.set('view', view);
+    if (includePdf) q.set('include_pdf', '1');
+    if (folder) q.set('folder', folder);
+    if (qStr) q.set('q', qStr);
     const qs = q.toString();
     return spJson<SpNotImportedResponse>(`/not-imported${qs ? `?${qs}` : ''}`);
   },
+  spHideFolder: (folderId: string, driveId?: string, path?: string) =>
+    spPost<SpHideFolderResponse>('/not-imported/hide-folder', { folder_id: folderId, drive_id: driveId, path }),
+  spUnhideFolder: (folderId: string) =>
+    spDelete<SpHideFolderResponse>(`/not-imported/hide-folder/${encodeURIComponent(folderId)}`),
 
   // SharePoint Admin Access Control
   spAdminVerify: (password: string) =>

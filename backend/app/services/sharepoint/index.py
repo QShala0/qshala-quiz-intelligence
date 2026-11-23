@@ -9,8 +9,13 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import settings
 from backend.app.models.sharepoint import SharePointAllowedFolder
-from backend.app.models.sharepoint_index import SharePointIndexItem, SharePointIndexState
+from backend.app.models.sharepoint_index import (
+    SharePointIndexItem, SharePointIndexState, SharePointHiddenFolder,
+)
 from backend.app.services.deck_names import existing_deck_names, find_deck_in_index
+from backend.app.services.sharepoint.relevance import (
+    classify_file, get_exclude_rules,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -263,11 +268,17 @@ async def get_not_imported_from_index(
     drive_id: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
+    view: str = "likely",
+    include_pdf: bool = False,
+    folder: Optional[str] = None,
+    q: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Read candidates from the stored index that are not yet imported into QShala.
 
     Filters files under configured scope roots (database allowed folders or env roots),
     omits duplicate decks whose normalised name matches an existing deck,
+    classifies into buckets ('likely', 'other', 'excluded') via relevance.py,
+    filters by view, folder, and search term q,
     sorts newest first (undated last), and pages with limit and offset.
     """
     target_drive = drive_id or getattr(client, "drive_id", None) or getattr(settings, "SHAREPOINT_DRIVE_ID", None)
@@ -289,11 +300,14 @@ async def get_not_imported_from_index(
         "items_indexed": state.items_indexed if state else 0,
     }
 
+    empty_buckets = {"likely": 0, "other": 0, "excluded": 0}
+
     if not target_drive:
         return {
             "count": 0,
             "total": 0,
             "files": [],
+            "buckets": empty_buckets,
             "index": index_state,
         }
 
@@ -374,7 +388,17 @@ async def get_not_imported_from_index(
 
     def find_scope_root(parent_id: Optional[str]) -> Optional[str]:
         if root_map is None:
-            return "root"
+            # If no explicit root map configured, top-level folder is the root
+            curr = parent_id
+            visited = set()
+            top = None
+            while curr and curr not in visited and curr in folder_map:
+                visited.add(curr)
+                p_id, p_name = folder_map[curr]
+                top = p_name
+                curr = p_id
+            return top or "root"
+
         curr = parent_id
         visited = set()
         while curr and curr not in visited:
@@ -386,6 +410,24 @@ async def get_not_imported_from_index(
             curr = folder_map[curr][0]
         return None
 
+    def get_ancestor_folder_ids(folder_id: Optional[str]) -> List[str]:
+        if not folder_id or folder_id not in folder_map:
+            return []
+        res = []
+        curr = folder_map[folder_id][0]
+        visited = set()
+        while curr and curr in folder_map and curr not in visited:
+            visited.add(curr)
+            res.append(curr)
+            curr = folder_map[curr][0]
+        return res
+
+    # Hidden folders
+    hidden_rows = db.query(SharePointHiddenFolder.folder_id).filter(
+        (SharePointHiddenFolder.drive_id == target_drive) | (SharePointHiddenFolder.drive_id == None)
+    ).all()
+    hidden_folder_ids: Set[str] = {r[0] for r in hidden_rows}
+
     # Load all supported files from the index
     items = db.query(SharePointIndexItem).filter(
         SharePointIndexItem.drive_id == target_drive,
@@ -396,47 +438,106 @@ async def get_not_imported_from_index(
     # Preload deck name index to filter duplicate decks once per request
     deck_index = existing_deck_names(db)
 
-    scoped_candidates: List[Dict[str, Any]] = []
+    # Folders containing ingested decks for affinity calculation (up to 2 levels)
+    folders_with_ingested_decks: Set[str] = {
+        it.parent_id for it in items
+        if it.parent_id and find_deck_in_index(deck_index, it.name)
+    }
+
+    # Precompute exclude rules
+    exclude_phrases, exclude_single_words = get_exclude_rules()
+
+    target_root_filter = folder.strip().lower() if folder and folder.strip() and folder.strip().lower() != "all" else None
+    search_q = q.strip().lower() if q and q.strip() else None
+
+    bucket_counts = {"likely": 0, "other": 0, "excluded": 0}
+    view_candidates: List[Dict[str, Any]] = []
+
     for it in items:
         matched_root = find_scope_root(it.parent_id)
         if matched_root is None:
             continue
 
+        # Filter by scope root if specified
+        if target_root_filter and matched_root.lower() != target_root_filter:
+            continue
+
+        # Skip files already in platform
         if find_deck_in_index(deck_index, it.name):
             continue
 
         folder_path = get_folder_path(it.parent_id)
-        scoped_candidates.append({
-            "id": it.id,
-            "drive_id": it.drive_id,
-            "name": it.name,
-            "folder_path": folder_path,
-            "size": it.size or 0,
-            "last_modified": it.modified.isoformat() if it.modified else None,
-            "modified_dt": it.modified,
-            "root": matched_root,
-        })
+
+        # Filter by search query q if specified
+        if search_q:
+            if search_q not in it.name.lower() and search_q not in folder_path.lower():
+                continue
+
+        ancestors = get_ancestor_folder_ids(it.parent_id)
+        bucket = classify_file(
+            name=it.name,
+            folder_path=folder_path,
+            size=it.size,
+            ext=it.ext,
+            folder_id=it.parent_id,
+            include_pdf=include_pdf,
+            hidden_folder_ids=hidden_folder_ids,
+            ancestor_folder_ids=ancestors,
+            folders_with_affinity=folders_with_ingested_decks,
+            exclude_phrases=exclude_phrases,
+            exclude_single_words=exclude_single_words,
+        )
+
+        bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+
+        # Check if item belongs to requested view
+        normalized_view = (view or "likely").lower()
+        include_in_view = False
+        if normalized_view == "likely":
+            include_in_view = (bucket == "likely")
+        elif normalized_view == "other":
+            include_in_view = (bucket == "other")
+        elif normalized_view == "all":
+            include_in_view = (bucket in ("likely", "other"))
+        elif normalized_view == "excluded":
+            include_in_view = (bucket == "excluded")
+
+        if include_in_view:
+            view_candidates.append({
+                "id": it.id,
+                "drive_id": it.drive_id,
+                "name": it.name,
+                "folder_id": it.parent_id,
+                "folder_path": folder_path,
+                "size": it.size or 0,
+                "last_modified": it.modified.isoformat() if it.modified else None,
+                "modified_dt": it.modified,
+                "root": matched_root,
+                "bucket": bucket,
+            })
 
     # Sort newest first, undated last
-    scoped_candidates.sort(
+    view_candidates.sort(
         key=lambda f: (f["modified_dt"] is not None, f["modified_dt"] or datetime.min.replace(tzinfo=timezone.utc)),
         reverse=True,
     )
 
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
-    total = len(scoped_candidates)
-    paged = scoped_candidates[offset : offset + limit]
+    total = len(view_candidates)
+    paged = view_candidates[offset : offset + limit]
 
     result_files = [
         {
             "id": f["id"],
             "drive_id": f["drive_id"],
             "name": f["name"],
+            "folder_id": f["folder_id"],
             "folder_path": f["folder_path"],
             "size": f["size"],
             "last_modified": f["last_modified"],
             "root": f["root"],
+            "bucket": f["bucket"],
         }
         for f in paged
     ]
@@ -445,5 +546,6 @@ async def get_not_imported_from_index(
         "count": len(result_files),
         "total": total,
         "files": result_files,
+        "buckets": bucket_counts,
         "index": index_state,
     }

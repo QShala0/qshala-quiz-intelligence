@@ -181,13 +181,13 @@ async def test_folder_paths_and_scope_roots(db):
     # Marketing (outside scope) -> Flyer.pptx
     f_quizzes = SharePointIndexItem(id=f"{pfx}-f-q", drive_id=drive_id, name="Quizzes", is_folder=True, parent_id="root")
     f_sub_q = SharePointIndexItem(id=f"{pfx}-f-subq", drive_id=drive_id, name="2024", is_folder=True, parent_id=f"{pfx}-f-q")
-    file_q = SharePointIndexItem(id=f"{pfx}-file-q", drive_id=drive_id, name="Quiz_2024.pptx", ext=".pptx", is_folder=False, size=100, parent_id=f"{pfx}-f-subq")
+    file_q = SharePointIndexItem(id=f"{pfx}-file-q", drive_id=drive_id, name="Quiz_2024.pptx", ext=".pptx", is_folder=False, size=50000, parent_id=f"{pfx}-f-subq")
 
     f_school = SharePointIndexItem(id=f"{pfx}-f-s", drive_id=drive_id, name="QShala School Program", is_folder=True, parent_id="root")
-    file_s = SharePointIndexItem(id=f"{pfx}-file-s", drive_id=drive_id, name="School_Program.pdf", ext=".pdf", is_folder=False, size=200, parent_id=f"{pfx}-f-s")
+    file_s = SharePointIndexItem(id=f"{pfx}-file-s", drive_id=drive_id, name="School_Program.pdf", ext=".pdf", is_folder=False, size=50000, parent_id=f"{pfx}-f-s")
 
     f_mkt = SharePointIndexItem(id=f"{pfx}-f-mkt", drive_id=drive_id, name="Marketing", is_folder=True, parent_id="root")
-    file_mkt = SharePointIndexItem(id=f"{pfx}-file-mkt", drive_id=drive_id, name="Flyer.pptx", ext=".pptx", is_folder=False, size=300, parent_id=f"{pfx}-f-mkt")
+    file_mkt = SharePointIndexItem(id=f"{pfx}-file-mkt", drive_id=drive_id, name="Flyer.pptx", ext=".pptx", is_folder=False, size=50000, parent_id=f"{pfx}-f-mkt")
 
     state = SharePointIndexState(drive_id=drive_id, status="IDLE", last_full_at=datetime.now(timezone.utc), items_indexed=5)
 
@@ -200,7 +200,7 @@ async def test_folder_paths_and_scope_roots(db):
              {"id": f"{pfx}-f-q", "name": "Quizzes", "path": "Quizzes"},
              {"id": f"{pfx}-f-s", "name": "QShala School Program", "path": "QShala School Program"},
          ])):
-        res = await sp_index.get_not_imported_from_index(db, client=None, drive_id=drive_id)
+        res = await sp_index.get_not_imported_from_index(db, client=None, drive_id=drive_id, include_pdf=True, view="all")
 
     assert res["total"] == 2
     assert res["count"] == 2
@@ -354,16 +354,16 @@ async def test_not_imported_duplicate_and_sorting_and_paging(db):
         is_folder=False, modified=now - timedelta(days=1), parent_id="root",
     )
     item_newer = SharePointIndexItem(
-        id=f"{pfx}-i-newer", drive_id=drive_id, name=f"{pfx}_Beta_Deck.pptx", ext=".pptx",
-        is_folder=False, modified=now - timedelta(days=1), parent_id="root",
+        id=f"{pfx}-i-newer", drive_id=drive_id, name=f"{pfx}_Beta_Quiz.pptx", ext=".pptx",
+        is_folder=False, modified=now - timedelta(days=1), parent_id="root", size=50000,
     )
     item_older = SharePointIndexItem(
-        id=f"{pfx}-i-older", drive_id=drive_id, name=f"{pfx}_Gamma_Deck.pptx", ext=".pptx",
-        is_folder=False, modified=now - timedelta(days=2), parent_id="root",
+        id=f"{pfx}-i-older", drive_id=drive_id, name=f"{pfx}_Gamma_Quiz.pptx", ext=".pptx",
+        is_folder=False, modified=now - timedelta(days=2), parent_id="root", size=50000,
     )
     item_undated = SharePointIndexItem(
-        id=f"{pfx}-i-undated", drive_id=drive_id, name=f"{pfx}_Delta_Deck.pptx", ext=".pptx",
-        is_folder=False, modified=None, parent_id="root",
+        id=f"{pfx}-i-undated", drive_id=drive_id, name=f"{pfx}_Delta_Quiz.pptx", ext=".pptx",
+        is_folder=False, modified=None, parent_id="root", size=50000,
     )
 
     state = SharePointIndexState(
@@ -382,28 +382,28 @@ async def test_not_imported_duplicate_and_sorting_and_paging(db):
         assert full["total"] == 3
         assert full["count"] == 3
         assert [f["name"] for f in full["files"]] == [
-            f"{pfx}_Beta_Deck.pptx",
-            f"{pfx}_Gamma_Deck.pptx",
-            f"{pfx}_Delta_Deck.pptx",
+            f"{pfx}_Beta_Quiz.pptx",
+            f"{pfx}_Gamma_Quiz.pptx",
+            f"{pfx}_Delta_Quiz.pptx",
         ]
 
         # Paging: limit=1, offset=0
         p1 = await sp_index.get_not_imported_from_index(db, client=None, drive_id=drive_id, limit=1, offset=0)
         assert p1["count"] == 1
         assert p1["total"] == 3
-        assert p1["files"][0]["name"] == f"{pfx}_Beta_Deck.pptx"
+        assert p1["files"][0]["name"] == f"{pfx}_Beta_Quiz.pptx"
 
         # Paging: limit=1, offset=1
         p2 = await sp_index.get_not_imported_from_index(db, client=None, drive_id=drive_id, limit=1, offset=1)
         assert p2["count"] == 1
         assert p2["total"] == 3
-        assert p2["files"][0]["name"] == f"{pfx}_Gamma_Deck.pptx"
+        assert p2["files"][0]["name"] == f"{pfx}_Gamma_Quiz.pptx"
 
         # Paging: limit=1, offset=2 (undated file)
         p3 = await sp_index.get_not_imported_from_index(db, client=None, drive_id=drive_id, limit=1, offset=2)
         assert p3["count"] == 1
         assert p3["total"] == 3
-        assert p3["files"][0]["name"] == f"{pfx}_Delta_Deck.pptx"
+        assert p3["files"][0]["name"] == f"{pfx}_Delta_Quiz.pptx"
 
 
 @pytest.mark.anyio
