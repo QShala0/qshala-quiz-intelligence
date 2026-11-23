@@ -59,8 +59,10 @@ def is_old_shape(q) -> bool:
 
 
 def accept_new(family: str, new_q: dict) -> bool:
-    """Arrange rows (same format) are always replaced; everything else only when the new reading is clean."""
-    if family == "ARRANGE_ORDER" and FAMILY.get(new_q.get("question_format") or "") == "ARRANGE_ORDER":
+    """Whatever the new reading calls Arrange the Order replaces an old row even when its order could not be worked out
+    (the old answer is wrong anyway: "1", "Slide 52"; the row is then flagged for review). Everything else is replaced
+    only when the new reading is clean."""
+    if FAMILY.get(new_q.get("question_format") or "") == "ARRANGE_ORDER":
         return True
     ing = new_q.get("_ingest") or {}
     return bool((new_q.get("answer") or "").strip()) and not ing.get("needs_review")
@@ -208,12 +210,18 @@ def main() -> int:
                                           "text": (st.question_text or "")[:80]})
                     continue
                 used.add(idx)
+                new_family = FAMILY.get(n.get("question_format") or "")
+                if FAMILY[st.question_format] == "IMAGE_REVEAL" and new_family != "IMAGE_REVEAL":
+                    # the old reading may well be right (a reveal round); retyping it needs a person's eye
+                    d["image_reveal_left_alone"] = d.get("image_reveal_left_alone", 0) + 1
+                    continue
                 if not accept_new(FAMILY[st.question_format], n):
                     d["skipped_new_reading_not_clean"].append({"id": st.id, "slide": sid_to_no.get(st.slide_id),
                                                                "format": st.question_format, "answer": (n.get("answer") or "")[:60],
                                                                "reasons": (n.get("_ingest") or {}).get("reasons")})
                     continue
-                cross = FAMILY[st.question_format] != FAMILY.get(n.get("question_format") or "")
+                # a plain question that was only mislabelled keeps its own text and answer; an Arrange reading replaces both
+                cross = FAMILY[st.question_format] != new_family and new_family != "ARRANGE_ORDER"
                 ch = plan_row(st, n, rewrite, keep_text=cross)
                 if ch is None:
                     d["unchanged"] += 1

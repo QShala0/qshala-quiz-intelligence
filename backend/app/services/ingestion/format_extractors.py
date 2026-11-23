@@ -186,7 +186,8 @@ def parse_value(text: str) -> Optional[float]:
 
 def direction_from_title(title: str) -> Optional[str]:
     low = (title or "").lower()
-    for m in re.finditer(r"\b([a-z]+)\s+to\s+([a-z]+)\b", low):      # "(Highest to Lowest)" even after "contribution to GDP"
+    # "(Highest to Lowest)" even after "contribution to GDP"; an arrow ("Lowest → Highest") means the same
+    for m in re.finditer(r"\b([a-z]+)\s*(?:\s+to\s+|→|->|–>)\s*([a-z]+)\b", low):
         a = m.group(1)
         if a in _ASC_WORDS:
             return "asc"

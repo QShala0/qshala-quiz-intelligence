@@ -155,3 +155,18 @@ def test_a_mislabelled_plain_question_keeps_its_own_text_and_answer():
     ch = rcf.plan_row(stored, new, rewrite=lambda o: o, keep_text=True)
     assert ch["question_format"] == "STANDARD_QA" and "question_text" not in ch and "answer" not in ch
     assert "content_hash" not in ch and ch["embedding"] is None
+
+
+def test_an_arrange_reading_replaces_a_mislabelled_row_even_when_its_order_is_not_computable():
+    unsure = _new("ARRANGE_ORDER", answer="Correct order not recorded", review=True)
+    assert rcf.accept_new("CONNECT", unsure)                 # the stored "Slide 52" answer is wrong anyway
+    assert not rcf.accept_new("CONNECT", _new("STANDARD_QA", answer="x", review=True))
+
+
+@pytest.mark.parametrize("title,expected", [
+    ("Digital payment methods by transaction cost for merchants (Lowest → Highest)", "asc"),
+    ("Banks by branches (Highest → Lowest)", "desc"),
+    ("Banks by branches (highest -> lowest)", "desc"),
+])
+def test_direction_understands_an_arrow(title, expected):
+    assert fe.direction_from_title(title) == expected
