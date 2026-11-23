@@ -440,15 +440,80 @@ def _layout_named_safe(prs, candidate_names: List[str]):
     return None
 
 
+def _send_shape_to_back(shape, slide) -> None:
+    """Move shape to the bottom of the slide's shape tree, preserving non-visual group properties."""
+    try:
+        spTree = slide.shapes._spTree
+        sp = shape._element
+        spTree.remove(sp)
+        insert_idx = 0
+        for i, child in enumerate(spTree):
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if tag in ("nvGrpSpPr", "grpSpPr"):
+                insert_idx = i + 1
+            else:
+                break
+        spTree.insert(insert_idx, sp)
+    except Exception as e:
+        logger.debug(f"Could not send shape to back: {e}")
+
+
+def _has_visual_background(slide) -> bool:
+    """Check if the slide, its layout, or its master already has a background picture or fill."""
+    try:
+        from pptx.util import Inches
+        # Check layout shapes
+        if hasattr(slide, "slide_layout") and slide.slide_layout:
+            for s in slide.slide_layout.shapes:
+                if s.shape_type == 13:  # MSO_SHAPE_TYPE.PICTURE
+                    return True
+            if hasattr(slide.slide_layout, "slide_master") and slide.slide_layout.slide_master:
+                for s in slide.slide_layout.slide_master.shapes:
+                    if s.shape_type == 13:
+                        return True
+            bg_els = (
+                slide.slide_layout._element.xpath("./p:bg//a:blipFill") +
+                slide.slide_layout.slide_master._element.xpath("./p:bg//a:blipFill")
+            )
+            if bg_els:
+                return True
+        # Check slide shapes for fullscreen picture
+        for s in slide.shapes:
+            if s.shape_type == 13:
+                try:
+                    if (abs(s.width - Inches(13.333)) < Inches(1.0) or abs(s.height - Inches(7.5)) < Inches(1.0)):
+                        return True
+                except Exception:
+                    return True
+        bg_els_slide = slide._element.xpath("./p:bg//a:blipFill")
+        if bg_els_slide:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _school_cover(prs, layout, title: str, subtitle: str, Pt):
     """Cover on the template's Title Slide layout: real title/subtitle placeholders over the master artwork."""
+    from pptx.util import Inches
+    from pptx.enum.text import PP_ALIGN
     slide = prs.slides.add_slide(layout)
-    ttl = slide.shapes.title
-    ttl.text_frame.text = title
-    ttl.name = "CoverTitle"
-    for r in ttl.text_frame.paragraphs[0].runs:
-        r.font.size = Pt(44) if len(title) <= 34 else Pt(36)
-    sub_ph = next((ph for ph in slide.placeholders if ph.placeholder_format.idx == 1), None)
+    ttl = slide.shapes.title if hasattr(slide.shapes, "title") else None
+    if ttl is not None:
+        ttl.text_frame.text = title
+        ttl.name = "CoverTitle"
+        for r in ttl.text_frame.paragraphs[0].runs:
+            r.font.size = Pt(44) if len(title) <= 34 else Pt(36)
+    else:
+        tb = slide.shapes.add_textbox(Inches(1.5), Inches(2.5), Inches(10.33), Inches(2.0))
+        tb.name = "CoverTitle"
+        p = tb.text_frame.paragraphs[0]
+        p.text = title
+        p.alignment = PP_ALIGN.CENTER
+        p.font.size = Pt(44) if len(title) <= 34 else Pt(36)
+        p.font.bold = True
+
+    sub_ph = next((ph for ph in slide.placeholders if ph.placeholder_format.idx == 1), None) if hasattr(slide, "placeholders") else None
     lines = [ln.strip() for ln in subtitle.splitlines() if ln.strip()]
     if sub_ph is not None and lines:
         tf = sub_ph.text_frame
@@ -460,6 +525,16 @@ def _school_cover(prs, layout, title: str, subtitle: str, Pt):
                 r.font.size = Pt(32) if len(par.text) <= 24 else Pt(26)
     elif sub_ph is not None:
         sub_ph._element.getparent().remove(sub_ph._element)   # no empty "Click to add subtitle" box
+    elif lines:
+        tb_sub = slide.shapes.add_textbox(Inches(2.0), Inches(4.5), Inches(9.33), Inches(1.5))
+        tf_sub = tb_sub.text_frame
+        tf_sub.text = lines[0]
+        for ln in lines[1:]:
+            tf_sub.add_paragraph().text = ln
+        for par in tf_sub.paragraphs:
+            par.alignment = PP_ALIGN.CENTER
+            for r in par.runs:
+                r.font.size = Pt(30) if len(par.text) <= 24 else Pt(24)
     return slide
 
 
@@ -904,9 +979,15 @@ class QuizExporter:
                     rId = prs.slides._sldIdLst[0].rId
                     prs.part.drop_rel(rId)
                     del prs.slides._sldIdLst[0]
-                cover_layout = _layout_named_safe(prs, ["Title Slide", "Title", "Cover"]) or prs.slide_layouts[0]
-                blank_layout = _layout_named_safe(prs, ["Blank", "Title Only", "Title and Content"]) or prs.slide_layouts[-1]
-                divider_layout = _layout_named_safe(prs, ["Section Header", "Header", "Title Only"]) or blank_layout
+
+                layouts_info = (custom_template.layout_metadata or {}).get("layouts", {})
+                cov_name = layouts_info.get("cover_layout")
+                q_name = layouts_info.get("question_layout")
+                div_name = layouts_info.get("divider_layout")
+
+                cover_layout = (_layout_named(prs, cov_name) if cov_name else None) or _layout_named_safe(prs, ["Title Slide", "Title", "Cover"]) or prs.slide_layouts[0]
+                blank_layout = (_layout_named(prs, q_name) if q_name else None) or _layout_named_safe(prs, ["Title and Content", "Blank", "Title Only"]) or prs.slide_layouts[-1]
+                divider_layout = (_layout_named(prs, div_name) if div_name else None) or _layout_named_safe(prs, ["Section Header", "Header", "Title Only"]) or blank_layout
                 master_prs = prs
             except Exception as e:
                 logger.warning(f"Could not load custom master deck {custom_template.storage_path}: {e}")
@@ -963,6 +1044,26 @@ class QuizExporter:
         if not qr_wa.exists():
             qr_wa = assets_base / "qr_whatsapp.jpg"
 
+        # Override with custom template extracted backgrounds if available
+        if custom_template and custom_template.storage_path:
+            custom_dir = Path(custom_template.storage_path).parent
+            for cand in ["cover_bg.png", "cover_bg.jpg", "cover_bg.jpeg"]:
+                if (custom_dir / cand).exists():
+                    cover_bg = custom_dir / cand
+                    break
+            for cand in ["question_bg.png", "question_bg.jpg", "question_bg.jpeg"]:
+                if (custom_dir / cand).exists():
+                    question_bg = custom_dir / cand
+                    break
+            for cand in ["answer_intro_bg.png", "answer_intro_bg.jpg", "answer_bg.png", "answer_bg.jpg"]:
+                if (custom_dir / cand).exists():
+                    answer_intro_bg = custom_dir / cand
+                    break
+            for cand in ["answer_bg.png", "answer_bg.jpg", "answer_bg.jpeg"]:
+                if (custom_dir / cand).exists():
+                    answer_bg = custom_dir / cand
+                    break
+
         is_minimalist = (quiz_type == "minimalist")
 
         # -------------------------------------------------------------
@@ -1006,6 +1107,9 @@ class QuizExporter:
         # -------------------------------------------------------------
         if master_prs is not None:
             s_title = _school_cover(prs, cover_layout, final_title, (custom_subtitle or campus_edition or "").strip(), Pt)
+            if not _has_visual_background(s_title) and not is_minimalist and cover_bg.exists():
+                pic_c = s_title.shapes.add_picture(str(cover_bg), 0, 0, prs.slide_width, prs.slide_height)
+                _send_shape_to_back(pic_c, s_title)
         else:
             s_title = prs.slides.add_slide(blank_layout)
 
@@ -1322,7 +1426,9 @@ class QuizExporter:
             # ---------------------------------------------------------
             sq = prs.slides.add_slide(blank_layout)
             if master_prs is not None:
-                pass            # the panel artwork comes from the slide master
+                if not _has_visual_background(sq) and not is_minimalist and question_bg.exists():
+                    pic_q = sq.shapes.add_picture(str(question_bg), 0, 0, prs.slide_width, prs.slide_height)
+                    _send_shape_to_back(pic_q, sq)
             elif not is_minimalist and question_bg.exists():
                 sq.shapes.add_picture(str(question_bg), 0, 0, Inches(13.333), Inches(7.5))
                 if not is_qshala_school:
@@ -1501,6 +1607,9 @@ class QuizExporter:
                         # Dedicated image clue slide immediately following
                         if master_prs is not None:
                             sq_img = prs.slides.add_slide(blank_layout)
+                            if not _has_visual_background(sq_img) and not is_minimalist and question_bg.exists():
+                                pic_qi = sq_img.shapes.add_picture(str(question_bg), 0, 0, prs.slide_width, prs.slide_height)
+                                _send_shape_to_back(pic_qi, sq_img)
                         elif not is_minimalist and question_bg.exists():
                             sq_img = prs.slides.add_slide(blank_layout)
                             sq_img.shapes.add_picture(str(question_bg), 0, 0, Inches(13.333), Inches(7.5))
@@ -1749,23 +1858,35 @@ class QuizExporter:
             if render_divider:
                 if master_prs is not None:
                     s_ai = prs.slides.add_slide(divider_layout)
-                    s_ai.shapes.title.text_frame.text = "Answer"
-                    s_ai.shapes.title.name = "Heading"
-                    for _r in s_ai.shapes.title.text_frame.paragraphs[0].runs:
-                        _r.font.size = Pt(50)
+                    ttl_ai = s_ai.shapes.title if hasattr(s_ai.shapes, "title") else None
+                    if ttl_ai is not None:
+                        ttl_ai.text_frame.text = "Answer"
+                        ttl_ai.name = "Heading"
+                        for _r in ttl_ai.text_frame.paragraphs[0].runs:
+                            _r.font.size = Pt(50)
+                    else:
+                        tb_ai = s_ai.shapes.add_textbox(Inches(4.00), Inches(2.75), Inches(5.333), Inches(1.90))
+                        tb_ai.name = "Heading"
+                        pai = tb_ai.text_frame.paragraphs[0]
+                        pai.alignment = PP_ALIGN.CENTER
+                        pai.text = "Answer"
+                        pai.font.name = FONT_HEAD
+                        pai.font.size = Pt(50)
+                        pai.font.bold = True
+                        pai.font.color.rgb = C_TEXT_DARK
+                    if not _has_visual_background(s_ai) and not is_minimalist and answer_intro_bg.exists():
+                        pic_ai = s_ai.shapes.add_picture(str(answer_intro_bg), 0, 0, prs.slide_width, prs.slide_height)
+                        _send_shape_to_back(pic_ai, s_ai)
                 else:
                     s_ai = prs.slides.add_slide(blank_layout)
-                if master_prs is not None:
-                    pass
-                elif not is_minimalist and answer_intro_bg.exists():
-                    s_ai.shapes.add_picture(str(answer_intro_bg), 0, 0, Inches(13.333), Inches(7.5))
-                else:
-                    bg_ai = s_ai.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(13.333), Inches(7.5))
-                    bg_ai.fill.solid()
-                    bg_ai.fill.fore_color.rgb = C_WHITE
-                    bg_ai.line.fill.background()
+                    if not is_minimalist and answer_intro_bg.exists():
+                        s_ai.shapes.add_picture(str(answer_intro_bg), 0, 0, Inches(13.333), Inches(7.5))
+                    else:
+                        bg_ai = s_ai.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(13.333), Inches(7.5))
+                        bg_ai.fill.solid()
+                        bg_ai.fill.fore_color.rgb = C_WHITE
+                        bg_ai.line.fill.background()
 
-                if master_prs is None:
                     tb_ai = s_ai.shapes.add_textbox(Inches(4.00), Inches(2.75), Inches(5.333), Inches(1.90))
                     pai = tb_ai.text_frame.paragraphs[0]
                     pai.alignment = PP_ALIGN.CENTER
@@ -1780,7 +1901,9 @@ class QuizExporter:
             # ---------------------------------------------------------
             sa = prs.slides.add_slide(blank_layout)
             if master_prs is not None:
-                pass            # the panel artwork comes from the slide master
+                if not _has_visual_background(sa) and not is_minimalist and answer_bg.exists():
+                    pic_a = sa.shapes.add_picture(str(answer_bg), 0, 0, prs.slide_width, prs.slide_height)
+                    _send_shape_to_back(pic_a, sa)
             elif not is_minimalist and answer_bg.exists():
                 sa.shapes.add_picture(str(answer_bg), 0, 0, Inches(13.333), Inches(7.5))
             else:

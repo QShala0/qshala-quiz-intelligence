@@ -431,8 +431,8 @@ export const api = {
     return handleResponse<{ message: string; id: string }>(res);
   },
 
-  getTemplatePreviewUrl: (id: string): string => {
-    return `${getApiBase()}/templates/${id}/preview`;
+  getTemplatePreviewUrl: (id: string, slide?: string): string => {
+    return slide ? `${getApiBase()}/templates/${id}/preview?slide=${encodeURIComponent(slide)}` : `${getApiBase()}/templates/${id}/preview`;
   },
 
   getTemplateDownloadUrl: (id: string): string => {

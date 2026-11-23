@@ -29,6 +29,8 @@ interface CustomTemplateViewModalProps {
   onUseTemplate?: (template: CustomPptTemplate) => void;
 }
 
+type SlideTab = 'cover' | 'question' | 'divider' | 'answer';
+
 export default function CustomTemplateViewModal({
   isOpen,
   onClose,
@@ -36,10 +38,10 @@ export default function CustomTemplateViewModal({
   onDelete,
   onUseTemplate,
 }: CustomTemplateViewModalProps) {
-  const [activeSlideTab, setActiveSlideTab] = useState<'cover' | 'question' | 'answer'>('cover');
+  const [activeSlideTab, setActiveSlideTab] = useState<SlideTab>('cover');
   const [showWireframe, setShowWireframe] = useState(false);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
-  const [imgError, setImgError] = useState(false);
+  const [imgErrors, setImgErrors] = useState<Record<string, boolean>>({});
 
   if (!isOpen || !template) return null;
 
@@ -54,8 +56,10 @@ export default function CustomTemplateViewModal({
     setTimeout(() => setCopiedColor(null), 2000);
   };
 
-  const previewUrl = api.getTemplatePreviewUrl(template.id);
+  const activePreviewUrl = api.getTemplatePreviewUrl(template.id, activeSlideTab);
   const downloadUrl = api.getTemplateDownloadUrl(template.id);
+  const colorScheme = template.layout_metadata?.theme?.color_scheme;
+  const themeName = template.layout_metadata?.theme?.theme_name || template.layout_metadata?.theme?.name;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-5 overflow-y-auto">
@@ -121,11 +125,11 @@ export default function CustomTemplateViewModal({
         <div className="p-5 sm:p-6 space-y-6 max-h-[78vh] overflow-y-auto">
           {/* Slide Tab Controls & Wireframe Toggle */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80 overflow-x-auto max-w-full">
               <button
                 type="button"
                 onClick={() => setActiveSlideTab('cover')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
                   activeSlideTab === 'cover'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -136,7 +140,7 @@ export default function CustomTemplateViewModal({
               <button
                 type="button"
                 onClick={() => setActiveSlideTab('question')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
                   activeSlideTab === 'question'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -146,18 +150,29 @@ export default function CustomTemplateViewModal({
               </button>
               <button
                 type="button"
-                onClick={() => setActiveSlideTab('answer')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                  activeSlideTab === 'answer'
+                onClick={() => setActiveSlideTab('divider')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  activeSlideTab === 'divider'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Answer Divider Slide
               </button>
+              <button
+                type="button"
+                onClick={() => setActiveSlideTab('answer')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  activeSlideTab === 'answer'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Answer Reveal Slide
+              </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowWireframe(!showWireframe)}
@@ -174,25 +189,26 @@ export default function CustomTemplateViewModal({
           </div>
 
           {/* Interactive Slide Canvas Stage */}
-          <div className="relative aspect-[16/9] w-full rounded-2xl border border-slate-200 bg-slate-950/5 shadow-inner overflow-hidden flex flex-col justify-between p-6 sm:p-8 select-none">
-            {/* Background Image if available and cover tab */}
-            {template.has_preview && !imgError && activeSlideTab === 'cover' && (
+          <div className="relative aspect-[16/9] w-full rounded-2xl border border-slate-200 bg-slate-900 shadow-inner overflow-hidden flex flex-col justify-between p-4 sm:p-6 select-none">
+            {/* Extracted Slide Background Artwork */}
+            {!imgErrors[activeSlideTab] && (
               <img
-                src={previewUrl}
-                alt="Template Cover Slide Background"
-                onError={() => setImgError(true)}
-                className="absolute inset-0 w-full h-full object-cover pointer-events-none opacity-90"
+                key={`${template.id}-${activeSlideTab}`}
+                src={activePreviewUrl}
+                alt={`Template ${activeSlideTab} Slide Background`}
+                onError={() => setImgErrors((prev) => ({ ...prev, [activeSlideTab]: true }))}
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
               />
             )}
 
-            {/* Gradient / Card Tint Overlay */}
-            <div className="absolute inset-0 bg-gradient-to-b from-white/90 via-white/80 to-white/95 pointer-events-none" />
+            {/* Subtle contrast framing (non-destructive; keeps extracted background artwork crisp) */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-black/10 pointer-events-none" />
 
             {/* Top Bar Branding */}
             <div className="relative z-10 flex items-center justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/80 backdrop-blur-md border border-white/60 shadow-xs">
                 <span
-                  className="text-xs font-black tracking-widest uppercase"
+                  className="text-[11px] font-black tracking-widest uppercase"
                   style={{ color: template.header_color_hex || '#000000' }}
                 >
                   {isSchool ? 'QSHALA SCHOOL INTELLIGENCE' : 'ZERODHA VARSITY QUIZ'}
@@ -201,38 +217,39 @@ export default function CustomTemplateViewModal({
                   {template.aspect_ratio || '16:9'}
                 </span>
               </div>
-              <span className="text-[11px] font-semibold text-slate-400">
+              <span className="text-[11px] font-semibold text-slate-800 px-2.5 py-1 rounded-full bg-white/80 backdrop-blur-md border border-white/60 shadow-xs">
                 {activeSlideTab === 'cover' && 'Slide 1 • Title Deck'}
                 {activeSlideTab === 'question' && 'Slide 2 • Question & Media Safe Zone'}
-                {activeSlideTab === 'answer' && 'Slide 3 • Answer Transition'}
+                {activeSlideTab === 'divider' && 'Slide 3 • Answer Transition'}
+                {activeSlideTab === 'answer' && 'Slide 4 • Answer Reveal'}
               </span>
             </div>
 
             {/* Center Stage: Interactive Slide Content Preview */}
-            <div className="relative z-10 my-auto flex flex-col items-center justify-center text-center px-4 w-full">
+            <div className="relative z-10 my-auto flex flex-col items-center justify-center text-center px-2 w-full">
               {activeSlideTab === 'cover' && (
-                <div className="max-w-xl space-y-3">
+                <div className="max-w-xl mx-auto space-y-3 p-5 sm:p-6 rounded-2xl bg-white/80 backdrop-blur-md border border-white/70 shadow-lg text-center">
                   <h1
                     className="font-extrabold tracking-tight leading-tight line-clamp-2"
                     style={{
                       fontFamily: template.title_font || 'inherit',
                       color: template.title_color_hex || '#1E293B',
-                      fontSize: 'clamp(1.5rem, 3.5vw, 2.5rem)',
+                      fontSize: 'clamp(1.4rem, 3.2vw, 2.3rem)',
                     }}
                   >
                     Annual Championship 2026
                   </h1>
                   <p
-                    className="text-slate-600 font-medium"
+                    className="text-slate-700 font-medium"
                     style={{
                       fontFamily: template.body_font || 'inherit',
-                      fontSize: 'clamp(0.85rem, 1.6vw, 1.15rem)',
+                      fontSize: 'clamp(0.85rem, 1.5vw, 1.1rem)',
                     }}
                   >
                     {isSchool ? 'Grades 6 - 8 • Middle School Assembly Track' : 'Bengaluru Campus Tournament Finals'}
                   </p>
-                  <div className="pt-2">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/5 text-slate-700 text-[11px] font-medium border border-slate-200/60">
+                  <div className="pt-1">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/10 text-slate-800 text-[11px] font-semibold border border-black/5">
                       <Sparkles className="h-3 w-3 text-amber-600" />
                       Title Font: <strong className="font-semibold">{template.title_font || 'Causten Round'}</strong>
                     </span>
@@ -241,9 +258,9 @@ export default function CustomTemplateViewModal({
               )}
 
               {activeSlideTab === 'question' && (
-                <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-6 px-2 sm:px-6">
+                <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6 px-2 sm:px-4">
                   {/* Question Text Box */}
-                  <div className="flex-1 text-left space-y-2">
+                  <div className="flex-1 text-left space-y-2.5 p-4 sm:p-5 rounded-2xl bg-white/80 backdrop-blur-md border border-white/70 shadow-lg">
                     <span
                       className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-100 text-amber-900"
                       style={{ fontFamily: template.header_font || 'inherit' }}
@@ -254,14 +271,14 @@ export default function CustomTemplateViewModal({
                       className="font-medium text-slate-900 leading-snug"
                       style={{
                         fontFamily: template.body_font || 'inherit',
-                        fontSize: 'clamp(1rem, 2vw, 1.4rem)',
+                        fontSize: 'clamp(0.95rem, 1.8vw, 1.3rem)',
                         color: template.body_color_hex || '#0F172A',
                       }}
                     >
                       Which celestial event inspired ancient maritime navigators and was famously depicted in the constellation maps?
                     </p>
-                    <div className="pt-1 flex items-center gap-2 text-[10px] text-slate-500">
-                      <span className="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">
+                    <div className="pt-1 flex items-center gap-2 text-[10px] text-slate-600">
+                      <span className="bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded-full">
                         Uniform 28pt Locked Body Font
                       </span>
                       <span>•</span>
@@ -271,13 +288,13 @@ export default function CustomTemplateViewModal({
 
                   {/* Media Safe Area Box */}
                   <div
-                    className={`w-full sm:w-60 sm:h-44 rounded-xl flex flex-col items-center justify-center p-4 transition ${
+                    className={`w-full sm:w-56 sm:h-40 rounded-2xl flex flex-col items-center justify-center p-3.5 transition backdrop-blur-md shadow-lg ${
                       showWireframe
-                        ? 'border-2 border-dashed border-blue-500 bg-blue-50/70 text-blue-800 shadow-sm'
-                        : 'border border-slate-300 bg-slate-100/70 text-slate-500'
+                        ? 'border-2 border-dashed border-blue-500 bg-blue-50/85 text-blue-800'
+                        : 'border border-white/70 bg-white/80 text-slate-600'
                     }`}
                   >
-                    <ImageIcon className="h-8 w-8 mb-1.5 opacity-70" />
+                    <ImageIcon className="h-7 w-7 mb-1 opacity-70" />
                     <span className="text-xs font-bold text-center">Safe Media Area</span>
                     <span className="text-[10px] text-center opacity-80 mt-0.5">
                       {mediaBox.width}&quot; &times; {mediaBox.height}&quot; Widescreen Box
@@ -291,8 +308,33 @@ export default function CustomTemplateViewModal({
                 </div>
               )}
 
+              {activeSlideTab === 'divider' && (
+                <div className="max-w-md mx-auto space-y-3 p-5 sm:p-6 rounded-2xl bg-white/80 backdrop-blur-md border border-white/70 shadow-lg text-center">
+                  <div
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-orange-100 text-orange-800 border border-orange-200"
+                    style={{ fontFamily: template.header_font || 'inherit' }}
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    Section Transition
+                  </div>
+                  <h2
+                    className="font-black text-slate-900 tracking-tight"
+                    style={{
+                      fontFamily: template.header_font || template.title_font || 'inherit',
+                      fontSize: 'clamp(1.8rem, 3.8vw, 2.8rem)',
+                      color: template.title_color_hex || '#0F172A',
+                    }}
+                  >
+                    Answer
+                  </h2>
+                  <p className="text-xs text-slate-600">
+                    Divider slide signaling transition to reveal & explanation
+                  </p>
+                </div>
+              )}
+
               {activeSlideTab === 'answer' && (
-                <div className="max-w-md space-y-3">
+                <div className="max-w-md mx-auto space-y-3 p-5 sm:p-6 rounded-2xl bg-white/80 backdrop-blur-md border border-white/70 shadow-lg text-center">
                   <div
                     className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200"
                     style={{ fontFamily: template.header_font || 'inherit' }}
@@ -304,17 +346,16 @@ export default function CustomTemplateViewModal({
                     className="font-black text-slate-900 tracking-tight"
                     style={{
                       fontFamily: template.title_font || 'inherit',
-                      fontSize: 'clamp(1.4rem, 3vw, 2.2rem)',
+                      fontSize: 'clamp(1.3rem, 2.8vw, 2.0rem)',
                       color: template.title_color_hex || '#0F172A',
                     }}
                   >
                     The Polaris North Star
                   </h2>
                   <p
-                    className="text-slate-600 leading-relaxed"
+                    className="text-slate-700 leading-relaxed text-xs sm:text-sm"
                     style={{
                       fontFamily: template.body_font || 'inherit',
-                      fontSize: 'clamp(0.85rem, 1.6vw, 1.15rem)',
                     }}
                   >
                     Historically used by polar explorers and Mediterranean sailors to determine geographical latitude.
@@ -324,11 +365,11 @@ export default function CustomTemplateViewModal({
             </div>
 
             {/* Bottom Slide Footer Bar */}
-            <div className="relative z-10 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-200/60 pt-2">
-              <span className="font-mono">
+            <div className="relative z-10 flex items-center justify-between text-[11px] text-slate-700">
+              <span className="font-mono px-2.5 py-0.5 rounded-full bg-white/80 backdrop-blur-md border border-white/60 shadow-xs">
                 Slide Dimensions: {template.slide_width_in || 13.33}&quot; &times; {template.slide_height_in || 7.5}&quot;
               </span>
-              <span className="font-semibold text-slate-500">
+              <span className="font-semibold px-2.5 py-0.5 rounded-full bg-white/80 backdrop-blur-md border border-white/60 shadow-xs">
                 {isSchool ? 'Official QShala Brand Engine' : 'Zerodha Varsity Master System'}
               </span>
             </div>
@@ -435,6 +476,50 @@ export default function CustomTemplateViewModal({
               </div>
             </div>
           </div>
+
+          {/* Extracted Theme Color Palette */}
+          {colorScheme && Object.keys(colorScheme).length > 0 && (
+            <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-4 space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-900 border-b border-slate-200/60 pb-1.5">
+                <span className="flex items-center gap-1.5">
+                  <Palette className="h-3.5 w-3.5 text-slate-500" />
+                  Extracted Slide Theme Palette {themeName ? `(${themeName})` : ''}
+                </span>
+                <span className="text-[11px] font-mono text-slate-500">
+                  {Object.keys(colorScheme).length} Theme Swatches
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {Object.entries(colorScheme).map(([slot, hex]) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => handleCopyColor(hex)}
+                    className="flex items-center gap-2 p-1.5 rounded-lg bg-white border border-slate-200 hover:border-slate-300 hover:shadow-xs transition text-left group cursor-pointer"
+                    title={`Click to copy ${slot}: ${hex}`}
+                  >
+                    <span
+                      className="h-5 w-5 rounded-md border border-black/10 shrink-0 shadow-xs"
+                      style={{ backgroundColor: hex }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
+                        {slot}
+                      </div>
+                      <div className="text-[11px] font-mono text-slate-700 truncate">
+                        {hex}
+                      </div>
+                    </div>
+                    {copiedColor === hex ? (
+                      <Check className="h-3 w-3 text-emerald-600 shrink-0" />
+                    ) : (
+                      <Copy className="h-3 w-3 text-slate-300 group-hover:text-slate-500 shrink-0 transition" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Modal Footer */}

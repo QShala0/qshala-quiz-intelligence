@@ -37,6 +37,7 @@ def _template_response(tpl: CustomPptTemplate) -> Dict[str, Any]:
         "has_preview": bool(
             (tpl.preview_image_path and os.path.exists(tpl.preview_image_path))
             or (tpl.storage_path and os.path.exists(os.path.join(os.path.dirname(tpl.storage_path), "cover_bg.png")))
+            or (tpl.storage_path and os.path.exists(os.path.join(os.path.dirname(tpl.storage_path), "preview.png")))
         ),
         "file_size_bytes": tpl.file_size_bytes,
         "layout_metadata": tpl.layout_metadata or {},
@@ -167,25 +168,65 @@ def delete_template(
 @router.get("/{template_id}/preview")
 def get_template_preview(
     template_id: str,
+    slide: Optional[str] = Query("cover", description="Slide role to preview: 'cover', 'question', or 'answer'"),
     db: Session = Depends(get_db),
 ):
-    """Serves the preview thumbnail image for the template."""
+    """Serves the preview background or thumbnail image for the template."""
     tpl = db.query(CustomPptTemplate).filter(CustomPptTemplate.id == template_id).first()
     if not tpl:
         raise HTTPException(status_code=404, detail="Template not found")
 
+    storage_dir = Path(tpl.storage_path).parent if tpl.storage_path else None
+    role = (slide or "cover").strip().lower()
+
+    if storage_dir and storage_dir.exists():
+        if role in ("question", "q"):
+            for cand in ["question_bg.png", "question_bg.jpg", "question_bg.jpeg"]:
+                p = storage_dir / cand
+                if p.exists():
+                    return FileResponse(str(p), media_type="image/png" if cand.endswith(".png") else "image/jpeg")
+        elif role in ("answer", "a", "divider", "section"):
+            for cand in ["answer_intro_bg.png", "answer_intro_bg.jpg", "answer_bg.png", "answer_bg.jpg"]:
+                p = storage_dir / cand
+                if p.exists():
+                    return FileResponse(str(p), media_type="image/png" if cand.endswith(".png") else "image/jpeg")
+        elif role in ("cover", "title"):
+            for cand in ["cover_bg.png", "cover_bg.jpg", "cover_bg.jpeg"]:
+                p = storage_dir / cand
+                if p.exists():
+                    return FileResponse(str(p), media_type="image/png" if cand.endswith(".png") else "image/jpeg")
+
+    # Fallback to preview_image_path or any cover_bg
     if tpl.preview_image_path and os.path.exists(tpl.preview_image_path):
         return FileResponse(tpl.preview_image_path, media_type="image/png")
 
-    # Check for cover_bg in storage directory as fallback
-    if tpl.storage_path:
-        storage_dir = Path(tpl.storage_path).parent
-        for candidate in ["cover_bg.png", "cover_bg.jpg", "cover_bg.jpeg"]:
-            p = storage_dir / candidate
+    if storage_dir and storage_dir.exists():
+        for cand in ["cover_bg.png", "cover_bg.jpg", "preview.png", "question_bg.png"]:
+            p = storage_dir / cand
             if p.exists():
-                return FileResponse(str(p), media_type="image/png" if candidate.endswith(".png") else "image/jpeg")
+                return FileResponse(str(p), media_type="image/png" if cand.endswith(".png") else "image/jpeg")
 
-    raise HTTPException(status_code=404, detail="Preview image not found")
+    # Dynamic fallback: generate a clean 16:9 theme canvas so preview never 404s
+    try:
+        from PIL import Image
+        import io
+        from starlette.responses import StreamingResponse
+        color_scheme = (tpl.layout_metadata or {}).get("theme", {}).get("color_scheme", {})
+        bg_hex = color_scheme.get("lt1", "#FFFFFF") if role not in ("answer", "a") else color_scheme.get("dk1", "#0F172A")
+        if not bg_hex.startswith("#") or len(bg_hex) != 7:
+            bg_hex = "#FFFFFF"
+        r = int(bg_hex[1:3], 16)
+        g = int(bg_hex[3:5], 16)
+        b = int(bg_hex[5:7], 16)
+        img = Image.new("RGB", (640, 360), (r, g, b))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/png")
+    except Exception as e:
+        logger.warning(f"Could not generate dynamic fallback preview: {e}")
+
+    raise HTTPException(status_code=404, detail=f"Preview image for '{role}' not found")
 
 
 @router.get("/{template_id}/download")

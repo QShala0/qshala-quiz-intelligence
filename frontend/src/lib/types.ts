@@ -830,6 +830,7 @@ export interface CustomPptTemplate {
     layouts?: {
       cover_layout?: string | null;
       question_layout?: string | null;
+      divider_layout?: string | null;
       answer_layout?: string | null;
       geometry?: {
         question_box?: { left: number; top: number; width: number; height: number };
@@ -838,6 +839,13 @@ export interface CustomPptTemplate {
       };
     };
     backgrounds?: Record<string, string>;
+    theme?: {
+      theme_name?: string;
+      name?: string;
+      color_scheme?: Record<string, string>;
+      fonts?: { major?: string; minor?: string };
+      typeface_scheme?: { major?: string; minor?: string };
+    };
     theme_fonts?: { major?: string; minor?: string };
   } | null;
   created_at?: string | null;

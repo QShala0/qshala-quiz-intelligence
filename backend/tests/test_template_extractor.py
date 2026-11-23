@@ -122,3 +122,35 @@ def test_export_quiz_with_custom_template():
 
     finally:
         client.delete(f"/api/v1/templates/{tpl_id}")
+
+
+def test_multi_slide_preview_and_theme_extraction():
+    assert SAMPLE_DECK.exists()
+    with open(SAMPLE_DECK, "rb") as f:
+        resp = client.post(
+            "/api/v1/templates/extract",
+            files={"file": ("sample_theme.pptx", f, "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+            data={"name": "Theme & Multi Preview Test", "category": "zvq"},
+        )
+    assert resp.status_code == 200
+    tpl = resp.json()
+    tpl_id = tpl["id"]
+
+    try:
+        # Check that layout_metadata contains theme and color scheme
+        meta = tpl.get("layout_metadata") or {}
+        theme = meta.get("theme") or {}
+        assert "color_scheme" in theme, "Extracted template must contain theme color scheme"
+        assert "fonts" in theme or "typeface_scheme" in theme, "Extracted template must contain theme fonts"
+        assert len(theme["color_scheme"]) > 0, "Color scheme must have entries"
+
+        # Check preview endpoints for all slide tabs
+        for slide_tab in ("cover", "question", "divider", "answer"):
+            prev_resp = client.get(f"/api/v1/templates/{tpl_id}/preview?slide={slide_tab}")
+            assert prev_resp.status_code == 200, f"Preview for slide={slide_tab} failed: {prev_resp.status_code}"
+            assert prev_resp.headers["content-type"].startswith("image/")
+            assert len(prev_resp.content) > 100
+
+    finally:
+        client.delete(f"/api/v1/templates/{tpl_id}")
+
