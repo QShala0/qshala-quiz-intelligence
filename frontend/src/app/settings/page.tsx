@@ -36,7 +36,7 @@ export default function SettingsPage() {
   const [loadingWorker, setLoadingWorker] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  // Not in QShala yet drawer state
+  // Not in platform yet drawer state
   const [notImportedData, setNotImportedData] = useState<SpNotImportedResponse | null>(null);
   const [loadingNotImported, setLoadingNotImported] = useState(false);
   const [notImportedError, setNotImportedError] = useState<string | null>(null);
@@ -488,10 +488,10 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Not in QShala yet */}
+            {/* Not in platform yet */}
             <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-[13px]">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700">Not in QShala yet</span>
+                <span className="font-semibold text-slate-700">Not in platform yet</span>
                 {notImportedData !== null && (
                   <span className="rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-700">
                     {notImportedData.count}
@@ -804,7 +804,7 @@ export default function SettingsPage() {
 
       )}
 
-      {/* Right-side Drawer: Not in QShala yet */}
+      {/* Right-side Drawer: Not in platform yet */}
       {drawerOpen && (
         <div className="fixed inset-0 z-50 overflow-hidden">
           <div
@@ -816,7 +816,7 @@ export default function SettingsPage() {
               {/* Header */}
               <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-[15px] font-bold text-slate-900">Not in QShala yet</h3>
+                  <h3 className="text-[15px] font-bold text-slate-900">Not in platform yet</h3>
                   {notImportedData && (
                     <span className="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-bold text-blue-700">
                       {notImportedData.count}
