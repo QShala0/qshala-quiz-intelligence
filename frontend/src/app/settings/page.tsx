@@ -877,6 +877,9 @@ export default function SettingsPage() {
                       </label>
                       <span>{selectedIds.size} of {notImportedData.files.length} selected</span>
                     </div>
+                    <p className="text-[11px] text-slate-400">
+                      Newest first{notImportedData.truncated ? ' · large library, this list may be incomplete' : ''}
+                    </p>
 
                     <div className="divide-y divide-slate-100">
                       {notImportedData.files.map((file) => (

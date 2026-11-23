@@ -438,3 +438,30 @@ def test_two_same_named_files_in_one_batch_caught_through_in_memory_index(db):
     assert rej[0]["filename"] == f"{pfx}   unique__batch_file.pdf"
     assert rej[0]["existing_document_id"] is None
     assert rej[0]["existing_title"] == f"{pfx}_Unique_Batch_File.pptx"
+
+
+@pytest.mark.anyio
+async def test_sharepoint_not_imported_lists_newest_first(db):
+    pfx = db._test_prefix
+    mock_client = AsyncMock()
+    drive_id = f"{pfx}-drive-order"
+    mock_client.list_drives = AsyncMock(return_value=[{"id": drive_id}])
+
+    def item(n, name, when):
+        d = {"id": f"{pfx}-file-{n}", "name": f"{pfx}_{name}.pptx", "size": 1, "file": {"hashes": {}},
+             "parentReference": {"path": f"/drives/{drive_id}/root:/Quizzes"}}
+        if when:
+            d["lastModifiedDateTime"] = when
+        return d
+
+    mock_client.list_children = AsyncMock(return_value={"next": None, "items": [
+        item(1, "Old", "2019-03-01T10:00:00Z"),
+        item(2, "Newest", "2026-11-20T10:00:00Z"),
+        item(3, "Undated", None),
+        item(4, "Middle", "2023-06-01T10:00:00Z"),
+    ]})
+    with patch("backend.app.routers.sharepoint.get_sharepoint_client", return_value=mock_client), \
+         patch("backend.app.services.sharepoint.importer.scope_roots", AsyncMock(return_value=[])):
+        r = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&refresh=1")
+    assert r.status_code == 200, r.text
+    assert [f["name"].split("_", 1)[1] for f in r.json()["files"]] == ["Newest.pptx", "Middle.pptx", "Old.pptx", "Undated.pptx"]
