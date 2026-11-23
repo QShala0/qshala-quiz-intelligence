@@ -113,3 +113,57 @@ def test_prompt_title_cuts_long_prompts_at_a_word():
 def test_save_with_no_matching_questions_is_a_404():
     r = client.post("/api/v1/prompt-quiz/save", json={"prompt": "x", "question_ids": ["nope"]})
     assert r.status_code == 404
+
+
+def test_save_with_prompts_joins_by_newlines_and_titles_from_first():
+    _, q = _question_with_media()
+    r = client.post("/api/v1/prompt-quiz/save", json={
+        "prompt": "20 questions on cricket",
+        "prompts": ["20 questions on cricket", "make it harder", "add 2 on dosa"],
+        "question_ids": [q],
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["title"] == "20 questions on cricket"
+    db = SessionLocal()
+    try:
+        quiz = db.query(Quiz).get(body["quiz_id"])
+        assert quiz.raw_prompt == "20 questions on cricket\nmake it harder\nadd 2 on dosa"
+        # Rename keeps raw_prompt unchanged
+        client.patch(f"/api/v1/quizzes/{body['quiz_id']}", json={"title": "My cricket quiz"})
+        db.refresh(quiz)
+        assert quiz.raw_prompt == "20 questions on cricket\nmake it harder\nadd 2 on dosa"
+    finally:
+        db.close()
+
+
+def test_save_prompt_with_embedded_newline_stored_as_one_line():
+    _, q = _question_with_media()
+    r = client.post("/api/v1/prompt-quiz/save", json={
+        "prompt": "cricket",
+        "prompts": ["20 questions\non cricket"],
+        "question_ids": [q],
+    })
+    assert r.status_code == 200, r.text
+    db = SessionLocal()
+    try:
+        quiz = db.query(Quiz).get(r.json()["quiz_id"])
+        assert "\n" not in quiz.raw_prompt
+        assert quiz.raw_prompt == "20 questions on cricket"
+    finally:
+        db.close()
+
+
+def test_save_with_only_prompt_still_works():
+    _, q = _question_with_media()
+    r = client.post("/api/v1/prompt-quiz/save", json={
+        "prompt": "fintech round", "question_ids": [q],
+    })
+    assert r.status_code == 200, r.text
+    db = SessionLocal()
+    try:
+        quiz = db.query(Quiz).get(r.json()["quiz_id"])
+        assert quiz.raw_prompt == "fintech round"
+        assert quiz.title == "fintech round"
+    finally:
+        db.close()

@@ -43,6 +43,7 @@ class SwapReq(BaseModel):
 class SaveReq(BaseModel):
     title: Optional[str] = None
     prompt: str
+    prompts: Optional[List[str]] = Field(default=None, max_length=30)
     question_ids: List[str] = Field(..., min_length=1, max_length=50)
     brief: Optional[Dict[str, Any]] = None
 
@@ -507,7 +508,20 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
 
     # Title: explicit > the prompt the person typed > the AI's framing summary (only when the prompt is blank).
     # The prompt itself is always kept unchanged in raw_prompt, so renaming the quiz never loses it.
-    title = (req.title or "").strip() or prompt_title(req.prompt)
+    if req.prompts:
+        cleaned_prompts = [" ".join(p.split()) for p in req.prompts]
+        cleaned_prompts = [p for p in cleaned_prompts if p]
+    else:
+        cleaned_prompts = []
+
+    if cleaned_prompts:
+        raw_prompt = "\n".join(cleaned_prompts)
+        first_prompt = cleaned_prompts[0]
+    else:
+        raw_prompt = req.prompt
+        first_prompt = req.prompt
+
+    title = (req.title or "").strip() or prompt_title(first_prompt)
     if not title:
         title = ((req.brief or {}).get("framing") or "").strip() or "Untitled quiz"
 
@@ -528,7 +542,7 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
         title=title[:255],
         topic=str(topic)[:100],
         difficulty=str((req.brief or {}).get("hard_bias") or "Medium")[:50],
-        raw_prompt=req.prompt,
+        raw_prompt=raw_prompt,
         question_count=len(ordered),
         status="READY",
     )
