@@ -828,3 +828,30 @@ async def test_stage_and_plan_import_batch_cap_25(db):
     assert db.query(SharePointFile).filter(SharePointFile.sync_status == "SELECTED").count() == 25
 
 
+
+
+@pytest.mark.anyio
+async def test_collect_candidates_lists_sibling_folders_at_the_same_time():
+    """A whole-library walk used to list folders one after another (minutes). Siblings now run together,
+    bounded by WALK_CONCURRENCY, and every deck is still found exactly once."""
+    folders = {f"f{i}": [{"id": f"d{i}-{j}", "name": f"deck {i}-{j}.pptx", "file": {}, "size": 1,
+                         "eTag": "e", "lastModifiedDateTime": "2026-01-01T00:00:00Z"} for j in range(2)]
+               for i in range(20)}
+
+    class FakeClient:
+        in_flight = 0
+        peak = 0
+
+        async def list_children(self, drive_id, folder_id, next_url=None):
+            FakeClient.in_flight += 1
+            FakeClient.peak = max(FakeClient.peak, FakeClient.in_flight)
+            await asyncio.sleep(0.02)
+            FakeClient.in_flight -= 1
+            if folder_id in (None, "root"):
+                return {"items": [{"id": k, "name": k, "folder": {}} for k in folders], "next": None}
+            return {"items": folders[folder_id], "next": None}
+
+    sel = importer.Selection(drive_id="d", items=[importer.ItemRef(id="root", kind="folder")], recursive=True)
+    got = await importer.collect_candidates(FakeClient(), sel)
+    assert len(got["candidates"]) == 40 and not got["truncated"]
+    assert 1 < FakeClient.peak <= importer.WALK_CONCURRENCY
