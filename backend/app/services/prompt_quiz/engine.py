@@ -815,6 +815,13 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
         docs_map = {}
         docs_filename_map = {}
 
+    from collections import defaultdict
+    doc_ids_by_text: Dict[str, Set[str]] = defaultdict(set)
+    for q in qs:
+        txt = (q.question_text or "").strip().lower()
+        if len(txt) >= 15 and q.document_id:
+            doc_ids_by_text[txt].add(q.document_id)
+
     bank = []
     for q in qs:
         # Exclude questions with empty text unless they have valid visual clues
@@ -845,8 +852,10 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
             elif "warmup" in doc_blob or "warm-up" in doc_blob:
                 round_stg = "warmup"
 
-        rep_cnt = repeat_counts.get(q.id, 0)
-        occ_cnt = max(int(getattr(q, "occurrence_count", 1) or 1), 1 + rep_cnt)
+        txt_norm = (q.question_text or "").strip().lower()
+        cross_deck_occ = len(doc_ids_by_text.get(txt_norm, set()))
+        rep_cnt = max(repeat_counts.get(q.id, 0), max(0, cross_deck_occ - 1))
+        occ_cnt = max(int(getattr(q, "occurrence_count", 1) or 1), 1 + rep_cnt, cross_deck_occ)
         src_yr = getattr(q, "source_year", None) or (m and m.deck_year) or (dm and dm.deck_year)
 
         bank.append({

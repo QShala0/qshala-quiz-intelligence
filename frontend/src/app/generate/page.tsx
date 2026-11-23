@@ -872,6 +872,42 @@ export default function QuizzerHome() {
                     </span>
                   </label>
                   <div className="min-w-0 flex-1">
+                    {/* Provenance & metadata pills top row */}
+                    {(Boolean(q.occurrence_count && q.occurrence_count > 1) || Boolean(q.is_varsity) || Boolean(q.round_stage) || Boolean(q.star_marked) || Boolean(q.play_mode && q.play_mode !== 'DIRECTED') || Boolean(q.source_year)) && (
+                      <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+                        {q.occurrence_count && q.occurrence_count > 1 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 border border-purple-200 px-2.5 py-0.5 text-[11px] font-bold text-purple-800 shadow-2xs">
+                            <RefreshCw size={11} className="text-purple-600" /> Asked {q.occurrence_count} times
+                          </span>
+                        ) : null}
+                        {q.is_varsity ? (
+                          <span className="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700">
+                            ZVQ
+                          </span>
+                        ) : null}
+                        {q.round_stage ? (
+                          <span className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 capitalize">
+                            {q.round_stage}
+                          </span>
+                        ) : null}
+                        {q.star_marked ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
+                            <Star size={10} className="fill-amber-400 text-amber-500" /> Starred
+                          </span>
+                        ) : null}
+                        {q.play_mode && q.play_mode !== 'DIRECTED' ? (
+                          <span className="inline-flex items-center rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-[11px] font-semibold text-rose-700">
+                            {q.play_mode}
+                          </span>
+                        ) : null}
+                        {q.source_year ? (
+                          <span className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">
+                            {q.source_year}
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
+
                     {/* Format-aware questions (List It, Image Reveal, Connect, Stepped Clue, Arrange, MCQ) show their own view */}
                     {hasStructuredView(q.format_payload) ? (
                       <div className="space-y-1.5">
