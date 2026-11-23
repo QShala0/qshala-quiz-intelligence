@@ -423,8 +423,9 @@ export const api = {
     description?: string,
     onProgress?: (pct: number, currentChunk: number, totalChunks: number) => void
   ): Promise<CustomPptTemplate> => {
-    // 3.5 MB chunks ensure every slice clears Vercel serverless (4.5 MB limit) and Cloud Run (32 MB limit)
-    const chunkSize = 3.5 * 1024 * 1024;
+    // 12 MB chunks on Cloud Run / localhost for fast streaming, or 3.5 MB on Vercel
+    const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+    const chunkSize = isVercel ? 3.5 * 1024 * 1024 : 12 * 1024 * 1024;
     const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
     const uploadId = `tpl_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const uploadApiBase = getUploadApiBase();

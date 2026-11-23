@@ -439,14 +439,18 @@ class TemplateExtractor:
                     break
 
         if not cover_blob and len(self.prs.slides) > 0:
-            for s in self.prs.slides:
+            for i, s in enumerate(self.prs.slides):
+                if i >= 10:
+                    break
                 blob = _get_slide_background_blob(s, sw, sh)
                 if blob:
                     cover_blob = blob
                     break
 
         # 2. Look for Question background
-        for s in self.prs.slides:
+        for i, s in enumerate(self.prs.slides):
+            if i >= 10:
+                break
             slide_txt = " ".join(sh.text_frame.text.lower() for sh in s.shapes if sh.has_text_frame)
             lname = s.slide_layout.name.lower()
             if any(k in slide_txt for k in ["question", "1.", "2.", "3.", "what ", "which "]) or "content" in lname:
@@ -456,7 +460,9 @@ class TemplateExtractor:
                     break
 
         # 3. Look for Answer Divider background
-        for s in self.prs.slides:
+        for i, s in enumerate(self.prs.slides):
+            if i >= 10:
+                break
             slide_txt = " ".join(sh.text_frame.text.lower() for sh in s.shapes if sh.has_text_frame)
             lname = s.slide_layout.name.lower()
             if "answer" in slide_txt or "section header" in lname or "divider" in lname:
@@ -500,6 +506,19 @@ class TemplateExtractor:
                 with open(out_path, "wb") as f:
                     f.write(blob_bytes)
                 backgrounds[role_name] = filename
+
+                # Save lightweight web-scaled JPEG (~80-150 KB) to eliminate browser freezing during preview
+                try:
+                    with Image.open(io.BytesIO(blob_bytes)) as im:
+                        im.thumbnail((1280, 720), Image.Resampling.LANCZOS)
+                        im_rgb = im.convert("RGB")
+                        # Save aliases for easy lookup by role name
+                        base_role = role_name.replace("_bg", "").replace("_intro", "")
+                        im_rgb.save(str(dest_dir / f"web_{base_role}.jpg"), "JPEG", quality=85)
+                        if role_name == "answer_intro_bg":
+                            im_rgb.save(str(dest_dir / "web_divider.jpg"), "JPEG", quality=85)
+                except Exception as e:
+                    logger.debug(f"Could not generate web thumbnail for {role_name}: {e}")
 
         return backgrounds
 

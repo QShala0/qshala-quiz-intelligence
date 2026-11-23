@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import tempfile
+import asyncio
 import logging
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -175,20 +176,23 @@ async def extract_template_chunk(
             "total_chunks": total_chunks,
         }
 
-    # All chunks arrived: stitch into full presentation deck
+    # All chunks arrived: stitch into full presentation deck off the event loop
     stitched_path = chunk_dir / "deck.pptx"
     try:
-        with open(stitched_path, "wb") as outfile:
-            for p in parts:
-                with open(p, "rb") as infile:
-                    shutil.copyfileobj(infile, outfile)
+        def _stitch_and_extract():
+            with open(stitched_path, "wb") as outfile:
+                for p in parts:
+                    with open(p, "rb") as infile:
+                        shutil.copyfileobj(infile, outfile)
 
-        extractor = TemplateExtractor(stitched_path)
-        data = extractor.extract(
-            name=clean_name,
-            category=clean_category,
-            description=description,
-        )
+            extractor = TemplateExtractor(stitched_path)
+            return extractor.extract(
+                name=clean_name,
+                category=clean_category,
+                description=description,
+            )
+
+        data = await asyncio.to_thread(_stitch_and_extract)
         tpl = _persist_extracted_template(data, db)
     except Exception as e:
         logger.exception(f"Failed to extract template from chunked upload {clean_upload_id}: {e}")
@@ -281,33 +285,50 @@ def get_template_preview(
 
     storage_dir = Path(tpl.storage_path).parent if tpl.storage_path else None
     role = (slide or "cover").strip().lower()
+    role_key = "divider" if role in ("divider", "section", "intro") else ("cover" if role in ("cover", "title") else ("question" if role in ("question", "q") else "answer"))
+
+    cache_headers = {"Cache-Control": "public, max-age=86400"}
 
     if storage_dir and storage_dir.exists():
+        # 1. Check for pre-generated web preview (fast, lightweight ~80-150 KB)
+        web_file = storage_dir / f"web_{role_key}.jpg"
+        if web_file.exists():
+            return FileResponse(str(web_file), media_type="image/jpeg", headers=cache_headers)
+
+        # 2. Look for role background and generate cached web thumbnail on the fly
+        candidates = []
         if role in ("question", "q"):
-            for cand in ["question_bg.png", "question_bg.jpg", "question_bg.jpeg"]:
-                p = storage_dir / cand
-                if p.exists():
-                    return FileResponse(str(p), media_type="image/png" if cand.endswith(".png") else "image/jpeg")
-        elif role in ("answer", "a", "divider", "section"):
-            for cand in ["answer_intro_bg.png", "answer_intro_bg.jpg", "answer_bg.png", "answer_bg.jpg"]:
-                p = storage_dir / cand
-                if p.exists():
-                    return FileResponse(str(p), media_type="image/png" if cand.endswith(".png") else "image/jpeg")
+            candidates = ["web_question.jpg", "question_bg.png", "question_bg.jpg", "question_bg.jpeg"]
+        elif role in ("divider", "section", "intro"):
+            candidates = ["web_divider.jpg", "answer_intro_bg.png", "answer_intro_bg.jpg", "answer_bg.png", "answer_bg.jpg"]
+        elif role in ("answer", "a"):
+            candidates = ["web_answer.jpg", "answer_bg.png", "answer_bg.jpg", "answer_intro_bg.png", "answer_intro_bg.jpg"]
         elif role in ("cover", "title"):
-            for cand in ["cover_bg.png", "cover_bg.jpg", "cover_bg.jpeg"]:
-                p = storage_dir / cand
-                if p.exists():
-                    return FileResponse(str(p), media_type="image/png" if cand.endswith(".png") else "image/jpeg")
+            candidates = ["web_cover.jpg", "cover_bg.png", "cover_bg.jpg", "cover_bg.jpeg"]
+
+        for cand in candidates:
+            p = storage_dir / cand
+            if p.exists():
+                if cand.startswith("web_") or cand.endswith(".jpg") or cand.endswith(".jpeg"):
+                    return FileResponse(str(p), media_type="image/jpeg", headers=cache_headers)
+                try:
+                    from PIL import Image
+                    with Image.open(p) as im:
+                        im.thumbnail((1280, 720), Image.Resampling.LANCZOS)
+                        im.convert("RGB").save(str(web_file), "JPEG", quality=85)
+                    return FileResponse(str(web_file), media_type="image/jpeg", headers=cache_headers)
+                except Exception:
+                    return FileResponse(str(p), media_type="image/png", headers=cache_headers)
 
     # Fallback to preview_image_path or any cover_bg
     if tpl.preview_image_path and os.path.exists(tpl.preview_image_path):
-        return FileResponse(tpl.preview_image_path, media_type="image/png")
+        return FileResponse(tpl.preview_image_path, media_type="image/png", headers=cache_headers)
 
     if storage_dir and storage_dir.exists():
-        for cand in ["cover_bg.png", "cover_bg.jpg", "preview.png", "question_bg.png"]:
+        for cand in ["preview.png", "cover_bg.png", "cover_bg.jpg", "question_bg.png"]:
             p = storage_dir / cand
             if p.exists():
-                return FileResponse(str(p), media_type="image/png" if cand.endswith(".png") else "image/jpeg")
+                return FileResponse(str(p), media_type="image/png" if cand.endswith(".png") else "image/jpeg", headers=cache_headers)
 
     # Dynamic fallback: generate a clean 16:9 theme canvas so preview never 404s
     try:
@@ -325,7 +346,7 @@ def get_template_preview(
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
-        return StreamingResponse(buf, media_type="image/png")
+        return StreamingResponse(buf, media_type="image/png", headers=cache_headers)
     except Exception as e:
         logger.warning(f"Could not generate dynamic fallback preview: {e}")
 

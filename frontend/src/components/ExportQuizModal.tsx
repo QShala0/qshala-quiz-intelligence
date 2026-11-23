@@ -116,8 +116,9 @@ export default function ExportQuizModal({
       });
       setCustomTemplates((prev) => [newTpl, ...prev]);
       setSelectedTemplateId(newTpl.id);
-      // Auto-open template preview viewer
-      setViewingTemplate(newTpl);
+      setTimeout(() => {
+        setViewingTemplate(newTpl);
+      }, 120);
     } catch (err: any) {
       setUploadError(err.message || 'Failed to extract template from sample PPT');
     } finally {

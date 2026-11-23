@@ -116,11 +116,13 @@ export default function CustomTemplateManager({
       setTplDesc('');
       setUploadProgress(null);
       await loadTemplates();
-      // Automatically open the template viewer to inspect the extracted template
-      setSelectedViewTemplate(created);
-      if (onTemplateCreated) {
-        onTemplateCreated(created);
-      }
+      // Smoothly open viewer after upload modal unmounts
+      setTimeout(() => {
+        setSelectedViewTemplate(created);
+        if (onTemplateCreated) {
+          onTemplateCreated(created);
+        }
+      }, 120);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Template extraction failed');
     } finally {

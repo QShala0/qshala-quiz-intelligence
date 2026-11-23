@@ -190,16 +190,24 @@ export default function CustomTemplateViewModal({
 
           {/* Interactive Slide Canvas Stage */}
           <div className="relative aspect-[16/9] w-full rounded-2xl border border-slate-200 bg-slate-900 shadow-inner overflow-hidden flex flex-col justify-between p-4 sm:p-6 select-none">
-            {/* Extracted Slide Background Artwork */}
-            {!imgErrors[activeSlideTab] && (
-              <img
-                key={`${template.id}-${activeSlideTab}`}
-                src={activePreviewUrl}
-                alt={`Template ${activeSlideTab} Slide Background`}
-                onError={() => setImgErrors((prev) => ({ ...prev, [activeSlideTab]: true }))}
-                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-              />
-            )}
+            {/* Smooth Non-Glitching Extracted Slide Backgrounds */}
+            {(['cover', 'question', 'divider', 'answer'] as const).map((tab) => {
+              if (imgErrors[tab]) return null;
+              const tabUrl = api.getTemplatePreviewUrl(template.id, tab);
+              const isActive = activeSlideTab === tab;
+              return (
+                <img
+                  key={`${template.id}-${tab}`}
+                  src={tabUrl}
+                  alt={`Template ${tab} Slide Background`}
+                  onError={() => setImgErrors((prev) => ({ ...prev, [tab]: true }))}
+                  className={`absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-300 ease-in-out ${
+                    isActive ? 'opacity-100 z-0' : 'opacity-0 -z-10 pointer-events-none'
+                  }`}
+                  loading="eager"
+                />
+              );
+            })}
 
             {/* Subtle contrast framing (non-destructive; keeps extracted background artwork crisp) */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-black/10 pointer-events-none" />
