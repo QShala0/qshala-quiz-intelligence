@@ -83,6 +83,42 @@ class GeneratedQuestionResponse(BaseModel):
         p = self.format_payload
         return (p.get("type") if isinstance(p, dict) else None) or self.question_type
 
+    @computed_field
+    @property
+    def occurrence_count(self) -> Optional[int]:
+        if isinstance(self.validation_details, dict):
+            prov = self.validation_details.get("provenance")
+            if isinstance(prov, dict):
+                return prov.get("occurrence_count")
+        return None
+
+    @computed_field
+    @property
+    def is_varsity(self) -> Optional[bool]:
+        if isinstance(self.validation_details, dict):
+            prov = self.validation_details.get("provenance")
+            if isinstance(prov, dict):
+                return prov.get("is_varsity")
+        return None
+
+    @computed_field
+    @property
+    def round_stage(self) -> Optional[str]:
+        if isinstance(self.validation_details, dict):
+            prov = self.validation_details.get("provenance")
+            if isinstance(prov, dict):
+                return prov.get("round_stage")
+        return None
+
+    @computed_field
+    @property
+    def star_marked(self) -> Optional[bool]:
+        if isinstance(self.validation_details, dict):
+            prov = self.validation_details.get("provenance")
+            if isinstance(prov, dict):
+                return prov.get("star_marked")
+        return None
+
 class GeneratedQuestionUpdate(BaseModel):
     question_text: Optional[str] = None
     options: Optional[List[str]] = None

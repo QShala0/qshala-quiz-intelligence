@@ -15,6 +15,8 @@ import {
   Volume2,
   Headphones,
   Video,
+  RefreshCw,
+  Star,
 } from 'lucide-react';
 import { GeneratedQuestion, RetrievalSource } from '../lib/types';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
@@ -176,6 +178,37 @@ export default function QuestionCard({
           </button>
         </div>
       </div>
+
+      {/* Provenance & metadata pills row */}
+      {(Boolean(question.occurrence_count && question.occurrence_count > 1) || Boolean(question.is_varsity) || Boolean(question.round_stage) || Boolean(question.star_marked) || Boolean(question.source_year)) && (
+        <div className="mb-3.5 flex flex-wrap items-center gap-1.5">
+          {question.occurrence_count && question.occurrence_count > 1 ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 border border-purple-200 px-2.5 py-0.5 text-[11px] font-bold text-purple-800 shadow-2xs">
+              <RefreshCw size={11} className="text-purple-600" /> Asked {question.occurrence_count} times
+            </span>
+          ) : null}
+          {question.is_varsity ? (
+            <span className="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700">
+              ZVQ
+            </span>
+          ) : null}
+          {question.round_stage ? (
+            <span className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 capitalize">
+              {question.round_stage}
+            </span>
+          ) : null}
+          {question.star_marked ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
+              <Star size={10} className="fill-amber-400 text-amber-500" /> Starred
+            </span>
+          ) : null}
+          {question.source_year ? (
+            <span className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">
+              {question.source_year}
+            </span>
+          ) : null}
+        </div>
+      )}
 
       {/* Question Content */}
       {/* Question Content: QShala Slide Pair Presentation */}

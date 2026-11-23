@@ -581,6 +581,18 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
             question_video=list(getattr(orig_q, "question_videos", None) or []),
             raw_media_refs=list(getattr(orig_q, "raw_media_refs", None) or []),
             visual_clues=getattr(orig_q, "visual_clues", None),
+            validation_status="PASSED",
+            validation_details={
+                "provenance": {
+                    "has_source": True,
+                    "doc_title": doc_titles.get(orig_q.document_id) if orig_q else b.get("document_title"),
+                    "occurrence_count": b.get("occurrence_count") or (getattr(orig_q, "occurrence_count", 1) if orig_q else 1) or 1,
+                    "is_varsity": bool(b.get("is_varsity")),
+                    "round_stage": b.get("round_stage"),
+                    "star_marked": bool(b.get("star_marked")),
+                    "source_year": b.get("source_year"),
+                }
+            },
             is_approved=True,
         )
         db.add(gq)

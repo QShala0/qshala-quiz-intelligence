@@ -576,6 +576,8 @@ def deconstruct_prompt(
 
         if corpus_series:
             filters["corpus_series"] = corpus_series
+            if corpus_series == "ZVQ":
+                filters["is_varsity"] = True
         if repeat_filter != "all":
             filters["repeat_filter"] = repeat_filter
         if sort_by != "relevance":
