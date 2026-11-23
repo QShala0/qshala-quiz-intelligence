@@ -431,7 +431,7 @@ def parse_prompt(prompt: str):
 
     if re.search(r"\b(prelims?|preliminary)\b", p):
         filters["round_stage"] = "prelims"
-    elif re.search(r"\b(finals?)\b", p):
+    elif re.search(r"\b(?:across|from|in|of)\s+(?:zvq\s+)?finals?\b|\b(?:zvq|national|college|stage)\s+finals?\b|\bfinals?\s+(?:round|questions?|stage|decks?)\b", p):
         filters["round_stage"] = "finals"
     elif re.search(r"\b(warm-?up|assembly)\b", p):
         filters["round_stage"] = "warmup"

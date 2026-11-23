@@ -421,7 +421,7 @@ def _brief_from_regex(prompt: str, count: Optional[int],
     if re.search(r"\b(prelims?|preliminary)\b", p_lower):
         round_stage = "prelims"
         filters["round_stage"] = "prelims"
-    elif re.search(r"\b(finals?)\b", p_lower):
+    elif re.search(r"\b(?:across|from|in|of)\s+(?:zvq\s+)?finals?\b|\b(?:zvq|national|college|stage)\s+finals?\b|\bfinals?\s+(?:round|questions?|stage|decks?)\b", p_lower):
         round_stage = "finals"
         filters["round_stage"] = "finals"
     elif re.search(r"\b(warm-?up|assembly)\b", p_lower):
