@@ -616,68 +616,46 @@ def sharepoint_import_status(batch_id: Optional[str] = None, db: Session = Depen
     return importer.import_status(db, batch_id)
 
 
-_NOT_IMPORTED_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-CACHE_TTL = 300  # 5 minutes
+from backend.app.services.sharepoint import index as sp_index
+
+
+@router.post("/index/step")
+async def sharepoint_index_step(
+    drive_id: Optional[str] = None,
+    budget_seconds: int = Query(20, ge=1, le=120),
+    db: Session = Depends(get_db),
+):
+    """Run one scan step of the SharePoint file index.
+    Protected from overlapping executions via lease."""
+    client = get_sharepoint_client()
+    try:
+        return await sp_index.index_step(db, client, budget_seconds=budget_seconds, drive_id=drive_id)
+    except Exception as e:
+        raise _graph_error(e)
+
+
+@router.get("/index/status")
+def sharepoint_index_status(
+    drive_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Return state, counts and last updated time of the SharePoint file index."""
+    return sp_index.get_index_status(db, drive_id=drive_id)
 
 
 @router.get("/not-imported")
 async def sharepoint_not_imported(
     drive_id: Optional[str] = None,
-    refresh: int = Query(0),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    """Candidates in SharePoint that are not yet imported into QShala (status NEW).
-    Capped at 500 and sorted newest first. Cached in memory for 5 minutes (bypass with refresh=1)."""
+    """Candidates in SharePoint that are not yet imported into QShala (read from index).
+    Scoped to allowed folders / env roots, duplicate deck names omitted, sorted newest first."""
     client = get_sharepoint_client()
-    drive = drive_id or settings.SHAREPOINT_DRIVE_ID
-    if not drive:
-        drives = await client.list_drives()
-        if not drives:
-            return {"count": 0, "truncated": False, "files": []}
-        drive = drives[0]["id"]
-
-    cache_key = drive
-    now = time.time()
-    if not refresh and cache_key in _NOT_IMPORTED_CACHE:
-        cached_time, cached_res = _NOT_IMPORTED_CACHE[cache_key]
-        if now - cached_time < CACHE_TTL:
-            return cached_res
-
     try:
-        roots = await importer.scope_roots(client, drive, db=db)
-        if len(roots) > 1:
-            items = [importer.ItemRef(id=r["id"], kind="folder") for r in roots]
-        elif len(roots) == 1:
-            items = [importer.ItemRef(id=roots[0]["id"], kind="folder")]
-        else:
-            items = [importer.ItemRef(id="root", kind="folder")]
-
-        sel = importer.Selection(drive_id=drive, items=items, recursive=True)
-        got = await importer.collect_candidates(client, sel, db=db)
-        importer.classify(db, got["candidates"])
-
-        new_cands = [c for c in got["candidates"] if c.get("status") == "NEW"]
-        # newest first (by the date SharePoint last changed the file); undated files go last, ties by name
-        new_cands.sort(key=lambda c: (c.get("name") or "").lower())
-        new_cands.sort(key=lambda c: c.get("modified").timestamp() if c.get("modified") else float("-inf"), reverse=True)
-
-        truncated = got.get("truncated", False) or len(new_cands) > 500
-        capped_files = new_cands[:500]
-
-        result = {
-            "count": len(capped_files),
-            "truncated": truncated,
-            "files": [{
-                "id": c["id"],
-                "drive_id": c["drive_id"],
-                "name": c["name"],
-                "folder_path": c.get("folder_path") or "",
-                "size": c.get("size") or 0,
-                "last_modified": c["modified"].isoformat() if c.get("modified") else None,
-            } for c in capped_files],
-        }
-
-        _NOT_IMPORTED_CACHE[cache_key] = (now, result)
-        return result
+        return await sp_index.get_not_imported_from_index(
+            db, client=client, drive_id=drive_id, limit=limit, offset=offset
+        )
     except Exception as e:
         raise _graph_error(e)

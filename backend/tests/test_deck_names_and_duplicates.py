@@ -11,6 +11,7 @@ from backend.app.main import app
 from backend.app.models.document import Document
 from backend.app.models.job import IngestionJob
 from backend.app.models.sharepoint import SharePointFile
+from backend.app.models.sharepoint_index import SharePointIndexItem, SharePointIndexState
 from backend.app.models.upload_batch import UploadBatch
 from backend.app.services.deck_names import (
     normalize_deck_name,
@@ -50,6 +51,8 @@ def db():
 
         # Safety cleanup for any rows created with this test's unique prefix
         pfx = f"{prefix}%"
+        s.query(SharePointIndexItem).filter(SharePointIndexItem.id.like(pfx) | SharePointIndexItem.drive_id.like(pfx)).delete(synchronize_session=False)
+        s.query(SharePointIndexState).filter(SharePointIndexState.drive_id.like(pfx)).delete(synchronize_session=False)
         s.query(IngestionJob).filter(IngestionJob.id.like(pfx)).delete(synchronize_session=False)
         s.query(UploadBatch).filter(UploadBatch.id.like(pfx)).delete(synchronize_session=False)
         s.query(SharePointFile).filter(SharePointFile.id.like(pfx) | SharePointFile.name.like(pfx)).delete(synchronize_session=False)
@@ -269,58 +272,50 @@ async def test_sharepoint_not_imported_endpoint(db):
     db.add(doc)
     db.commit()
 
-    mock_client = AsyncMock()
     drive_id = f"{pfx}-drive-test"
-    mock_client.list_drives = AsyncMock(return_value=[{"id": drive_id}])
 
-    # 2 files in folder: Deck_One.pptx (already imported by name) and Deck_Two.pptx (NEW)
-    mock_client.list_children = AsyncMock(return_value={
-        "next": None,
-        "items": [
-            {
-                "id": f"{pfx}-file-1",
-                "name": f"{pfx} deck one.pdf",
-                "size": 12345,
-                "file": {"hashes": {}},
-                "lastModifiedDateTime": "2026-11-20T10:00:00Z",
-                "parentReference": {"path": f"/drives/{drive_id}/root:/Quizzes"},
-            },
-            {
-                "id": f"{pfx}-file-2",
-                "name": f"{pfx}_Deck_Two.pptx",
-                "size": 67890,
-                "file": {"hashes": {}},
-                "lastModifiedDateTime": "2026-11-21T10:00:00Z",
-                "parentReference": {"path": f"/drives/{drive_id}/root:/Quizzes"},
-            },
-        ],
-    })
+    folder = SharePointIndexItem(
+        id=f"{pfx}-folder-quizzes",
+        drive_id=drive_id,
+        parent_id="root",
+        name="Quizzes",
+        is_folder=True,
+        ext=None,
+        size=0,
+        modified=datetime.now(timezone.utc),
+    )
+    f1 = SharePointIndexItem(
+        id=f"{pfx}-file-1",
+        drive_id=drive_id,
+        parent_id=folder.id,
+        name=f"{pfx} deck one.pdf",
+        is_folder=False,
+        ext=".pdf",
+        size=12345,
+        modified=datetime(2026, 11, 20, 10, 0, 0, tzinfo=timezone.utc),
+    )
+    f2 = SharePointIndexItem(
+        id=f"{pfx}-file-2",
+        drive_id=drive_id,
+        parent_id=folder.id,
+        name=f"{pfx}_Deck_Two.pptx",
+        is_folder=False,
+        ext=".pptx",
+        size=67890,
+        modified=datetime(2026, 11, 21, 10, 0, 0, tzinfo=timezone.utc),
+    )
+    db.add_all([folder, f1, f2])
+    db.commit()
 
-    with patch("backend.app.routers.sharepoint.get_sharepoint_client", return_value=mock_client), \
-         patch("backend.app.services.sharepoint.importer.scope_roots", AsyncMock(return_value=[])):
+    r = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}")
+    assert r.status_code == 200, r.text
+    body = r.json()
 
-        # First call with refresh=1 to ensure cache is primed with our mock data
-        r = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&refresh=1")
-        assert r.status_code == 200, r.text
-        body = r.json()
-
-        assert body["count"] == 1
-        assert len(body["files"]) == 1
-        file_entry = body["files"][0]
-        assert file_entry["name"] == f"{pfx}_Deck_Two.pptx"
-        assert file_entry["size"] == 67890
-
-        # Change mock children to verify cache is honored
-        mock_client.list_children = AsyncMock(return_value={"next": None, "items": []})
-
-        r_cached = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}")
-        assert r_cached.status_code == 200
-        assert r_cached.json()["count"] == 1
-
-        # Now call with refresh=1, cache is bypassed
-        r_refreshed = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&refresh=1")
-        assert r_refreshed.status_code == 200
-        assert r_refreshed.json()["count"] == 0
+    assert body["count"] == 1
+    assert len(body["files"]) == 1
+    file_entry = body["files"][0]
+    assert file_entry["name"] == f"{pfx}_Deck_Two.pptx"
+    assert file_entry["size"] == 67890
 
 
 def test_existing_deck_names_ignores_failed_returns_newest_single_query(db):
@@ -443,25 +438,40 @@ def test_two_same_named_files_in_one_batch_caught_through_in_memory_index(db):
 @pytest.mark.anyio
 async def test_sharepoint_not_imported_lists_newest_first(db):
     pfx = db._test_prefix
-    mock_client = AsyncMock()
     drive_id = f"{pfx}-drive-order"
-    mock_client.list_drives = AsyncMock(return_value=[{"id": drive_id}])
 
-    def item(n, name, when):
-        d = {"id": f"{pfx}-file-{n}", "name": f"{pfx}_{name}.pptx", "size": 1, "file": {"hashes": {}},
-             "parentReference": {"path": f"/drives/{drive_id}/root:/Quizzes"}}
-        if when:
-            d["lastModifiedDateTime"] = when
-        return d
+    folder = SharePointIndexItem(
+        id=f"{pfx}-folder-quizzes",
+        drive_id=drive_id,
+        parent_id="root",
+        name="Quizzes",
+        is_folder=True,
+        ext=None,
+        size=0,
+        modified=datetime.now(timezone.utc),
+    )
+    db.add(folder)
 
-    mock_client.list_children = AsyncMock(return_value={"next": None, "items": [
-        item(1, "Old", "2019-03-01T10:00:00Z"),
-        item(2, "Newest", "2026-11-20T10:00:00Z"),
+    def item(n, name, when_dt):
+        return SharePointIndexItem(
+            id=f"{pfx}-file-{n}",
+            drive_id=drive_id,
+            parent_id=folder.id,
+            name=f"{pfx}_{name}.pptx",
+            is_folder=False,
+            ext=".pptx",
+            size=1,
+            modified=when_dt,
+        )
+
+    db.add_all([
+        item(1, "Old", datetime(2019, 3, 1, 10, 0, 0, tzinfo=timezone.utc)),
+        item(2, "Newest", datetime(2026, 11, 20, 10, 0, 0, tzinfo=timezone.utc)),
         item(3, "Undated", None),
-        item(4, "Middle", "2023-06-01T10:00:00Z"),
-    ]})
-    with patch("backend.app.routers.sharepoint.get_sharepoint_client", return_value=mock_client), \
-         patch("backend.app.services.sharepoint.importer.scope_roots", AsyncMock(return_value=[])):
-        r = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&refresh=1")
+        item(4, "Middle", datetime(2023, 6, 1, 10, 0, 0, tzinfo=timezone.utc)),
+    ])
+    db.commit()
+
+    r = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}")
     assert r.status_code == 200, r.text
     assert [f["name"].split("_", 1)[1] for f in r.json()["files"]] == ["Newest.pptx", "Middle.pptx", "Old.pptx", "Undated.pptx"]

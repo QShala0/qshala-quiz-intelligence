@@ -23,6 +23,21 @@ import SharePointImporter from '@/components/SharePointImporter';
 import CustomTemplateManager from '@/components/CustomTemplateManager';
 import { useToast } from '@/components/ui/Feedback';
 
+function formatTimeAgo(isoString?: string | null): string {
+  if (!isoString) return 'never';
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  if (isNaN(diffMs) || diffMs < 0) return 'just now';
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'just now';
+  if (diffMins === 1) return '1 min ago';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours === 1) return '1 hour ago';
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
 export default function SettingsPage() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<'platform' | 'sharepoint' | 'templates'>('platform');
@@ -39,6 +54,9 @@ export default function SettingsPage() {
   // Not in platform yet drawer state
   const [notImportedData, setNotImportedData] = useState<SpNotImportedResponse | null>(null);
   const [loadingNotImported, setLoadingNotImported] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [indexing, setIndexing] = useState(false);
+  const [indexingCount, setIndexingCount] = useState(0);
   const [notImportedError, setNotImportedError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -67,20 +85,60 @@ export default function SettingsPage() {
     }
   };
 
-  const handleCheckNotImported = async (forceRefresh = false) => {
-    setLoadingNotImported(true);
+  const fetchNotImported = async (offset = 0, append = false) => {
+    if (append) setLoadingMore(true);
+    else setLoadingNotImported(true);
     setNotImportedError(null);
     try {
-      const res = await api.spNotImported(undefined, forceRefresh);
-      setNotImportedData(res);
-      setSelectedIds(new Set(res.files.map((f) => f.id)));
-      setDrawerOpen(true);
+      const res = await api.spNotImported(undefined, 200, offset);
+      if (append) {
+        setNotImportedData((prev) => (prev ? { ...res, files: [...prev.files, ...res.files] } : res));
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          res.files.forEach((f) => next.add(f.id));
+          return next;
+        });
+      } else {
+        setNotImportedData(res);
+        setSelectedIds(new Set(res.files.map((f) => f.id)));
+      }
+      return res;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to check SharePoint files';
       setNotImportedError(msg);
-      setDrawerOpen(true);
+      return null;
     } finally {
-      setLoadingNotImported(false);
+      if (append) setLoadingMore(false);
+      else setLoadingNotImported(false);
+    }
+  };
+
+  const runIndexLoop = async () => {
+    setIndexing(true);
+    setIndexingCount(notImportedData?.index?.items_indexed || 0);
+    try {
+      for (let i = 0; i < 30; i++) {
+        const step = await api.spIndexStep(undefined, 20);
+        setIndexingCount(step.items_indexed);
+        if (step.finished || step.status === 'busy') break;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    } catch (err) {
+      console.error('SharePoint index step failed:', err);
+    } finally {
+      setIndexing(false);
+      await fetchNotImported(0, false);
+    }
+  };
+
+  const handleOpenDrawer = async () => {
+    setDrawerOpen(true);
+    const res = await fetchNotImported(0, false);
+    // If the index has never completed or is older than 1 hour, loop index/step
+    const lastFull = res?.index?.last_full_at;
+    const isStale = !lastFull || Date.now() - new Date(lastFull).getTime() > 3600000;
+    if (isStale) {
+      void runIndexLoop();
     }
   };
 
@@ -111,7 +169,7 @@ export default function SettingsPage() {
 
       toast.success(`Import complete! Transferred ${staged.selected} files.`);
       await Promise.all([
-        handleCheckNotImported(true),
+        fetchNotImported(0, false),
         loadSharePointData(),
       ]);
     } catch (err: unknown) {
@@ -129,15 +187,17 @@ export default function SettingsPage() {
       let isSubscribed = true;
       (async () => {
         try {
-          const [sStatus, sFiles, sJobs] = await Promise.all([
+          const [sStatus, sFiles, sJobs, sNotImported] = await Promise.all([
             api.getSharePointStatus().catch(() => null),
             api.listSharePointFiles().then(res => res.files).catch(() => []),
-            api.getJobs(undefined, 'MANUAL_UPLOAD').then(res => res.jobs).catch(() => [])
+            api.getJobs(undefined, 'MANUAL_UPLOAD').then(res => res.jobs).catch(() => []),
+            api.spNotImported(undefined, 1, 0).catch(() => null),
           ]);
           if (isSubscribed) {
             setSyncStatus(sStatus);
             setFiles(sFiles);
             setJobs(sJobs);
+            if (sNotImported) setNotImportedData(sNotImported);
           }
         } catch (err) {
           console.error('Failed to load SharePoint admin data:', err);
@@ -494,13 +554,13 @@ export default function SettingsPage() {
                 <span className="font-semibold text-slate-700">Not in platform yet</span>
                 {notImportedData !== null && (
                   <span className="rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-700">
-                    {notImportedData.count}
+                    {notImportedData.total}
                   </span>
                 )}
               </div>
               <button
                 type="button"
-                onClick={() => handleCheckNotImported(false)}
+                onClick={handleOpenDrawer}
                 disabled={loadingNotImported}
                 className="rounded-lg border border-slate-200 hover:bg-slate-50 px-3 py-1.5 text-[12px] font-semibold text-slate-700 transition-colors cursor-pointer flex items-center gap-1.5"
               >
@@ -814,14 +874,29 @@ export default function SettingsPage() {
           <div className="fixed inset-y-0 right-0 flex max-w-full pl-10">
             <div className="w-[380px] max-w-full bg-white shadow-2xl border-l border-slate-200 flex flex-col z-50">
               {/* Header */}
-              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-[15px] font-bold text-slate-900">Not in platform yet</h3>
-                  {notImportedData && (
-                    <span className="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-bold text-blue-700">
-                      {notImportedData.count}
-                    </span>
-                  )}
+              <div className="p-4 border-b border-slate-100 flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[15px] font-bold text-slate-900">Not in platform yet</h3>
+                    {notImportedData && (
+                      <span className="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-bold text-blue-700">
+                        {notImportedData.total}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5 text-[12px] text-slate-500">
+                    <span>Updated {formatTimeAgo(notImportedData?.index?.last_full_at)}</span>
+                    <span>·</span>
+                    <button
+                      type="button"
+                      disabled={indexing}
+                      onClick={() => runIndexLoop()}
+                      className="text-blue-600 hover:text-blue-700 font-semibold cursor-pointer disabled:opacity-50 inline-flex items-center gap-1"
+                    >
+                      {indexing && <RefreshCw className="h-3 w-3 animate-spin" />}
+                      <span>Refresh</span>
+                    </button>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -832,9 +907,21 @@ export default function SettingsPage() {
                 </button>
               </div>
 
+              {/* Indexing Progress Banner */}
+              {indexing && (
+                <div className="bg-blue-50/90 border-b border-blue-100 px-4 py-2 flex items-center gap-2 text-[12px] text-blue-700 font-medium">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-600 shrink-0" />
+                  <span>
+                    {!notImportedData?.index?.last_full_at
+                      ? `Building the list for the first time… ${indexingCount.toLocaleString()} files so far`
+                      : `Indexing… ${indexingCount.toLocaleString()} files`}
+                  </span>
+                </div>
+              )}
+
               {/* Body */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {loadingNotImported ? (
+                {loadingNotImported && !notImportedData ? (
                   <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
                     <RefreshCw className="h-5 w-5 animate-spin text-blue-600" />
                     <span className="text-[13px]">Checking SharePoint library...</span>
@@ -844,7 +931,7 @@ export default function SettingsPage() {
                     <p>{notImportedError}</p>
                     <button
                       type="button"
-                      onClick={() => handleCheckNotImported(true)}
+                      onClick={() => fetchNotImported(0, false)}
                       className="text-[12px] font-semibold text-rose-800 underline cursor-pointer"
                     >
                       Retry
@@ -878,7 +965,7 @@ export default function SettingsPage() {
                       <span>{selectedIds.size} of {notImportedData.files.length} selected</span>
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      Newest first{notImportedData.truncated ? ' · large library, this list may be incomplete' : ''}
+                      Newest first
                     </p>
 
                     <div className="divide-y divide-slate-100">
@@ -902,11 +989,18 @@ export default function SettingsPage() {
                             <div className="font-semibold text-slate-900 truncate" title={file.name}>
                               {file.name}
                             </div>
-                            {file.folder_path && (
-                              <div className="text-[11px] text-slate-400 truncate" title={file.folder_path}>
-                                {file.folder_path}
-                              </div>
-                            )}
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {file.root && (
+                                <span className="rounded bg-slate-100 text-slate-600 font-semibold px-1.5 py-0.5 text-[10.5px] shrink-0">
+                                  {file.root}
+                                </span>
+                              )}
+                              {file.folder_path && (
+                                <span className="text-[11px] text-slate-400 truncate" title={file.folder_path}>
+                                  {file.folder_path}
+                                </span>
+                              )}
+                            </div>
                             <div className="text-[11px] text-slate-400 mt-0.5">
                               {(file.size / (1024 * 1024)).toFixed(1)} MB · {file.last_modified ? new Date(file.last_modified).toLocaleDateString() : '—'}
                             </div>
@@ -914,6 +1008,26 @@ export default function SettingsPage() {
                         </div>
                       ))}
                     </div>
+
+                    {notImportedData.total > notImportedData.files.length && (
+                      <div className="pt-2 pb-1">
+                        <button
+                          type="button"
+                          disabled={loadingMore}
+                          onClick={() => fetchNotImported(notImportedData.files.length, true)}
+                          className="w-full py-2 px-3 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-100 text-[12.5px] font-semibold text-slate-700 cursor-pointer flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                        >
+                          {loadingMore ? (
+                            <>
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                              <span>Loading more...</span>
+                            </>
+                          ) : (
+                            <span>Load more ({notImportedData.total - notImportedData.files.length} remaining)</span>
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </div>

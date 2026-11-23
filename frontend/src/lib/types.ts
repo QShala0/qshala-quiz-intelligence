@@ -109,7 +109,9 @@ export interface HistoricalQuestion {
   question_number?: number | null;
   question_label?: string | null;
   question_format?: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   format_data?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   format_payload?: any;
   // format-aware ingestion: how the question is played, whether it is part of the live quiz, the deck's own topic label
   play_mode?: string | null;
@@ -695,12 +697,27 @@ export interface SpNotImportedFile {
   folder_path: string;
   size: number;
   last_modified: string | null;
+  root?: string | null;
+}
+
+export interface SpIndexState {
+  last_full_at: string | null;
+  status: string;
+  items_indexed: number;
+}
+
+export interface SpIndexStepResponse {
+  status: string;
+  items_indexed: number;
+  finished: boolean;
+  last_full_at: string | null;
 }
 
 export interface SpNotImportedResponse {
   count: number;
-  truncated: boolean;
+  total: number;
   files: SpNotImportedFile[];
+  index: SpIndexState;
 }
 
 // ---- SharePoint selective importer ----

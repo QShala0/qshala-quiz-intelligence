@@ -18,7 +18,7 @@ import {
   IngestionJobItem,
   SharePointSyncResponse,
   SpConfig, SpDrive, SpBrowse, SpSelection, SpPlan, SpStage, SpTransfer, SpImportStatus,
-  SpNotImportedResponse,
+  SpNotImportedResponse, SpIndexStepResponse, SpIndexState,
   SpAdminVerifyResponse, SpAdminFolder, SpAdminBrowse, SpAdminSearchResult,
   CustomPptTemplate,
   RequeueResponse,
@@ -339,10 +339,24 @@ export const api = {
   spImport: (sel: SpSelection) => spPost<SpStage>('/import', sel),
   spTransferNext: (batchId?: string, limit = 25) => spPost<SpTransfer>(`/transfer-next?limit=${limit}${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`, {}),
   spImportStatus: (batchId?: string) => spJson<SpImportStatus>(batchId ? `/import-status?batch_id=${encodeURIComponent(batchId)}` : '/import-status'),
-  spNotImported: (driveId?: string, refresh = false) => {
+  spIndexStep: (driveId?: string, budgetSeconds = 20) => {
     const q = new URLSearchParams();
     if (driveId) q.set('drive_id', driveId);
-    if (refresh) q.set('refresh', '1');
+    if (budgetSeconds) q.set('budget_seconds', String(budgetSeconds));
+    const qs = q.toString();
+    return spPost<SpIndexStepResponse>(`/index/step${qs ? `?${qs}` : ''}`, {});
+  },
+  spIndexStatus: (driveId?: string) => {
+    const q = new URLSearchParams();
+    if (driveId) q.set('drive_id', driveId);
+    const qs = q.toString();
+    return spJson<SpIndexState>(`/index/status${qs ? `?${qs}` : ''}`);
+  },
+  spNotImported: (driveId?: string, limit = 200, offset = 0) => {
+    const q = new URLSearchParams();
+    if (driveId) q.set('drive_id', driveId);
+    if (limit) q.set('limit', String(limit));
+    if (offset) q.set('offset', String(offset));
     const qs = q.toString();
     return spJson<SpNotImportedResponse>(`/not-imported${qs ? `?${qs}` : ''}`);
   },
@@ -595,7 +609,7 @@ export const api = {
       // 425 ("slice_not_ready") or 5xx/network errors retry with backoff.
       const BACKOFF_DELAYS = [800, 2000, 4000, 8000, 15000, 30000];
       let res: Response | null = null;
-      let lastError: any = null;
+      let lastError: unknown = null;
       for (let attempt = 0; attempt < BACKOFF_DELAYS.length; attempt++) {
         try {
           res = await xhrPost(`${getUploadApiBase()}/documents/upload-chunk`, formData, {
@@ -975,7 +989,7 @@ export const api = {
     return handleResponse<QuestionDetail>(res);
   },
 
-  updateQuestionMeta: async (questionId: string, changes: Record<string, any>): Promise<QuestionDetail> => {
+  updateQuestionMeta: async (questionId: string, changes: Record<string, unknown>): Promise<QuestionDetail> => {
     const res = await fetch(`${getApiBase()}/questions/${questionId}/meta`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1040,7 +1054,7 @@ export const api = {
     return handleResponse<TaxonomyV6>(res);
   },
 
-  updateDeckMeta: async (documentId: string, changes: Record<string, any>): Promise<DeckMeta> => {
+  updateDeckMeta: async (documentId: string, changes: Record<string, unknown>): Promise<DeckMeta> => {
     const res = await fetch(`${getApiBase()}/documents/${documentId}/deck-meta`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1329,7 +1343,7 @@ export async function getQshalaTaxonomy(): Promise<QshalaTaxonomy> {
   return r.json();
 }
 
-export async function searchQshalaQuestions(params: Record<string, any> = {}): Promise<QshalaSearchResponse> {
+export async function searchQshalaQuestions(params: Record<string, unknown> = {}): Promise<QshalaSearchResponse> {
   const base = getApiBase();
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
