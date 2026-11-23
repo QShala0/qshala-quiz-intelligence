@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXT = {".pptx", ".pdf"}
 MAX_PLAN_ITEMS = int(os.getenv("SHAREPOINT_MAX_PLAN_ITEMS", "2000"))
 MAX_DEPTH = int(os.getenv("SHAREPOINT_MAX_DEPTH", "8"))
+WALK_CONCURRENCY = max(1, int(os.getenv("SHAREPOINT_WALK_CONCURRENCY", "8")))   # folders listed at the same time
 MAX_FILE_BYTES = int(float(os.getenv("SHAREPOINT_MAX_FILE_MB", "1024")) * 1024 * 1024)
 SHAREPOINT_MAX_INFLIGHT = int(os.getenv("SHAREPOINT_MAX_INFLIGHT", getattr(settings, "SHAREPOINT_MAX_INFLIGHT", 4)))
 SHAREPOINT_BATCH_MAX = int(os.getenv("SHAREPOINT_BATCH_MAX", getattr(settings, "SHAREPOINT_BATCH_MAX", 25)))
@@ -347,14 +348,20 @@ async def collect_candidates(client, sel: Selection, db: Optional[Session] = Non
             return
         found.setdefault(c["id"], c)
 
+    # Sibling folders are listed at the same time (a few Graph calls in flight), not one after another: walking a
+    # whole library one folder at a time took minutes, which the browser gave up on (a 502) before it finished.
+    gate = asyncio.Semaphore(WALK_CONCURRENCY)
+
     async def walk(folder_id: Optional[str], depth: int) -> None:
+        subfolders: List[str] = []
         nxt: Optional[str] = None
         while True:
-            page = await client.list_children(sel.drive_id, folder_id, next_url=nxt)
+            async with gate:
+                page = await client.list_children(sel.drive_id, folder_id, next_url=nxt)
             for it in page["items"]:
                 if "folder" in it:
                     if sel.recursive and depth < MAX_DEPTH and it.get("id"):
-                        await walk(it["id"], depth + 1)
+                        subfolders.append(it["id"])
                 else:
                     add(it)
                 if len(found) >= MAX_PLAN_ITEMS:
@@ -364,15 +371,16 @@ async def collect_candidates(client, sel: Selection, db: Optional[Session] = Non
                     return
             nxt = page["next"]
             if not nxt:
-                return
+                break
+        if subfolders and not state["truncated"]:
+            await asyncio.gather(*(walk(s, depth + 1) for s in subfolders))
 
     for ref in sel.items:
         if state["truncated"]:
             break
         if ref.kind == "folder":
             if (not ref.id or ref.id == "root") and len(roots) > 1:
-                for r in roots:
-                    await walk(r["id"], 0)
+                await asyncio.gather(*(walk(r["id"], 0) for r in roots))
             else:
                 eff = await effective_folder(client, sel.drive_id, None if ref.id == "root" else ref.id, db=db)
                 await walk(eff, 0)
