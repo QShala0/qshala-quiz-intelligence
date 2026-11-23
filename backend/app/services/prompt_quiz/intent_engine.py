@@ -123,6 +123,48 @@ INTENT_SCHEMA: Dict[str, Any] = {
             "nullable": True,
             "description": "True if the user asked for text only, no images, without pictures, or non-visual questions."
         },
+        "sort_by": {
+            "type": "STRING",
+            "enum": ["most_asked", "least_asked", "hardest", "easiest", "curiosity", "newest", "relevance"],
+            "description": "Sort/ranking intent: 'most_asked' for most asked/repeated/frequent questions; 'least_asked' for unique/unrepeated/fresh; 'hardest' for toughest; 'easiest' for gentle/simplest; 'curiosity' for curiosity-driven; 'newest' for latest; else 'relevance'."
+        },
+        "corpus_series": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Specific quiz series or program named in prompt: 'ZVQ' (for ZVQ, Zerodha Varsity, Varsity), 'Agastya', 'JPS', etc., or null."
+        },
+        "round_stage": {
+            "type": "STRING",
+            "enum": ["prelims", "finals", "semi_finals", "warmup"],
+            "nullable": True,
+            "description": "Competition stage: 'prelims' for prelims/qualifiers, 'finals' for stage finals/culmination, 'warmup' for warm-up rounds, or null."
+        },
+        "play_mode": {
+            "type": "STRING",
+            "enum": ["BUZZER", "TIEBREAK", "DIRECTED", "PASS", "ALL_ON_SCREEN", "BUFFER"],
+            "nullable": True,
+            "description": "Play mode if specifically asked (e.g. 'buzzer round' -> 'BUZZER', 'tiebreaker' -> 'TIEBREAK'), else null."
+        },
+        "repeat_filter": {
+            "type": "STRING",
+            "enum": ["repeated_only", "unique_only", "all"],
+            "description": "'repeated_only' if asked for repeated/frequent/most-asked; 'unique_only' if asked for unrepeated/unique/fresh/never-asked; else 'all'."
+        },
+        "star_marked": {
+            "type": "BOOLEAN",
+            "nullable": True,
+            "description": "True if user asked for starred questions, star questions, or starred prelims."
+        },
+        "media_filter": {
+            "type": "STRING",
+            "enum": ["images_only", "audio_or_video", "text_only", "any"],
+            "description": "'images_only' if asked for questions with images/pictures/visual clues; 'audio_or_video' if asked for audio/video clips; 'text_only' if asked for no images/text-only; else 'any'."
+        },
+        "year": {
+            "type": "INTEGER",
+            "nullable": True,
+            "description": "Specific 4-digit calendar year if requested (e.g. 2024, 2023), otherwise null."
+        },
         "framing": {
             "type": "STRING",
             "description": "A crisp, engaging 1-sentence description of this quiz round."
@@ -160,7 +202,19 @@ def _build_system_prompt(taxonomy: Dict[str, List[str]]) -> str:
         "   - For ANY thematic, persona, or multidisciplinary prompt, set mapped_topics_l1: [] and mapped_subtopics_l2: [] so retrieval searches across the entire archive using your rich expansion_terms.\n"
         "   - ONLY set mapped_topics_l1 or mapped_subtopics_l2 if the user explicitly commanded a specific narrow category (e.g. 'only cricket', 'purely finance', 'taxation questions').\n\n"
         "4. AUDIENCE PERSONA CALIBRATION:\n"
-        "   - If target_audience == 'school' (kids, school students, assembly): prioritize inspiring thinkers, creators, national role models, curricular curiosity. Add adult satire, corporate tax avoidance, and adult controversy to negative_terms.\n"
+        "   - If target_audience == 'school' (kids, school students, assembly): prioritize inspiring thinkers, creators, national role models, curricular curiosity. Add adult satire, corporate tax avoidance, and adult controversy to negative_terms.\n\n"
+        "5. DATABASE & ARCHIVE QUERIES (Crucial):\n"
+        "   - When the user asks for database aggregations (e.g. 'most asked questions across zvq', '10 questions from 2024 that have never been repeated', 'starred questions from college prelims', 'buzzer round questions'):\n"
+        "     * If the query has NO topical subject (e.g. 'most asked questions across zvq'), set normalized_subject: '' and expansion_terms: [] so retrieval searches across ALL topics in that scope.\n"
+        "     * Set sort_by: 'most_asked' for 'most asked', 'most repeated', 'frequently asked', 'top asked', 'popular'.\n"
+        "     * Set sort_by: 'least_asked' and repeat_filter: 'unique_only' for 'never repeated', 'unrepeated', 'unique', 'fresh', 'unseen'.\n"
+        "     * Set sort_by: 'hardest' for 'hardest', 'toughest', 'killer'.\n"
+        "     * Set sort_by: 'curiosity' for 'curiosity', 'curiosity-driven', 'most curious'.\n"
+        "     * Set corpus_series: 'ZVQ' for 'zvq', 'zerodha varsity', 'varsity'.\n"
+        "     * Set round_stage: 'prelims' for 'prelims', 'finals' for 'finals', 'warmup' for 'warm-up'.\n"
+        "     * Set play_mode: 'BUZZER' for 'buzzer', 'TIEBREAK' for 'tiebreak' or 'tiebreaker'.\n"
+        "     * Set star_marked: true for 'starred' or 'star questions'.\n"
+        "     * Set year: integer if a 4-digit year is requested (e.g. 2024).\n"
         "   - Output strictly valid JSON conforming to the schema."
     )
 
@@ -295,6 +349,10 @@ def deconstruct_prompt(
             "trivia", "quiz", "questions", "general", "general gk", "gk",
             "general trivia", "kids trivia", "middle school quiz", "middle school",
             "school friendly", "india focus", "focus on india", "india",
+            "most asked", "most repeated", "frequently asked", "popular", "top asked",
+            "never repeated", "unrepeated", "unique", "fresh", "unused", "zvq",
+            "across zvq", "in zvq", "from zvq", "zerodha varsity", "varsity",
+            "prelims", "finals", "buzzer", "tiebreaker", "starred",
         }
         GEO_ONLY_WORDS = {
             "india", "indian", "bharat", "karnataka", "bengaluru", "bangalore",
@@ -308,6 +366,8 @@ def deconstruct_prompt(
             "add", "keep", "middle", "high", "primary", "school", "kids", "friendly",
             "harder", "easier", "tougher", "spicier", "balanced", "warm", "up",
             "students", "student", "relevant", "curriculum", "syllabus",
+            "most", "asked", "repeated", "frequently", "popular", "zvq", "varsity",
+            "prelims", "prelim", "finals", "final", "buzzer", "tiebreak", "tiebreaker", "starred",
         }
 
         has_topic_swap = bool(re.search(
@@ -458,10 +518,85 @@ def deconstruct_prompt(
             l1s = [] if is_thematic else (parsed.get("mapped_topics_l1") or [])
             l2s = [] if is_thematic else (parsed.get("mapped_subtopics_l2") or [])
 
+        # Database & analytical query signals
+        sort_by = parsed.get("sort_by") or "relevance"
+        corpus_series = parsed.get("corpus_series")
+        round_stage = parsed.get("round_stage")
+        play_mode = parsed.get("play_mode")
+        repeat_filter = parsed.get("repeat_filter") or "all"
+        star_marked = parsed.get("star_marked")
+        year = parsed.get("year")
+
+        # Deterministic regex overrides / fallbacks
+        if re.search(r"\b(most\s+(?:frequently\s+)?asked|most\s+repeated|frequently\s+asked|popular|top\s+asked)\b", p_lower):
+            sort_by = "most_asked"
+            repeat_filter = "repeated_only"
+        elif re.search(r"\b((?:never|not)\s+(?:been\s+)?repeated|zero\s+repeats|unrepeated|unique|fresh|unused)\b", p_lower):
+            repeat_filter = "unique_only"
+            sort_by = "least_asked"
+        elif re.search(r"\b(hardest|toughest|spiciest|killer)\b", p_lower):
+            sort_by = "hardest"
+        elif re.search(r"\b(easiest|simplest)\b", p_lower):
+            sort_by = "easiest"
+        elif re.search(r"\b(curiosity|curiosity-driven)\b", p_lower):
+            sort_by = "curiosity"
+
+        if re.search(r"\b(zvq|zerodha\s+varsity|varsity)\b", p_lower):
+            corpus_series = "ZVQ"
+            filters["is_varsity"] = True
+
+        if re.search(r"\b(prelims?|preliminary)\b", p_lower):
+            round_stage = "prelims"
+            filters["round_stage"] = "prelims"
+        elif re.search(r"\b(finals?)\b", p_lower):
+            round_stage = "finals"
+            filters["round_stage"] = "finals"
+        elif re.search(r"\b(warm-?up|assembly)\b", p_lower):
+            round_stage = "warmup"
+            filters["round_stage"] = "warmup"
+
+        if re.search(r"\b(buzzer(?:\s+round)?)\b", p_lower):
+            play_mode = "BUZZER"
+            filters["play_mode"] = "BUZZER"
+        elif re.search(r"\b(tie-?break(?:er)?)\b", p_lower):
+            play_mode = "TIEBREAK"
+            filters["play_mode"] = "TIEBREAK"
+
+        if re.search(r"\b(starred|star\s+marked)\b", p_lower):
+            star_marked = True
+            filters["star_marked"] = True
+
+        m_yr = re.search(r"\b(20[12]\d)\b", p_lower)
+        if m_yr:
+            year = int(m_yr.group(1))
+            filters["year"] = year
+
+        if re.search(r"\b(audio|video|clip|clips|sound)\b", p_lower):
+            filters["audio_or_video"] = True
+
+        if corpus_series:
+            filters["corpus_series"] = corpus_series
+        if repeat_filter != "all":
+            filters["repeat_filter"] = repeat_filter
+        if sort_by != "relevance":
+            filters["sort_by"] = sort_by
+        if round_stage:
+            filters["round_stage"] = round_stage
+        if play_mode:
+            filters["play_mode"] = play_mode
+        if star_marked is not None:
+            filters["star_marked"] = star_marked
+        if year is not None:
+            filters["year"] = year
+
         framing = (
             (previous_brief or {}).get("framing")
             if is_constraint_refinement and (previous_brief or {}).get("framing")
-            else (parsed.get("framing") or f"A curated round on {subject or prompt}")
+            else (parsed.get("framing") or (
+                f"{final_count} most asked questions across Zenith Varsity Quizzes"
+                if sort_by == "most_asked" and corpus_series == "ZVQ" and not subject
+                else f"A curated round on {subject or prompt}"
+            ))
         )
         effective_aud = filters.get("audience") or target_aud
 
@@ -501,6 +636,13 @@ def deconstruct_prompt(
                 topics_l1=l1s,
                 subtopics_l2=l2s,
                 search_terms=expansions,
+                sort_by=sort_by,
+                corpus_series=corpus_series,
+                round_stage=round_stage,
+                play_mode=play_mode,
+                star_marked=star_marked,
+                repeat_filter=repeat_filter,
+                source_year=year,
         )
         logger.info(
                 f"Dynamic Intent parsed: subject='{subject}', expansions={len(expansions)}, aud='{target_aud}', l1={brief.topics_l1}"

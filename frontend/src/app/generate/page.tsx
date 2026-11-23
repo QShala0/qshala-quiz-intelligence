@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Check, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowUp, Check, Plus, RefreshCw, Sparkles, Trash2, Star, Volume2, Video } from 'lucide-react';
 import { getApiBase, resolveMediaUrl } from '../../lib/api';
 import { HistoricalQuestion, SourceCatalog } from '../../lib/types';
 import BankPickerDrawer from '../../components/BankPickerDrawer';
@@ -32,6 +32,15 @@ type DraftQ = {
   topic_label?: string | null;
   document_id?: string | null;
   document_title?: string | null;
+  occurrence_count?: number | null;
+  repeat_count?: number | null;
+  is_varsity?: boolean | null;
+  round_stage?: string | null;
+  star_marked?: boolean | null;
+  source_year?: number | null;
+  curiosity_score?: number | null;
+  has_audio?: boolean | null;
+  has_video?: boolean | null;
 };
 
 type FulfillmentSuggestion = {
@@ -1021,9 +1030,40 @@ export default function QuizzerHome() {
                         )}
                       </div>
                     )}
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-
-                      <p className="text-[12px] text-slate-400">{[q.subtopic_l2 || q.topic_l1, q.document_title, q.difficulty !== 'Unrated' ? q.difficulty : null, q.image_dependent ? 'has image' : null].filter(Boolean).join(' · ')}</p>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                      {q.occurrence_count && q.occurrence_count > 1 ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 border border-purple-200 px-2 py-0.5 text-[11px] font-semibold text-purple-700">
+                          <RefreshCw size={10} className="text-purple-500" /> Asked {q.occurrence_count} times
+                        </span>
+                      ) : null}
+                      {q.is_varsity ? (
+                        <span className="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                          ZVQ
+                        </span>
+                      ) : null}
+                      {q.round_stage ? (
+                        <span className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700 capitalize">
+                          {q.round_stage}
+                        </span>
+                      ) : null}
+                      {q.star_marked ? (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                          <Star size={10} className="fill-amber-400 text-amber-500" /> Starred
+                        </span>
+                      ) : null}
+                      {q.play_mode && q.play_mode !== 'DIRECTED' ? (
+                        <span className="inline-flex items-center rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                          {q.play_mode}
+                        </span>
+                      ) : null}
+                      {q.source_year ? (
+                        <span className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                          {q.source_year}
+                        </span>
+                      ) : null}
+                      <p className="text-[12px] text-slate-400 ml-1">
+                        {[q.subtopic_l2 || q.topic_l1, q.document_title, q.difficulty !== 'Unrated' ? q.difficulty : null, q.image_dependent ? 'has image' : null].filter(Boolean).join(' · ')}
+                      </p>
                     </div>
 
                     {/* Inline Topic Change Panel for this Card */}

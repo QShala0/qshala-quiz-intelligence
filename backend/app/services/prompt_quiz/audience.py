@@ -70,6 +70,60 @@ def passes_hard(c: Candidate, filters: Dict[str, Any], format_filter: Optional[s
     if skip != "evergreen" and f.get("evergreen"):
         if (c.get("shelf_life") or "").upper() == "TIME_SENSITIVE":
             return False
+    if skip != "is_varsity" and f.get("is_varsity"):
+        if not c.get("is_varsity"):
+            doc_blob = f"{_lc(c.get('document_title'))} {_lc(c.get('document_filename'))}"
+            from backend.app.services.ingestion.deck_metadata import is_varsity_name
+            if not is_varsity_name(doc_blob):
+                return False
+    if skip != "round_stage" and f.get("round_stage"):
+        target_stg = str(f.get("round_stage")).lower().strip()
+        c_stg = str(c.get("round_stage") or "").lower().strip()
+        doc_blob = f"{_lc(c.get('document_title'))} {_lc(c.get('document_filename'))}"
+        if target_stg in ("prelim", "prelims", "preliminary"):
+            if not ("prelim" in c_stg or "prelim" in doc_blob):
+                return False
+        elif target_stg in ("final", "finals"):
+            if not ("final" in c_stg or "final" in doc_blob):
+                return False
+        elif target_stg in ("warmup", "warm-up", "assembly"):
+            if not ("warmup" in c_stg or "warm-up" in c_stg or "warmup" in doc_blob or "warm-up" in doc_blob):
+                return False
+    if skip != "play_mode" and f.get("play_mode"):
+        target_mode = str(f.get("play_mode")).upper().strip()
+        c_mode = str(c.get("play_mode") or "").upper().strip()
+        if target_mode and c_mode != target_mode:
+            return False
+    if skip != "star_marked" and f.get("star_marked"):
+        if not c.get("star_marked"):
+            return False
+    if skip != "repeat_filter" and f.get("repeat_filter"):
+        rf = f.get("repeat_filter")
+        occ = c.get("occurrence_count", 1) or 1
+        if rf == "unique_only" and occ > 1:
+            return False
+    if skip != "media" and f.get("audio_or_video"):
+        has_aud_or_vid = bool(
+            c.get("has_audio") or c.get("has_video") or
+            c.get("question_audio") or c.get("answer_audio") or c.get("audio_refs") or
+            c.get("question_videos") or c.get("answer_videos") or c.get("video_refs")
+        )
+        if not has_aud_or_vid:
+            return False
+    if skip != "year" and f.get("year"):
+        try:
+            target_yr = int(f.get("year"))
+            c_yr = c.get("source_year")
+            if c_yr and c_yr != target_yr:
+                return False
+        except (ValueError, TypeError):
+            pass
+    if skip != "city_name" and f.get("city_name"):
+        target_city = str(f.get("city_name")).lower().strip()
+        c_city = str(c.get("city_name") or "").lower().strip()
+        doc_blob = f"{_lc(c.get('document_title'))} {_lc(c.get('document_filename'))}"
+        if target_city not in c_city and target_city not in doc_blob:
+            return False
     if skip != "india_international" and f.get("india_international"):
         target_geo = str(f.get("india_international")).upper()
         c_geo = (c.get("india_international") or "").upper()

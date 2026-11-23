@@ -69,6 +69,13 @@ class Brief:
     # Reserve spares and example slides are left out of a quiz unless asked for
     include_reserve: bool = False
     include_example: bool = False
+    sort_by: Optional[str] = "relevance"
+    corpus_series: Optional[str] = None
+    round_stage: Optional[str] = None
+    play_mode: Optional[str] = None
+    star_marked: Optional[bool] = None
+    repeat_filter: Optional[str] = "all"
+    source_year: Optional[int] = None
 
     def public(self) -> Dict[str, Any]:
         return asdict(self)
@@ -184,6 +191,30 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
     tone = list(gem.get("tone") or (previous_brief or {}).get("tone") or [])
     cross_topic_padding = bool(gem.get("cross_topic_padding") if gem.get("cross_topic_padding") is not None else (previous_brief or {}).get("cross_topic_padding", False))
 
+    sort_by = gem.get("sort_by") or (previous_brief or {}).get("sort_by") or "relevance"
+    corpus_series = gem.get("corpus_series") or (previous_brief or {}).get("corpus_series")
+    round_stage = gem.get("round_stage") or (previous_brief or {}).get("round_stage")
+    play_mode = gem.get("play_mode") or (previous_brief or {}).get("play_mode")
+    repeat_filter = gem.get("repeat_filter") or (previous_brief or {}).get("repeat_filter") or "all"
+    star_marked = gem.get("star_marked") if gem.get("star_marked") is not None else (previous_brief or {}).get("star_marked")
+    source_year = gem.get("year") or (previous_brief or {}).get("source_year")
+    if sort_by != "relevance":
+        filters["sort_by"] = sort_by
+    if corpus_series:
+        filters["corpus_series"] = corpus_series
+        if corpus_series == "ZVQ":
+            filters["is_varsity"] = True
+    if round_stage:
+        filters["round_stage"] = round_stage
+    if play_mode:
+        filters["play_mode"] = play_mode
+    if repeat_filter != "all":
+        filters["repeat_filter"] = repeat_filter
+    if star_marked is not None:
+        filters["star_marked"] = star_marked
+    if source_year is not None:
+        filters["year"] = source_year
+
     prev_b = previous_brief or {}
     return Brief(
         include_reserve=bool(prev_b.get('include_reserve', False)),
@@ -203,6 +234,13 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
         topics_l1=topics_l1,
         subtopics_l2=subtopics_l2,
         search_terms=search_terms,
+        sort_by=sort_by,
+        corpus_series=corpus_series,
+        round_stage=round_stage,
+        play_mode=play_mode,
+        star_marked=star_marked,
+        repeat_filter=repeat_filter,
+        source_year=source_year,
     )
 
 
@@ -354,6 +392,79 @@ def _brief_from_regex(prompt: str, count: Optional[int],
 
     framing = (previous_brief or {}).get("framing")
 
+    p_lower = p.lower()
+    sort_by = (previous_brief or {}).get("sort_by") or "relevance"
+    corpus_series = (previous_brief or {}).get("corpus_series")
+    round_stage = (previous_brief or {}).get("round_stage")
+    play_mode = (previous_brief or {}).get("play_mode")
+    repeat_filter = (previous_brief or {}).get("repeat_filter") or "all"
+    star_marked = (previous_brief or {}).get("star_marked")
+    source_year = (previous_brief or {}).get("source_year")
+
+    if re.search(r"\b(most\s+(?:frequently\s+)?asked|most\s+repeated|frequently\s+asked|popular|top\s+asked)\b", p_lower):
+        sort_by = "most_asked"
+        repeat_filter = "repeated_only"
+    elif re.search(r"\b((?:never|not)\s+(?:been\s+)?repeated|zero\s+repeats|unrepeated|unique|fresh|unused)\b", p_lower):
+        repeat_filter = "unique_only"
+        sort_by = "least_asked"
+    elif re.search(r"\b(hardest|toughest|spiciest|killer)\b", p_lower):
+        sort_by = "hardest"
+    elif re.search(r"\b(easiest|simplest)\b", p_lower):
+        sort_by = "easiest"
+    elif re.search(r"\b(curiosity|curiosity-driven)\b", p_lower):
+        sort_by = "curiosity"
+
+    if re.search(r"\b(zvq|zerodha\s+varsity|varsity)\b", p_lower):
+        corpus_series = "ZVQ"
+        filters["is_varsity"] = True
+
+    if re.search(r"\b(prelims?|preliminary)\b", p_lower):
+        round_stage = "prelims"
+        filters["round_stage"] = "prelims"
+    elif re.search(r"\b(finals?)\b", p_lower):
+        round_stage = "finals"
+        filters["round_stage"] = "finals"
+    elif re.search(r"\b(warm-?up|assembly)\b", p_lower):
+        round_stage = "warmup"
+        filters["round_stage"] = "warmup"
+
+    if re.search(r"\b(buzzer(?:\s+round)?)\b", p_lower):
+        play_mode = "BUZZER"
+        filters["play_mode"] = "BUZZER"
+    elif re.search(r"\b(tie-?break(?:er)?)\b", p_lower):
+        play_mode = "TIEBREAK"
+        filters["play_mode"] = "TIEBREAK"
+
+    if re.search(r"\b(starred|star\s+marked)\b", p_lower):
+        star_marked = True
+        filters["star_marked"] = True
+
+    m_yr = re.search(r"\b(20[12]\d)\b", p_lower)
+    if m_yr:
+        source_year = int(m_yr.group(1))
+        filters["year"] = source_year
+
+    if re.search(r"\b(audio|video|clip|clips|sound)\b", p_lower):
+        filters["audio_or_video"] = True
+
+    if corpus_series:
+        filters["corpus_series"] = corpus_series
+    if repeat_filter != "all":
+        filters["repeat_filter"] = repeat_filter
+    if sort_by != "relevance":
+        filters["sort_by"] = sort_by
+    if round_stage:
+        filters["round_stage"] = round_stage
+    if play_mode:
+        filters["play_mode"] = play_mode
+    if star_marked is not None:
+        filters["star_marked"] = star_marked
+    if source_year is not None:
+        filters["year"] = source_year
+
+    if not framing and sort_by == "most_asked" and corpus_series == "ZVQ" and not query:
+        framing = f"{final_n} most asked questions across Zenith Varsity Quizzes"
+
     prev_b = previous_brief or {}
     return Brief(
         include_reserve=bool(prev_b.get('include_reserve', False)),
@@ -373,6 +484,13 @@ def _brief_from_regex(prompt: str, count: Optional[int],
         topics_l1=topics_l1,
         subtopics_l2=subtopics_l2,
         search_terms=search_terms,
+        sort_by=sort_by,
+        corpus_series=corpus_series,
+        round_stage=round_stage,
+        play_mode=play_mode,
+        star_marked=star_marked,
+        repeat_filter=repeat_filter,
+        source_year=source_year,
     )
 
 
@@ -660,11 +778,31 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
                 QshalaQuestionMetadata.city_name,
                 QshalaQuestionMetadata.geo_region,
                 QshalaQuestionMetadata.primary_audience,
+                QshalaQuestionMetadata.star_marked,
+                QshalaQuestionMetadata.round_stage,
+                QshalaQuestionMetadata.is_varsity,
+                QshalaQuestionMetadata.deck_year,
             ).all()
             for m in mrows:
                 meta[m.question_id] = m
         except Exception:
             meta = {}
+
+    deck_meta_map = {}
+    try:
+        from backend.app.models.question_meta import DeckMetadata
+        for dm in db.query(DeckMetadata.document_id, DeckMetadata.is_varsity, DeckMetadata.round_stage, DeckMetadata.deck_year, DeckMetadata.city).all():
+            deck_meta_map[dm.document_id] = dm
+    except Exception:
+        deck_meta_map = {}
+
+    repeat_counts = {}
+    try:
+        from backend.app.models.question_meta import QuestionRepeat
+        for q_id, cnt in db.query(QuestionRepeat.question_id, func.count(QuestionRepeat.id)).group_by(QuestionRepeat.question_id).all():
+            repeat_counts[q_id] = cnt
+    except Exception:
+        repeat_counts = {}
 
     docs_map = {}
     docs_filename_map = {}
@@ -686,6 +824,31 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
             continue
         t = tags.get(q.id)
         m = meta.get(q.id)
+        dm = deck_meta_map.get(q.document_id)
+        d_title = docs_map.get(q.document_id, "")
+        d_fn = docs_filename_map.get(q.document_id, "")
+        doc_blob = f"{d_title} {d_fn}".lower()
+
+        from backend.app.services.ingestion.deck_metadata import is_varsity_name
+        is_varsity_flag = bool(
+            (m and m.is_varsity) or 
+            (dm and dm.is_varsity) or 
+            is_varsity_name(f"{d_title} {d_fn}")
+        )
+        
+        round_stg = (m and m.round_stage) or (dm and dm.round_stage)
+        if not round_stg:
+            if "prelim" in doc_blob:
+                round_stg = "prelims"
+            elif "final" in doc_blob:
+                round_stg = "finals"
+            elif "warmup" in doc_blob or "warm-up" in doc_blob:
+                round_stg = "warmup"
+
+        rep_cnt = repeat_counts.get(q.id, 0)
+        occ_cnt = max(int(getattr(q, "occurrence_count", 1) or 1), 1 + rep_cnt)
+        src_yr = getattr(q, "source_year", None) or (m and m.deck_year) or (dm and dm.deck_year)
+
         bank.append({
             "id": q.id,
             "question_text": q.question_text,
@@ -719,6 +882,15 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
             "city_name": (getattr(t, 'city_name', None) if t else None) or (getattr(m, 'city_name', None) if m else None),
             "geo_region": (getattr(t, 'geo_region', None) if t else None) or (getattr(m, 'geo_region', None) if m else None),
             "primary_audience": getattr(m, 'primary_audience', None) if m else None,
+            "occurrence_count": occ_cnt,
+            "repeat_count": rep_cnt,
+            "is_varsity": is_varsity_flag,
+            "round_stage": round_stg,
+            "star_marked": bool(m and m.star_marked),
+            "source_year": src_yr,
+            "curiosity_score": getattr(q, "curiosity_score", None),
+            "has_audio": bool(getattr(q, "question_audio", None) or getattr(q, "answer_audio", None) or getattr(q, "audio_refs", None)),
+            "has_video": bool(getattr(q, "question_videos", None) or getattr(q, "answer_videos", None) or getattr(q, "video_refs", None)),
         })
     return bank
 
@@ -888,8 +1060,14 @@ def editor(cands: List[Dict[str, Any]], brief: Brief, preserve_slot1_id: Optiona
         return float(rv) if rv is not None else float(c.get("score") or 0.0)
 
     # Primary: ranked relevance score (_rank_score if computed by build_draft, else BM25 score).
+    is_analytical_sort = (
+        getattr(brief, "sort_by", "relevance") in ("most_asked", "hardest", "easiest", "curiosity", "least_asked")
+        or (brief.filters or {}).get("sort_by") in ("most_asked", "hardest", "easiest", "curiosity", "least_asked")
+    )
     has_specific_topic = bool(brief.topics_l1 or brief.subtopics_l2 or brief.locality or (brief.query and brief.query.lower() not in ("general knowledge", "trivia", "")))
-    if not has_specific_topic and brief.hard_bias == "hard":
+    if is_analytical_sort:
+        ordered_cands.sort(key=lambda c: -_rel(c))
+    elif not has_specific_topic and brief.hard_bias == "hard":
         ordered_cands.sort(key=lambda c: (-(c.get("difficulty_score") or 0.5), -_rel(c)))
     elif not has_specific_topic and brief.hard_bias == "easy":
         ordered_cands.sort(key=lambda c: ((c.get("difficulty_score") or 0.5), -_rel(c)))
@@ -930,7 +1108,7 @@ def editor(cands: List[Dict[str, Any]], brief: Brief, preserve_slot1_id: Optiona
     chosen_entities: Set[str] = set()
     common_geo = {"bengaluru", "bangalore", "mumbai", "delhi", "india", "chennai", "kolkata", "hyderabad", "pune"}
     per_sub: Dict[str, int] = {}
-    cap = max(2, -(-n // 3))  # no subtopic takes more than ~a third
+    cap = len(ordered_cands) if is_analytical_sort else max(2, -(-n // 3))  # no subtopic takes more than ~a third
     leftovers = []
     for c in ordered_cands:
         ent = _normalize_answer_entity(c.get("answer") or "")
@@ -955,7 +1133,7 @@ def editor(cands: List[Dict[str, Any]], brief: Brief, preserve_slot1_id: Optiona
         chosen.append(c)
         if ent:
             chosen_entities.add(ent)
-    if brief.ramp:
+    if brief.ramp and not is_analytical_sort:
         chosen.sort(key=lambda c: c.get("difficulty_score") or 0.5)
         if brief.hard_bias == "hard":
             chosen.sort(key=lambda c: -(c.get("difficulty_score") or 0.5))
@@ -989,7 +1167,9 @@ def _view(c: Dict[str, Any]) -> Dict[str, Any]:
     return {k: c.get(k) for k in ("id", "question_text", "answer", "topic_l1", "subtopic_l2", "difficulty_score",
                                   "difficulty", "image_dependent", "shelf_life", "tagged", "score", "document_id",
                                   "document_title", "question_images", "answer_images", "image_refs",
-                                  "question_format", "format_payload", "slot", "play_mode", "topic_label")}
+                                  "question_format", "format_payload", "slot", "play_mode", "topic_label",
+                                  "occurrence_count", "repeat_count", "is_varsity", "round_stage", "star_marked",
+                                  "source_year", "curiosity_score", "has_audio", "has_video")}
 
 
 _TOPICAL_NOISE_WORDS = {
@@ -1327,9 +1507,13 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     # 4. Score each pool item
     has_topical_query = bool((brief.query or "").strip()) and not is_pure_geo and not is_vague
+    sort_mode = getattr(brief, "sort_by", "relevance") or (brief.filters or {}).get("sort_by") or "relevance"
+    is_analytical_sort = sort_mode in ("most_asked", "hardest", "easiest", "curiosity", "least_asked")
 
     def _rank_cand(c: Dict[str, Any]) -> float:
         base = float(c.get("score") or 0.0)
+        occ = float(c.get("occurrence_count", 1) or 1)
+        rep = float(c.get("repeat_count", 0) or 0)
         aud = audience_score(
             c,
             locality=brief.locality,
@@ -1339,6 +1523,27 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         )
         if has_topical_query and aud > 0:
             aud = min(aud, max(0.5, 0.5 * base))
+
+        if sort_mode == "most_asked":
+            if not has_topical_query:
+                # Pure database query: ranked strictly by occurrences + repeats + curation tiebreaker
+                return (occ * 100.0) + (rep * 10.0) + (1.0 if c.get("image_dependent") else 0.0) + (0.5 if c.get("tagged") else 0.0)
+            else:
+                # Hybrid query: blend topic relevance with repetition boost
+                return base + (occ * 15.0) + (rep * 5.0) + aud
+        elif sort_mode == "hardest":
+            diff_score = float(c.get("difficulty_score") or 0.5)
+            return (base * 0.3 if has_topical_query else 0.0) + (diff_score * 10.0)
+        elif sort_mode == "easiest":
+            diff_score = float(c.get("difficulty_score") or 0.5)
+            return (base * 0.3 if has_topical_query else 0.0) + ((1.0 - diff_score) * 10.0)
+        elif sort_mode == "curiosity":
+            curiosity = float(c.get("curiosity_score") or 7)
+            return (base * 0.3 if has_topical_query else 0.0) + (curiosity * 5.0)
+        elif sort_mode == "least_asked":
+            fresh_bonus = 50.0 if occ <= 1 else 0.0
+            return base + fresh_bonus + aud
+
         diff_pen = difficulty_penalty(c, brief.hard_bias)
         cont = current_slot_bonus.get(c.get("id"), 0.0) if diff_pen < 0.7 else 0.0
         return base + aud - 0.35 * diff_pen + cont
@@ -1360,7 +1565,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     cur_res = None
     # AI Curator: Evaluate candidates for genuine relevance and curate narrative flow
-    if cands and os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes"):
+    if cands and os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes") and not is_analytical_sort and has_topical_query:
         try:
             from backend.app.services.prompt_quiz.curator_llm import curate_quiz_with_gemini
             # Cap curator candidates at top 35 to prevent token latency timeouts under serverless

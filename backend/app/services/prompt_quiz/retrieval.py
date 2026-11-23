@@ -285,6 +285,51 @@ class Index:
             styles = filters.get("question_style")
             if styles and self.style[idx] not in styles:
                 return False
+            if filters.get("is_varsity"):
+                if not item.get("is_varsity"):
+                    from backend.app.services.ingestion.deck_metadata import is_varsity_name
+                    doc_blob = f"{item.get('document_title', '')} {item.get('document_filename', '')}"
+                    if not is_varsity_name(doc_blob):
+                        return False
+            if filters.get("round_stage"):
+                target_stg = str(filters.get("round_stage")).lower().strip()
+                item_stg = str(item.get("round_stage") or "").lower().strip()
+                doc_blob = f"{item.get('document_title', '')} {item.get('document_filename', '')}".lower()
+                if "prelim" in target_stg and not ("prelim" in item_stg or "prelim" in doc_blob):
+                    return False
+                elif "final" in target_stg and not ("final" in item_stg or "final" in doc_blob):
+                    return False
+                elif "warmup" in target_stg and not ("warmup" in item_stg or "warm-up" in item_stg or "warmup" in doc_blob or "warm-up" in doc_blob):
+                    return False
+            if filters.get("play_mode"):
+                target_mode = str(filters.get("play_mode")).upper().strip()
+                if target_mode and str(item.get("play_mode") or "").upper().strip() != target_mode:
+                    return False
+            if filters.get("star_marked") and not item.get("star_marked"):
+                return False
+            if filters.get("repeat_filter") == "unique_only":
+                if (item.get("occurrence_count", 1) or 1) > 1:
+                    return False
+            if filters.get("audio_or_video"):
+                has_aud_or_vid = bool(
+                    item.get("has_audio") or item.get("has_video") or
+                    item.get("question_audio") or item.get("answer_audio") or item.get("audio_refs") or
+                    item.get("question_videos") or item.get("answer_videos") or item.get("video_refs")
+                )
+                if not has_aud_or_vid:
+                    return False
+            if filters.get("year"):
+                try:
+                    if item.get("source_year") and item.get("source_year") != int(filters.get("year")):
+                        return False
+                except (ValueError, TypeError):
+                    pass
+            if filters.get("city_name"):
+                target_city = str(filters.get("city_name")).lower().strip()
+                c_city = str(item.get("city_name") or "").lower().strip()
+                doc_blob = f"{item.get('document_title', '')} {item.get('document_filename', '')}".lower()
+                if target_city not in c_city and target_city not in doc_blob:
+                    return False
             # reuse history: item["used_in"] is a list of {quiz, audience, year} (or plain strings).
             # exclude a question that was already used at a given venue/quiz, optionally since a year.
             ex_venues = filters.get("exclude_used_in")   # list of quiz/venue/audience names
@@ -365,6 +410,47 @@ def parse_prompt(prompt: str):
         filters["india_international"] = "IN"
     elif re.search(r"\binternational|global|world\b", p):
         filters["india_international"] = "INTL"
+
+    # Database & archive analytics signals
+    if re.search(r"\b(most\s+(?:frequently\s+)?asked|most\s+repeated|frequently\s+asked|popular|top\s+asked)\b", p):
+        filters["sort_by"] = "most_asked"
+        filters["repeat_filter"] = "repeated_only"
+    elif re.search(r"\b((?:never|not)\s+(?:been\s+)?repeated|zero\s+repeats|unrepeated|unique|fresh|unused)\b", p):
+        filters["sort_by"] = "least_asked"
+        filters["repeat_filter"] = "unique_only"
+    elif re.search(r"\b(hardest|toughest|spiciest|killer)\b", p):
+        filters["sort_by"] = "hardest"
+    elif re.search(r"\b(easiest|simplest)\b", p):
+        filters["sort_by"] = "easiest"
+    elif re.search(r"\b(curiosity|curiosity-driven)\b", p):
+        filters["sort_by"] = "curiosity"
+
+    if re.search(r"\b(zvq|zerodha\s+varsity|varsity)\b", p):
+        filters["corpus_series"] = "ZVQ"
+        filters["is_varsity"] = True
+
+    if re.search(r"\b(prelims?|preliminary)\b", p):
+        filters["round_stage"] = "prelims"
+    elif re.search(r"\b(finals?)\b", p):
+        filters["round_stage"] = "finals"
+    elif re.search(r"\b(warm-?up|assembly)\b", p):
+        filters["round_stage"] = "warmup"
+
+    if re.search(r"\b(buzzer(?:\s+round)?)\b", p):
+        filters["play_mode"] = "BUZZER"
+    elif re.search(r"\b(tie-?break(?:er)?)\b", p):
+        filters["play_mode"] = "TIEBREAK"
+
+    if re.search(r"\b(starred|star\s+marked)\b", p):
+        filters["star_marked"] = True
+
+    m_yr = re.search(r"\b(20[12]\d)\b", p)
+    if m_yr:
+        filters["year"] = int(m_yr.group(1))
+
+    if re.search(r"\b(audio|video|clip|clips|sound)\b", p):
+        filters["audio_or_video"] = True
+
     # Remove explicit grade/class ranges before extracting requested question count
     p = re.sub(r"\b(?:grade|class|std|standard)\s*\d{1,2}(?:\s*(?:&|and|to|-)\s*\d{1,2})?\b", " ", p)
     m = re.search(r"\b(\d{1,3})\b", p)
@@ -384,9 +470,13 @@ def parse_prompt(prompt: str):
     q = re.sub(r"\b(\d{1,3}|" + word_num_pattern + r"|questions?|quiz|round|rounds?|evergreen|international|global|"
                r"school|safe|family|kids|children|students?|relevant|around|friendly|focus|focused|perspective|"
                r"without images?|without image|no images?|no image|text only|non-?image|"
-               r"easy|warm-?ups?|beginner|gentle|hard|tough|difficult|finals?|balanced|"
+               r"easy|easier|easiest|simplest|warm-?ups?|beginner|gentle|hard|harder|hardest|tough|tougher|toughest|difficult|spicy|spicier|spiciest|killer|curiosity(?:-driven)?|finals?|balanced|"
+               r"most (?:frequently )?asked|most repeated|frequently asked|popular|top asked|(?:never|not) (?:been )?repeated|zero repeats|unrepeated|unique|fresh|unused|"
+               r"zvq|zerodha varsity|varsity|prelims?|preliminary|buzzer|tiebreak(?:er)?|starred|star marked|"
                r"standard|qa|trivia|night|tonight|quick|surprise|some|good|best|great|nice|cool|fun|"
-               r"on|about|a|an|the|of|for|with|give me|pull|me|show me|create|generate|want|make it)\b",
+               r"on|about|a|an|the|of|for|with|give me|pull|me|show me|create|generate|want|make it|across|from|in|that have|been)\b",
                " ", q)
+    if filters.get("year"):
+        q = re.sub(rf"\b{filters['year']}\b", " ", q)
     q = re.sub(r"[^a-z0-9 ]", " ", q)
     return re.sub(r"\s+", " ", q).strip(), filters, final_count
