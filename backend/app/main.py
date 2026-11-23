@@ -43,6 +43,9 @@ from backend.app.models.question_meta import (  # noqa: F401
 from backend.app.models.sharepoint import (  # noqa: F401
     SharePointSyncState, SharePointFile, SharePointAllowedFolder,
 )
+from backend.app.models.sharepoint_index import (  # noqa: F401
+    SharePointIndexItem, SharePointIndexState,
+)
 from backend.app.models.custom_template import CustomPptTemplate  # noqa: F401
 
 # Configure logging

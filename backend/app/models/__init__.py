@@ -2,6 +2,7 @@ from backend.app.models.document import Document, Slide
 from backend.app.models.question import Question
 from backend.app.models.quiz import Quiz, GeneratedQuestion, RetrievalSource
 from backend.app.models.sharepoint import SharePointSyncState, SharePointFile, SharePointAllowedFolder
+from backend.app.models.sharepoint_index import SharePointIndexItem, SharePointIndexState
 from backend.app.models.job import IngestionJob
 from backend.app.models.usage import IngestionUsage
 from backend.app.models.upload_batch import UploadBatch
@@ -20,6 +21,8 @@ __all__ = [
     "SharePointSyncState",
     "SharePointFile",
     "SharePointAllowedFolder",
+    "SharePointIndexItem",
+    "SharePointIndexState",
     "IngestionJob",
     "IngestionUsage",
     "UploadBatch",

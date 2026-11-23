@@ -1,0 +1,69 @@
+name: SharePoint Index Sync
+
+# Periodic sync for the stored SharePoint file index so "Not in platform yet" stays fresh.
+# Calls POST /api/v1/sharepoint/index/step and loops until finished or 5 minutes pass.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync-index:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Advance SharePoint index
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL || secrets.BACKEND_HEALTH_URL }}
+          API_KEY: ${{ secrets.QSHALA_API_KEY }}
+        run: |
+          set -e
+          if [ -z "$BACKEND_URL" ]; then
+            echo "::warning::BACKEND_URL or BACKEND_HEALTH_URL secret not set. Skipping scheduled index sync."
+            exit 0
+          fi
+          BASE_URL=$(echo "$BACKEND_URL" | sed -e 's|/health/*$||' -e 's|/*$||')
+          TARGET_URL="${BASE_URL}/api/v1/sharepoint/index/step"
+          echo "Starting SharePoint index step loop at $TARGET_URL"
+
+          HEADER=()
+          if [ -n "$API_KEY" ]; then
+            HEADER=(-H "X-API-Key: $API_KEY")
+          fi
+
+          START_TIME=$(date +%s)
+          MAX_DURATION=280
+
+          while true; do
+            NOW=$(date +%s)
+            ELAPSED=$((NOW - START_TIME))
+            if [ "$ELAPSED" -ge "$MAX_DURATION" ]; then
+              echo "Time limit reached (~5 min). Stopping loop."
+              break
+            fi
+
+            STATUS=$(curl -s -X POST -o /tmp/index_step.json -w '%{http_code}' --max-time 35 "${HEADER[@]}" "$TARGET_URL" || echo "000")
+            echo "HTTP $STATUS"
+            cat /tmp/index_step.json 2>/dev/null || true
+            echo ""
+
+            if [ "$STATUS" -ge 400 ]; then
+              echo "::error::Index step failed with HTTP $STATUS"
+              exit 1
+            fi
+
+            FINISHED=$(jq -r '.finished // false' /tmp/index_step.json 2>/dev/null || echo "false")
+            STEP_STATUS=$(jq -r '.status // ""' /tmp/index_step.json 2>/dev/null || echo "")
+
+            if [ "$FINISHED" = "true" ]; then
+              echo "SharePoint index sync finished."
+              break
+            fi
+
+            if [ "$STEP_STATUS" = "busy" ]; then
+              echo "Another scan step is currently holding the lease. Exiting loop."
+              break
+            fi
+
+            sleep 2
+          done
