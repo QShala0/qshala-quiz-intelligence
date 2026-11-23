@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import settings
 from backend.app.models.document import Document
 from backend.app.models.sharepoint import SharePointFile, SharePointAllowedFolder
-from backend.app.services.deck_names import normalize_deck_name, find_deck_by_name
+from backend.app.services.deck_names import normalize_deck_name, existing_deck_names, find_deck_in_index
 from backend.app.services.storage import r2_storage
 
 logger = logging.getLogger(__name__)
@@ -268,17 +268,8 @@ def classify(db: Session, cands: List[Dict[str, Any]]) -> None:
         for row in db.query(SharePointFile).filter(SharePointFile.id.in_(part)).all():
             tracked[row.id] = row
 
-    # Active documents for normalised name matching (excluding FAILED / CANCELLED)
-    active_docs = (
-        db.query(Document)
-        .filter(Document.processing_status.notin_(["FAILED", "CANCELLED"]))
-        .all()
-    )
-    docs_by_norm: Dict[str, List[Document]] = {}
-    for d in active_docs:
-        norm = normalize_deck_name(d.filename)
-        if norm:
-            docs_by_norm.setdefault(norm, []).append(d)
+    # Active documents index for normalised name matching (excluding FAILED / CANCELLED)
+    deck_index = existing_deck_names(db)
 
     # the deck a previous import created (newest first), so a failed or deleted import can be done again
     latest_doc: Dict[str, Document] = {}
@@ -290,11 +281,9 @@ def classify(db: Session, cands: List[Dict[str, Any]]) -> None:
     for c in cands:
         t = tracked.get(c["id"])
         c["match_document_id"] = None
-        cand_norm = normalize_deck_name(c["name"])
-
+        existing = find_deck_in_index(deck_index, c["name"])
         # Name match against existing decks, excluding the deck this same SharePoint file id created earlier
-        name_match = next((d for d in docs_by_norm.get(cand_norm, [])
-                           if d.sharepoint_file_id != c["id"]), None)
+        name_match = existing if (existing and existing.sharepoint_file_id != c["id"]) else None
 
         if t is not None:
             same = (t.etag == c["etag"])
@@ -565,11 +554,12 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
         return {"queued": 0, "skipped_duplicate": 0, "failed": 0, "job_ids": [], "document_ids": [], "remaining": _remaining(db, batch_id)}
 
     db_lock = asyncio.Lock()
+    deck_index = existing_deck_names(db)
 
     async def _transfer_one(row_id: str, row_drive_id: str, row_name: str) -> Dict[str, Any]:
         # Re-check the name right before downloading
         async with db_lock:
-            existing = find_deck_by_name(db, row_name)
+            existing = find_deck_in_index(deck_index, row_name)
             if existing is not None and existing.sharepoint_file_id != row_id:
                 row = db.query(SharePointFile).filter_by(id=row_id).one()
                 row.sync_status = "SKIPPED_DUPLICATE"
