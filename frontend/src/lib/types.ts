@@ -609,8 +609,15 @@ export interface BatchRegisterPayload {
   client_id?: string;
 }
 
+export interface RejectedDuplicateItem {
+  filename: string;
+  existing_document_id: string | null;
+  existing_title: string | null;
+}
+
 export interface BatchRegisterResponse {
   batch_id: string;
+  rejected_duplicates?: RejectedDuplicateItem[];
 }
 
 export interface ActiveBatchResponse {
@@ -678,6 +685,22 @@ export interface BatchLocalItem {
   step?: string | null;
   percentage: number;
   error?: string | null;
+  isDuplicate?: boolean;
+}
+
+export interface SpNotImportedFile {
+  id: string;
+  drive_id: string;
+  name: string;
+  folder_path: string;
+  size: number;
+  last_modified: string | null;
+}
+
+export interface SpNotImportedResponse {
+  count: number;
+  truncated: boolean;
+  files: SpNotImportedFile[];
 }
 
 // ---- SharePoint selective importer ----

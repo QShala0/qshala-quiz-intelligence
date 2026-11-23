@@ -486,7 +486,9 @@ export default function UploadPage() {
                         {/* Status Badge */}
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
-                            isItemCompleted
+                            item.isDuplicate || item.step === 'Already in QShala' || item.error === 'Already in QShala'
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                              : isItemCompleted
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                               : isItemProcessing
                               ? 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse'
@@ -501,7 +503,9 @@ export default function UploadPage() {
                               : 'bg-slate-100 text-slate-600 border border-slate-200'
                           }`}
                         >
-                          {isItemQueued
+                          {item.isDuplicate || item.step === 'Already in QShala' || item.error === 'Already in QShala'
+                            ? 'Already in QShala'
+                            : isItemQueued
                             ? item.queuePosition !== null && item.queuePosition !== undefined
                               ? item.queuePosition === 0
                                 ? 'Next in server queue'
@@ -523,7 +527,9 @@ export default function UploadPage() {
 
                       {/* Detailed sub-status or step */}
                       <p className="text-[12px] text-slate-600 truncate mt-1">
-                        {isItemCompleted
+                        {item.isDuplicate || item.step === 'Already in QShala' || item.error === 'Already in QShala'
+                          ? 'Already in QShala — duplicate deck skipped'
+                          : isItemCompleted
                           ? `✓ Ingestion complete — ${item.slides || 0} slides processed · ${item.questions || 0} questions extracted & indexed`
                           : isItemFailed
                           ? `Error: ${item.error || 'Ingestion encountered an error'}`

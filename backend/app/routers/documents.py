@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks,
 from sqlalchemy.orm import Session, noload
 from backend.app.database import get_db
 from backend.app.models.document import Document, Slide
+from backend.app.services.deck_names import find_deck_by_name
 from backend.app.schemas.document import DocumentResponse, DocumentListItem, IngestionStatusResponse, SlideResponse
 from backend.app.services.ingestion.pipeline import IngestionPipeline, INGESTION_STATUS_REGISTRY
 from backend.app.config import settings
@@ -218,6 +219,13 @@ async def upload_document(
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file format '{ext}'. Only PDF and PowerPoint (PPT, PPTX) files are supported."
+        )
+
+    existing = find_deck_by_name(db, file.filename)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "duplicate_name", "detail": f"A deck named {file.filename} is already in QShala"}
         )
 
     doc_id = str(uuid.uuid4())
@@ -665,6 +673,15 @@ async def upload_document_chunk(
             status_code=400,
             detail=f"Unsupported file format '{ext}'. Only PDF and PowerPoint (PPT, PPTX) files are supported."
         )
+
+    # Check duplicate on initial chunk (chunk_index == 0)
+    if chunk_index == 0:
+        existing = find_deck_by_name(db, filename)
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "duplicate_name", "detail": f"A deck named {filename} is already in QShala"}
+            )
 
     # When ingestion runs on a separate Cloud Run Job and R2 is configured, stream each slice
     # straight into an R2 multipart upload as it arrives instead of writing it to local disk and

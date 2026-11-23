@@ -18,7 +18,8 @@ import {
   IngestionJobItem,
   SharePointSyncResponse,
   SpConfig, SpDrive, SpBrowse, SpSelection, SpPlan, SpStage, SpTransfer, SpImportStatus,
-  SpAdminVerifyResponse, SpAdminFolder, SpAdminBrowse, SpAdminSearchResult, SpAdminSearchFile,
+  SpNotImportedResponse,
+  SpAdminVerifyResponse, SpAdminFolder, SpAdminBrowse, SpAdminSearchResult,
   CustomPptTemplate,
   RequeueResponse,
   JobActionResponse,
@@ -238,8 +239,20 @@ async function handleResponse<T>(res: Response): Promise<T> {
     const errorText = await res.text();
     try {
       const errJson = JSON.parse(errorText);
-      throw new Error(errJson.detail || errJson.message || 'API request failed');
-    } catch {
+      const detailMsg =
+        typeof errJson.detail === 'object' && errJson.detail?.detail
+          ? String(errJson.detail.detail)
+          : typeof errJson.detail === 'string'
+          ? errJson.detail
+          : errJson.message || 'API request failed';
+      const code = (typeof errJson.detail === 'object' && errJson.detail?.code) || errJson.code;
+      const err = Object.assign(new Error(detailMsg), {
+        code: typeof code === 'string' ? code : undefined,
+        status: res.status,
+      });
+      throw err;
+    } catch (e) {
+      if (e instanceof Error && 'status' in e) throw e;
       throw new Error(errorText || `HTTP ${res.status}: ${res.statusText}`);
     }
   }
@@ -326,6 +339,13 @@ export const api = {
   spImport: (sel: SpSelection) => spPost<SpStage>('/import', sel),
   spTransferNext: (batchId?: string, limit = 25) => spPost<SpTransfer>(`/transfer-next?limit=${limit}${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`, {}),
   spImportStatus: (batchId?: string) => spJson<SpImportStatus>(batchId ? `/import-status?batch_id=${encodeURIComponent(batchId)}` : '/import-status'),
+  spNotImported: (driveId?: string, refresh = false) => {
+    const q = new URLSearchParams();
+    if (driveId) q.set('drive_id', driveId);
+    if (refresh) q.set('refresh', '1');
+    const qs = q.toString();
+    return spJson<SpNotImportedResponse>(`/not-imported${qs ? `?${qs}` : ''}`);
+  },
 
   // SharePoint Admin Access Control
   spAdminVerify: (password: string) =>
@@ -791,10 +811,18 @@ export const api = {
     return handleResponse<RequeueResponse>(res);
   },
 
-  listJobs: async (status?: string): Promise<{ total: number; jobs: IngestionJobItem[] }> => {
-    const url = status ? `${getApiBase()}/jobs?status=${encodeURIComponent(status)}` : `${getApiBase()}/jobs`;
+  getJobs: async (status?: string, sourceType?: string): Promise<{ total: number; jobs: IngestionJobItem[] }> => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (sourceType) params.set('source_type', sourceType);
+    const qs = params.toString();
+    const url = qs ? `${getApiBase()}/jobs?${qs}` : `${getApiBase()}/jobs`;
     const res = await fetch(url, { cache: 'no-store' });
     return handleResponse<{ total: number; jobs: IngestionJobItem[] }>(res);
+  },
+
+  listJobs: async (status?: string, sourceType?: string): Promise<{ total: number; jobs: IngestionJobItem[] }> => {
+    return api.getJobs(status, sourceType);
   },
 
   processNextJob: async (): Promise<JobActionResponse> => {

@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import settings
 from backend.app.models.document import Document
 from backend.app.models.sharepoint import SharePointFile, SharePointAllowedFolder
+from backend.app.services.deck_names import normalize_deck_name, existing_deck_names, find_deck_in_index
 from backend.app.services.storage import r2_storage
 
 logger = logging.getLogger(__name__)
@@ -260,18 +261,15 @@ def _chunks(seq: List[Any], n: int = _IN_CHUNK):
 # ------------------------------------------------------------------------------------------------ classification
 
 def classify(db: Session, cands: List[Dict[str, Any]]) -> None:
-    """Add 'status' (and 'match_document_id' for possible duplicates) to each candidate, in place."""
+    """Add 'status' (and 'match_document_id' for duplicate decks) to each candidate, in place."""
     ids = [c["id"] for c in cands]
     tracked: Dict[str, SharePointFile] = {}
     for part in _chunks(ids):
         for row in db.query(SharePointFile).filter(SharePointFile.id.in_(part)).all():
             tracked[row.id] = row
 
-    names = sorted({c["name"].lower() for c in cands})
-    docs_by_name: Dict[str, List[Document]] = {}
-    for part in _chunks(names):
-        for d in db.query(Document).filter(func.lower(Document.filename).in_(part)).all():
-            docs_by_name.setdefault((d.filename or "").lower(), []).append(d)
+    # Active documents index for normalised name matching (excluding FAILED / CANCELLED)
+    deck_index = existing_deck_names(db)
 
     # the deck a previous import created (newest first), so a failed or deleted import can be done again
     latest_doc: Dict[str, Document] = {}
@@ -283,6 +281,10 @@ def classify(db: Session, cands: List[Dict[str, Any]]) -> None:
     for c in cands:
         t = tracked.get(c["id"])
         c["match_document_id"] = None
+        existing = find_deck_in_index(deck_index, c["name"])
+        # Name match against existing decks, excluding the deck this same SharePoint file id created earlier
+        name_match = existing if (existing and existing.sharepoint_file_id != c["id"]) else None
+
         if t is not None:
             same = (t.etag == c["etag"])
             if t.sync_status in ("SELECTED", "TRANSFERRING") and same:
@@ -291,24 +293,33 @@ def classify(db: Session, cands: List[Dict[str, Any]]) -> None:
             if t.sync_status in ("QUEUED", "COMPLETED"):
                 doc = latest_doc.get(c["id"])
                 if doc is None:
-                    c["status"] = "NEW"                      # its deck was deleted: import it again
+                    if name_match is not None:
+                        c["status"] = "ALREADY_IMPORTED"
+                        c["match_document_id"] = name_match.id
+                    else:
+                        c["status"] = "NEW"                      # its deck was deleted: import it again
                 elif doc.processing_status == "FAILED":
                     c["status"] = "RETRY"
                 else:
                     c["status"] = "ALREADY_IMPORTED" if same else "CHANGED"
+                    if c["status"] == "ALREADY_IMPORTED":
+                        c["match_document_id"] = doc.id
                 continue
             if t.sync_status == "SKIPPED_DUPLICATE":
-                c["status"] = "ALREADY_IMPORTED" if same else "CHANGED"
+                if same:
+                    c["status"] = "ALREADY_IMPORTED"
+                    c["match_document_id"] = t.match_document_id or (name_match.id if name_match else None)
+                else:
+                    c["status"] = "CHANGED"
                 continue
             if t.sync_status == "FAILED":
                 c["status"] = "RETRY"
                 continue
-        # never seen by the importer: was the same deck uploaded by hand (or by an earlier run)?
-        match = next((d for d in docs_by_name.get(c["name"].lower(), [])
-                      if int(d.file_size_bytes or 0) == c["size"] and d.sharepoint_file_id != c["id"]), None)
-        if match is not None and t is None:
-            c["status"] = "POSSIBLE_DUPLICATE"
-            c["match_document_id"] = match.id
+
+        # never seen by the importer or new candidate:
+        if name_match is not None:
+            c["status"] = "ALREADY_IMPORTED"
+            c["match_document_id"] = name_match.id
         else:
             c["status"] = "NEW"
 
@@ -543,8 +554,20 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
         return {"queued": 0, "skipped_duplicate": 0, "failed": 0, "job_ids": [], "document_ids": [], "remaining": _remaining(db, batch_id)}
 
     db_lock = asyncio.Lock()
+    deck_index = existing_deck_names(db)
 
     async def _transfer_one(row_id: str, row_drive_id: str, row_name: str) -> Dict[str, Any]:
+        # Re-check the name right before downloading
+        async with db_lock:
+            existing = find_deck_in_index(deck_index, row_name)
+            if existing is not None and existing.sharepoint_file_id != row_id:
+                row = db.query(SharePointFile).filter_by(id=row_id).one()
+                row.sync_status = "SKIPPED_DUPLICATE"
+                row.match_document_id = existing.id
+                row.error_message = f"A deck named {row_name} is already in QShala"
+                db.commit()
+                return {"status": "skipped_duplicate"}
+
         r2 = r2_storage.get_media_storage()
         cloud_worker = (settings.INGESTION_MODE == "cloud_run_job")
         r2_configured = (r2 is not None and getattr(r2, "is_configured", True))

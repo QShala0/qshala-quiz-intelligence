@@ -146,7 +146,7 @@ async def test_specific_files_and_exclusions(db, client):
 
 
 @pytest.mark.anyio
-async def test_classification_already_imported_changed_and_possible_duplicate(db, client):
+async def test_classification_already_imported_changed_and_duplicate_by_name(db, client):
     db.add(SharePointFile(id="f1", name="Finals.pptx", etag="e1", sync_status="COMPLETED"))      # same etag: done
     db.add(SharePointFile(id="f2", name="Prelims.pptx", etag="OLD", sync_status="COMPLETED"))    # etag moved: changed
     for fid, name in (("f1", "Finals.pptx"), ("f2", "Prelims.pptx")):                              # their decks exist
@@ -159,11 +159,9 @@ async def test_classification_already_imported_changed_and_possible_duplicate(db
     status = {f["name"]: f["status"] for f in plan["files"]}
     assert status["Finals.pptx"] == "ALREADY_IMPORTED"
     assert status["Prelims.pptx"] == "CHANGED"
-    assert status["Semis.pdf"] == "POSSIBLE_DUPLICATE"
+    assert status["Semis.pdf"] == "ALREADY_IMPORTED"
     assert status["Old.pptx"] == "NEW"
-    assert plan["to_import"] == 2                       # CHANGED + NEW; the duplicate is held back by default
-    with_dups = await importer.plan_import(db, client, sel(include_possible_duplicates=True))
-    assert with_dups["to_import"] == 3
+    assert plan["to_import"] == 2                       # CHANGED + NEW
 
 
 @pytest.mark.anyio
