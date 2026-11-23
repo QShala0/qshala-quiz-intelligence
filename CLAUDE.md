@@ -65,7 +65,7 @@ Read `graphify-out/GRAPH_REPORT.md` before exploring code (run `graphify update 
 - **Topics**: a deck's round or format label ("THREE CLUES", "Portfolio Builder") is never a topic and the format name is never
   a tag (`is_format_or_round_label` in `qshala_rules.py`); the topic comes from the answer. Repair scripts in `backend/scripts`
   (`repair_media_questions.py`, `repair_three_clue_questions.py`, `fix_picture_sides.py`, `strip_video_posters.py`,
-  `retag_answer_led.py`, `backfill_embeddings.py`) are dry-run by default, take `--apply`, and write a rollback file outside the repo.
+  `retag_answer_led.py`, `backfill_embeddings.py`, `repair_complex_formats.py`, `fix_format_only_tags.py`) are dry-run by default, take `--apply`, and write a rollback file outside the repo.
 
 ## How the owner likes to work
 - Plan first for bigger features, then implement. Keep answers short, minimize manual steps for the owner.

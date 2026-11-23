@@ -57,6 +57,9 @@ _ASC_WORDS = {"lowest", "earliest", "oldest", "first", "weakest", "slowest", "no
 _DESC_WORDS = {"highest", "latest", "newest", "last", "largest", "strongest", "fastest", "south", "longest", "most",
                "oldest_last", "biggest", "heaviest", "farthest", "descending", "greatest", "east"}
 
+_ONGOING_RE = re.compile(r"^(?:incumbent|present|current(?:ly)?|ongoing|till\s+date|to\s+date|now|continuing)\W*$", re.I)
+_ONGOING_VALUE = 9999.0
+
 _UNIT_MULT = {"thousand": 1e3, "k": 1e3, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5, "million": 1e6, "mn": 1e6,
               "crore": 1e7, "crores": 1e7, "cr": 1e7, "billion": 1e9, "bn": 1e9, "trillion": 1e12, "tn": 1e12}
 
@@ -156,14 +159,20 @@ def parse_value(text: str) -> Optional[float]:
     t = t.replace(",", "").strip()
     if not t:
         return None
+    if _ONGOING_RE.match(t):
+        return _ONGOING_VALUE           # "Incumbent", "Present": the latest point on a timeline
+    t = re.sub(r"\b\d+(?:st|nd|rd|th)\b", " ", t, flags=re.I)         # "1st time in 2006" -> the year is the value
     nums = list(re.finditer(r"\d+(?:\.\d+)?", t))
     if not nums or len(nums) > 2:
         return None
-    if len(nums) == 2:       # a range ("1990-1995", "20 to 30"): the midpoint, but only when nothing else is going on
+    if len(nums) == 2:       # a range ("1990-1995", "20 to 30", "2021-26"): the midpoint, but only when nothing else is going on
         between = t[nums[0].end():nums[1].start()].strip().lower()
         if between not in ("-", "\u2013", "\u2014", "to", "and"):
             return None
-        return (float(nums[0].group()) + float(nums[1].group())) / 2.0
+        lo, hi = float(nums[0].group()), float(nums[1].group())
+        if lo >= 1000 and hi < 100 and nums[1].group().isdigit():       # "2021-26" means 2021 to 2026, not 2021 to 26
+            hi += lo - (lo % 100)
+        return (lo + hi) / 2.0
     val = float(nums[0].group())
     tail = re.match(r"\s*(%|[A-Za-z]+)", t[nums[0].end():])
     unit = (tail.group(1) if tail else "").lower()
@@ -177,9 +186,8 @@ def parse_value(text: str) -> Optional[float]:
 
 def direction_from_title(title: str) -> Optional[str]:
     low = (title or "").lower()
-    m = re.search(r"\b([a-z]+)\s+to\s+([a-z]+)\b", low)
-    if m:
-        a, b = m.group(1), m.group(2)
+    for m in re.finditer(r"\b([a-z]+)\s+to\s+([a-z]+)\b", low):      # "(Highest to Lowest)" even after "contribution to GDP"
+        a = m.group(1)
         if a in _ASC_WORDS:
             return "asc"
         if a in _DESC_WORDS:
@@ -514,11 +522,11 @@ def extract_connect(ctx: Ctx) -> Dict[str, Any]:
         ctx.reasons.append(f"{n} pictures found, more than 9")
         conf = 0.7
     elif n < 4:
-        if vids:
+        if vids or n >= 2:
+            # a Connect with two or three clues (or a clip) is legitimate; only a single or missing clue is suspicious
             conf = 0.9
-            ctx.reasons.append(f"{n} pictures plus a clue video")
         else:
-            ctx.reasons.append(f"only {n} pictures and no video")
+            ctx.reasons.append(f"only {n} picture and no video")
             conf = 0.5
     answer, expl = ctx.answer()
     if not answer:
@@ -641,9 +649,35 @@ def _arrange_items(slide: Dict[str, Any]) -> Tuple[Dict[int, Dict[str, Any]], in
         for extra in others[1:]:
             value_parts.extend(_lines(extra["text"]))
         pic = next((m for m in members if m.get("type") == "PICTURE" and m.get("media_url") and not is_timer_shape(m)), None)
-        items[label] = {"text": name, "value": " ".join(value_parts).strip() or None, "image": pic["media_url"] if pic else None}
+        all_lines = _lines(others[0]["text"])
+        for extra in others[1:]:
+            all_lines.extend(_lines(extra["text"]))
+        items[label] = {"text": name, "value": " ".join(value_parts).strip() or None, "image": pic["media_url"] if pic else None,
+                        "all_lines": all_lines, "n_shapes": len(others)}
     n_labels = sum(1 for s in _text_shapes(slide) if re.fullmatch(r"[1-4]", s["text"].strip()))
     return items, n_labels
+
+
+def _norm_words(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "")).strip().lower()
+
+
+def _arrange_name_and_value(q: Dict[str, Any], a: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+    """The item's full name (from the question slide, where the name is alone, so a name wrapped over two lines such as
+    'T M' / 'Thomas Isaac' stays whole) and its reveal value (the answer slide's lines after that name)."""
+    q_lines = q.get("all_lines") or [q["text"]]
+    # on the question slide the name sits alone in its shape (one shape = the whole name); otherwise only its first line
+    name = " ".join(q_lines) if q.get("n_shapes", 1) == 1 else q["text"]
+    name = re.sub(r"\s+", " ", name).strip()
+    value = a.get("value") or q.get("value")
+    a_lines = a.get("all_lines") or []
+    acc = ""
+    for i, line in enumerate(a_lines):
+        acc = (acc + " " + line).strip()
+        if _norm_words(acc) == _norm_words(name):
+            value = " ".join(a_lines[i + 1:]).strip() or None
+            break
+    return name, value
 
 
 def is_arrange(ctx: Ctx) -> bool:
@@ -676,8 +710,8 @@ def extract_arrange(ctx: Ctx) -> Dict[str, Any]:
     for label in sorted(items_q):
         q = items_q[label]
         a = items_a.get(label, {})
-        value = a.get("value") or q.get("value")
-        items.append({"label": label, "text": q["text"], "value": value, "value_num": parse_value(value) if value else None,
+        name, value = _arrange_name_and_value(q, a)
+        items.append({"label": label, "text": name, "value": value, "value_num": parse_value(value) if value else None,
                       "image": q.get("image") or a.get("image")})
     nums = [it["value_num"] for it in items]
     correct_order: List[int] = []
@@ -697,11 +731,12 @@ def extract_arrange(ctx: Ctx) -> Dict[str, Any]:
         conf = min(conf, 0.65)
     scoring = {"all_correct": 20, "two_correct": 10, "one_correct": 5}
     names_by_label = {it["label"]: it["text"] for it in items}
-    ordered = [names_by_label[l] for l in (correct_order or sorted(names_by_label))]
+    ordered = [names_by_label[l] for l in correct_order] if correct_order else []
     answer = " → ".join(ordered) if correct_order else "Correct order not recorded"
     payload = {"type": FMT_ARRANGE_ORDER, "prompt": title, "direction": direction, "timer_seconds": ctx.timer_seconds(),
                "scoring": scoring, "items": items, "correct_order": correct_order, "order_source": order_source}
-    q_text = (title + " " + ", ".join(ordered)).strip()
+    # the question lists the items as the slide shows them (1, 2, 3, 4); the correct order is the ANSWER only
+    q_text = (title + " " + ", ".join(names_by_label[l] for l in sorted(names_by_label))).strip()
     return _result(ctx, FMT_ARRANGE_ORDER, payload, conf, q_text, answer, extra={"order_source": order_source})
 
 
