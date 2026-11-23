@@ -62,6 +62,7 @@ export default function ExportQuizModal({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [viewingTemplate, setViewingTemplate] = useState<CustomPptTemplate | null>(null);
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  const [templateUploadProgress, setTemplateUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -102,6 +103,7 @@ export default function ExportQuizModal({
 
     try {
       setUploadingTemplate(true);
+      setTemplateUploadProgress(0);
       setUploadError(null);
       const formData = new FormData();
       formData.append('file', file);
@@ -109,7 +111,9 @@ export default function ExportQuizModal({
       formData.append('category', targetCategory);
       formData.append('description', `Extracted during export for ${quiz?.title || 'quiz'}`);
 
-      const newTpl = await api.extractTemplate(formData);
+      const newTpl = await api.extractTemplate(formData, (pct) => {
+        setTemplateUploadProgress(pct);
+      });
       setCustomTemplates((prev) => [newTpl, ...prev]);
       setSelectedTemplateId(newTpl.id);
       // Auto-open template preview viewer
@@ -118,6 +122,7 @@ export default function ExportQuizModal({
       setUploadError(err.message || 'Failed to extract template from sample PPT');
     } finally {
       setUploadingTemplate(false);
+      setTemplateUploadProgress(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -262,7 +267,7 @@ export default function ExportQuizModal({
                   {uploadingTemplate ? (
                     <>
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-600" />
-                      <span>Extracting PPTX...</span>
+                      <span>{templateUploadProgress !== null && templateUploadProgress < 100 ? `Streaming (${templateUploadProgress}%)...` : 'Extracting PPTX...'}</span>
                     </>
                   ) : (
                     <>

@@ -1,5 +1,7 @@
 import os
+import re
 import shutil
+import tempfile
 import logging
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -46,44 +48,7 @@ def _template_response(tpl: CustomPptTemplate) -> Dict[str, Any]:
     }
 
 
-@router.post("/extract")
-async def extract_template(
-    file: UploadFile = File(...),
-    name: str = Form(...),
-    category: str = Form("qshala_school"),
-    description: Optional[str] = Form(None),
-    db: Session = Depends(get_db),
-):
-    """
-    Extracts a custom PowerPoint template from an uploaded sample .pptx deck,
-    saves the master presentation and typography, and persists it under QShala School or ZVQ.
-    """
-    clean_name = (name or "").strip()
-    if not clean_name:
-        raise HTTPException(status_code=400, detail="Template name is required")
-
-    clean_category = (category or "qshala_school").strip().lower()
-    if clean_category not in ("qshala_school", "zvq"):
-        raise HTTPException(status_code=400, detail="Category must be either 'qshala_school' or 'zvq'")
-
-    if not file.filename or not file.filename.lower().endswith(".pptx"):
-        raise HTTPException(status_code=400, detail="Only PowerPoint (.pptx) files are supported")
-
-    content = await file.read()
-    if len(content) < 100:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty or corrupted")
-
-    try:
-        extractor = TemplateExtractor(content)
-        data = extractor.extract(
-            name=clean_name,
-            category=clean_category,
-            description=description,
-        )
-    except Exception as e:
-        logger.exception("Failed to extract template from PPTX")
-        raise HTTPException(status_code=422, detail=f"Could not extract template from presentation: {str(e)}")
-
+def _persist_extracted_template(data: Dict[str, Any], db: Session) -> CustomPptTemplate:
     tpl = CustomPptTemplate(
         id=data["id"],
         name=data["name"],
@@ -109,8 +74,146 @@ async def extract_template(
     db.add(tpl)
     db.commit()
     db.refresh(tpl)
+    return tpl
 
+
+@router.post("/extract")
+async def extract_template(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    category: str = Form("qshala_school"),
+    description: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Extracts a custom PowerPoint template from an uploaded sample .pptx deck,
+    saves the master presentation and typography, and persists it under QShala School or ZVQ.
+    Guards against large direct uploads (>32 MB) and directs clients to chunked upload.
+    """
+    clean_name = (name or "").strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Template name is required")
+
+    clean_category = (category or "qshala_school").strip().lower()
+    if clean_category not in ("qshala_school", "zvq"):
+        raise HTTPException(status_code=400, detail="Category must be either 'qshala_school' or 'zvq'")
+
+    if not file.filename or not file.filename.lower().endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="Only PowerPoint (.pptx) files are supported")
+
+    MAX_DIRECT_BYTES = 32 * 1024 * 1024
+    content = bytearray()
+    while chunk_bytes := await file.read(64 * 1024):
+        content.extend(chunk_bytes)
+        if len(content) > MAX_DIRECT_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="File exceeds maximum direct upload size (32 MB). Use chunked upload for large presentation decks."
+            )
+
+    if len(content) < 100:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty or corrupted")
+
+    try:
+        extractor = TemplateExtractor(bytes(content))
+        data = extractor.extract(
+            name=clean_name,
+            category=clean_category,
+            description=description,
+        )
+    except Exception as e:
+        logger.exception("Failed to extract template from PPTX")
+        raise HTTPException(status_code=422, detail=f"Could not extract template from presentation: {str(e)}")
+
+    tpl = _persist_extracted_template(data, db)
     return _template_response(tpl)
+
+
+@router.post("/extract-chunk")
+async def extract_template_chunk(
+    chunk: UploadFile = File(...),
+    upload_id: str = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    name: str = Form(...),
+    category: str = Form("qshala_school"),
+    description: Optional[str] = Form(None),
+    filename: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Receives sliced chunks of a large presentation deck (>32 MB or >4.5 MB),
+    assembles them once all slices arrive, extracts the custom template, and persists it.
+    Bypasses Vercel and Cloud Run single-request body size limits.
+    """
+    clean_upload_id = re.sub(r"[^a-zA-Z0-9_\-]", "", upload_id)
+    if not clean_upload_id:
+        raise HTTPException(status_code=400, detail="Invalid upload_id")
+
+    clean_name = (name or "").strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Template name is required")
+
+    clean_category = (category or "qshala_school").strip().lower()
+    if clean_category not in ("qshala_school", "zvq"):
+        raise HTTPException(status_code=400, detail="Category must be either 'qshala_school' or 'zvq'")
+
+    chunk_dir = Path(tempfile.gettempdir()) / f"tpl_chunk_{clean_upload_id}"
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+
+    part_file = chunk_dir / f"chunk_{chunk_index:05d}.part"
+    with open(part_file, "wb") as f:
+        while chunk_data := await chunk.read(64 * 1024):
+            f.write(chunk_data)
+
+    parts = sorted(list(chunk_dir.glob("chunk_*.part")))
+    if len(parts) < total_chunks:
+        return {
+            "status": "UPLOADING",
+            "chunk_index": chunk_index,
+            "received_chunks": len(parts),
+            "total_chunks": total_chunks,
+        }
+
+    # All chunks arrived: stitch into full presentation deck
+    stitched_path = chunk_dir / "deck.pptx"
+    try:
+        with open(stitched_path, "wb") as outfile:
+            for p in parts:
+                with open(p, "rb") as infile:
+                    shutil.copyfileobj(infile, outfile)
+
+        extractor = TemplateExtractor(stitched_path)
+        data = extractor.extract(
+            name=clean_name,
+            category=clean_category,
+            description=description,
+        )
+        tpl = _persist_extracted_template(data, db)
+    except Exception as e:
+        logger.exception(f"Failed to extract template from chunked upload {clean_upload_id}: {e}")
+        raise HTTPException(status_code=422, detail=f"Could not extract template from presentation: {str(e)}")
+    finally:
+        try:
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    return {
+        "status": "COMPLETED",
+        "template": _template_response(tpl),
+    }
+
+
+@router.delete("/extract-chunk/{upload_id}")
+def cancel_extract_chunk(upload_id: str):
+    """Cleans up temporary chunks if a user cancels or an upload fails."""
+    clean_upload_id = re.sub(r"[^a-zA-Z0-9_\-]", "", upload_id)
+    if clean_upload_id:
+        chunk_dir = Path(tempfile.gettempdir()) / f"tpl_chunk_{clean_upload_id}"
+        if chunk_dir.exists():
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+    return {"status": "CANCELLED", "upload_id": upload_id}
 
 
 @router.get("")

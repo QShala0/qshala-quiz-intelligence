@@ -416,8 +416,92 @@ export const api = {
     return handleResponse<CustomPptTemplate>(res);
   },
 
-  extractTemplate: async (formData: FormData): Promise<CustomPptTemplate> => {
-    const res = await fetch(`${getApiBase()}/templates/extract`, {
+  extractTemplateChunked: async (
+    file: File,
+    name: string,
+    category: 'qshala_school' | 'zvq',
+    description?: string,
+    onProgress?: (pct: number, currentChunk: number, totalChunks: number) => void
+  ): Promise<CustomPptTemplate> => {
+    // 3.5 MB chunks ensure every slice clears Vercel serverless (4.5 MB limit) and Cloud Run (32 MB limit)
+    const chunkSize = 3.5 * 1024 * 1024;
+    const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+    const uploadId = `tpl_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const uploadApiBase = getUploadApiBase();
+
+    let lastResult: CustomPptTemplate | null = null;
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, file.size);
+      const slice = file.slice(start, end);
+
+      const chunkForm = new FormData();
+      chunkForm.append('chunk', slice, file.name);
+      chunkForm.append('upload_id', uploadId);
+      chunkForm.append('chunk_index', i.toString());
+      chunkForm.append('total_chunks', totalChunks.toString());
+      chunkForm.append('name', name);
+      chunkForm.append('category', category);
+      if (description) {
+        chunkForm.append('description', description);
+      }
+      chunkForm.append('filename', file.name);
+
+      const res = await fetch(`${uploadApiBase}/templates/extract-chunk`, {
+        method: 'POST',
+        body: chunkForm,
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        let errMsg = `Upload failed with status ${res.status}`;
+        try {
+          const j = JSON.parse(text);
+          errMsg = j.detail || j.message || errMsg;
+        } catch {
+          if (text.includes('413') || text.includes('Too Large')) {
+            errMsg = 'Request payload too large for network gateway. Slicing failed.';
+          } else if (text.length > 0 && text.length < 200) {
+            errMsg = text;
+          }
+        }
+        throw new Error(errMsg);
+      }
+
+      const json = await res.json();
+      if (onProgress) {
+        const pct = Math.round(((i + 1) / totalChunks) * 100);
+        onProgress(pct, i + 1, totalChunks);
+      }
+
+      if (json.status === 'COMPLETED' && json.template) {
+        lastResult = json.template as CustomPptTemplate;
+      }
+    }
+
+    if (!lastResult) {
+      throw new Error('Template extraction completed without returning template profile');
+    }
+    return lastResult;
+  },
+
+  extractTemplate: async (
+    formData: FormData,
+    onProgress?: (pct: number, currentChunk: number, totalChunks: number) => void
+  ): Promise<CustomPptTemplate> => {
+    const file = formData.get('file');
+    const name = (formData.get('name') as string) || '';
+    const category = ((formData.get('category') as string) || 'qshala_school') as 'qshala_school' | 'zvq';
+    const description = (formData.get('description') as string) || undefined;
+
+    // If file is present and larger than 3.5 MB, automatically use chunked streaming
+    if (file instanceof File && file.size > 3.5 * 1024 * 1024) {
+      return api.extractTemplateChunked(file, name, category, description, onProgress);
+    }
+
+    // Direct upload path for small files (sent to uploadApiBase)
+    const res = await fetch(`${getUploadApiBase()}/templates/extract`, {
       method: 'POST',
       body: formData,
     });

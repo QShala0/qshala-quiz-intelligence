@@ -154,3 +154,79 @@ def test_multi_slide_preview_and_theme_extraction():
     finally:
         client.delete(f"/api/v1/templates/{tpl_id}")
 
+
+def test_template_chunked_upload_extraction():
+    assert SAMPLE_DECK.exists()
+    content = SAMPLE_DECK.read_bytes()
+    total_len = len(content)
+    chunk_size = total_len // 3
+    chunks = [
+        content[:chunk_size],
+        content[chunk_size : chunk_size * 2],
+        content[chunk_size * 2 :],
+    ]
+    upload_id = "test_chunked_upl_123"
+
+    try:
+        # Send part 0
+        r0 = client.post(
+            "/api/v1/templates/extract-chunk",
+            files={"chunk": ("part0.part", chunks[0], "application/octet-stream")},
+            data={
+                "upload_id": upload_id,
+                "chunk_index": 0,
+                "total_chunks": 3,
+                "name": "Chunked Extraction Test",
+                "category": "qshala_school",
+                "description": "Tested via 3 chunks",
+                "filename": "sample.pptx",
+            },
+        )
+        assert r0.status_code == 200
+        assert r0.json()["status"] == "UPLOADING"
+
+        # Send part 1
+        r1 = client.post(
+            "/api/v1/templates/extract-chunk",
+            files={"chunk": ("part1.part", chunks[1], "application/octet-stream")},
+            data={
+                "upload_id": upload_id,
+                "chunk_index": 1,
+                "total_chunks": 3,
+                "name": "Chunked Extraction Test",
+                "category": "qshala_school",
+                "description": "Tested via 3 chunks",
+                "filename": "sample.pptx",
+            },
+        )
+        assert r1.status_code == 200
+        assert r1.json()["status"] == "UPLOADING"
+
+        # Send part 2 (final)
+        r2 = client.post(
+            "/api/v1/templates/extract-chunk",
+            files={"chunk": ("part2.part", chunks[2], "application/octet-stream")},
+            data={
+                "upload_id": upload_id,
+                "chunk_index": 2,
+                "total_chunks": 3,
+                "name": "Chunked Extraction Test",
+                "category": "qshala_school",
+                "description": "Tested via 3 chunks",
+                "filename": "sample.pptx",
+            },
+        )
+        assert r2.status_code == 200
+        res = r2.json()
+        assert res["status"] == "COMPLETED"
+        assert "template" in res
+        tpl = res["template"]
+        assert tpl["name"] == "Chunked Extraction Test"
+        assert tpl["category"] == "qshala_school"
+
+        # Clean up created template
+        client.delete(f"/api/v1/templates/{tpl['id']}")
+    finally:
+        client.delete(f"/api/v1/templates/extract-chunk/{upload_id}")
+
+

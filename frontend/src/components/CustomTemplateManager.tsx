@@ -42,6 +42,7 @@ export default function CustomTemplateManager({
   // Upload/Extract modal state
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [tplName, setTplName] = useState('');
   const [tplCategory, setTplCategory] = useState<'qshala_school' | 'zvq'>(
     defaultCategory || 'qshala_school'
@@ -95,6 +96,7 @@ export default function CustomTemplateManager({
 
     try {
       setExtracting(true);
+      setUploadProgress(0);
       setError(null);
       const formData = new FormData();
       formData.append('file', selectedFile);
@@ -104,12 +106,15 @@ export default function CustomTemplateManager({
         formData.append('description', tplDesc.trim());
       }
 
-      const created = await api.extractTemplate(formData);
+      const created = await api.extractTemplate(formData, (pct) => {
+        setUploadProgress(pct);
+      });
       setSuccessMsg(`Extracted template “${created.name}” successfully!`);
       setShowUploadModal(false);
       setSelectedFile(null);
       setTplName('');
       setTplDesc('');
+      setUploadProgress(null);
       await loadTemplates();
       // Automatically open the template viewer to inspect the extracted template
       setSelectedViewTemplate(created);
@@ -120,6 +125,7 @@ export default function CustomTemplateManager({
       setError(err instanceof Error ? err.message : 'Template extraction failed');
     } finally {
       setExtracting(false);
+      setUploadProgress(null);
     }
   };
 
@@ -443,6 +449,25 @@ export default function CustomTemplateManager({
                   className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
                 />
               </div>
+
+              {/* Progress bar during extraction */}
+              {extracting && (
+                <div className="rounded-xl bg-orange-50/80 border border-orange-200/90 p-3 space-y-2 animate-in fade-in">
+                  <div className="flex items-center justify-between text-xs font-semibold text-orange-950">
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-600" />
+                      <span>{uploadProgress !== null && uploadProgress < 100 ? `Streaming presentation in safe slices (${uploadProgress}%)...` : 'Analyzing slide master, themes & layout...'}</span>
+                    </span>
+                    <span className="font-mono text-orange-800">{uploadProgress !== null ? `${uploadProgress}%` : ''}</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-orange-200/60 overflow-hidden">
+                    <div
+                      className="h-full bg-orange-600 transition-all duration-300 rounded-full"
+                      style={{ width: `${uploadProgress || 10}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
