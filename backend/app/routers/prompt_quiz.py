@@ -30,11 +30,11 @@ class DraftReq(BaseModel):
     previous_brief: Optional[Dict[str, Any]] = None
     keep_ids: List[str] = []
     exclude_ids: List[str] = []
-    current_questions: Optional[List[Dict[str, Any]]] = None
+    current_questions: Optional[List[Dict[str, Any]]] = Field(default=None, max_length=100)
 
 
 class SwapReq(BaseModel):
-    prompt: str
+    prompt: str = Field(..., max_length=600)
     question_id: str
     keep_ids: List[str] = []
     options: Dict[str, Any] = {}

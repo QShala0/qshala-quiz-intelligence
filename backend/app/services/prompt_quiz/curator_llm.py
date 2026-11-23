@@ -109,14 +109,11 @@ def _build_curator_prompt(
             ans = ans[:57] + "..."
         topic = c.get("subtopic_l2") or c.get("topic_l1") or c.get("topic") or "General"
         diff = c.get("difficulty") or "Medium"
-        diff_score = c.get("difficulty_score", 0.5)
         fmt = c.get("question_format") or "STANDARD_QA"
-        deck = (c.get("document_title") or "").strip()
-        deck_tag = f" [Deck: {deck[:45]}]" if deck else ""
+        fmt_tag = f" [{fmt}]" if fmt != "STANDARD_QA" else ""
         slot_tag = f" [Current Slot #{curr_slots[cid]}]" if cid in curr_slots else ""
-        rel = float(c.get("score") or 0.0)
         cand_lines.append(
-            f"- ID: {cid} | [{topic}] [{diff} {diff_score:.2f}] [{fmt}] [Rel {rel:.2f}]{deck_tag}{slot_tag} Q: {text} | Ans: {ans}"
+            f"- ID: {cid} | [{topic}] [{diff}]{fmt_tag}{slot_tag} Q: {text} | A: {ans}"
         )
 
     parts.append(f"CANDIDATE POOL ({len(candidates)} pre-verified questions from vault):\n" + "\n".join(cand_lines))

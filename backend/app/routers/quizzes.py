@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Body
 from sqlalchemy.orm import Session
@@ -14,7 +15,23 @@ from backend.app.schemas.quiz import (
 from backend.app.services.generator.quiz_generator import QuizGenerator
 from backend.app.services.export.exporter import QuizExporter
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/quizzes", tags=["Quizzes"])
+
+
+def _safe_to_pptx(*args, **kwargs):
+    """Build a PPTX; turn any builder crash into a clean JSON error, not a raw 500."""
+    try:
+        return QuizExporter.to_pptx(*args, **kwargs)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("PPTX export failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not build the PowerPoint for this quiz. Try the JSON export or contact support.",
+        )
 
 @router.post("/generate", response_model=QuizResponse)
 async def generate_quiz(
@@ -27,12 +44,18 @@ async def generate_quiz(
         return quiz
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Quiz generation error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Quiz generation failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Quiz generation failed. Please try again in a moment.",
+        )
 
 @router.get("", response_model=List[QuizResponse])
 def list_quizzes(db: Session = Depends(get_db)):
-    return db.query(Quiz).order_by(Quiz.created_at.desc()).all()
+    return db.query(Quiz).order_by(Quiz.created_at.desc()).limit(500).all()
 
 @router.get("/{quiz_id}", response_model=QuizResponse)
 def get_quiz(quiz_id: str, db: Session = Depends(get_db)):
@@ -131,8 +154,13 @@ async def execute_question_action(
             custom_instruction=req.custom_instruction
         )
         return updated_q
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        logger.exception("Question action failed")
+        raise HTTPException(status_code=500, detail="Question action failed. Please try again.")
 
 @router.delete("/questions/{question_id}")
 def delete_question(question_id: str, db: Session = Depends(get_db)):
@@ -150,9 +178,9 @@ def export_quiz(
     quiz_id: str,
     format: str = Query("json", pattern="^(json|csv|pptx)$"),
     quiz_type: str = Query("school", pattern="^(school|corporate|minimalist|qshala_school|qshala|zvq)$"),
-    campus_edition: Optional[str] = Query("Bangalore Campus Edition"),
-    prize_money: Optional[str] = Query("3.5 lakh"),
-    custom_title: Optional[str] = Query(None),
+    campus_edition: Optional[str] = Query("Bangalore Campus Edition", max_length=255),
+    prize_money: Optional[str] = Query("3.5 lakh", max_length=100),
+    custom_title: Optional[str] = Query(None, max_length=255),
     include_social_slides: bool = Query(True),
     theme: Optional[str] = Query(None),
     custom_subtitle: Optional[str] = Query(None),
@@ -186,7 +214,7 @@ def export_quiz(
             effective_quiz_type = "minimalist"
         elif theme and theme in ("qshala_school", "qshala", "qshala-school"):
             effective_quiz_type = "qshala_school"
-        pptx_bytes = QuizExporter.to_pptx(
+        pptx_bytes = _safe_to_pptx(
             quiz,
             quiz_type=effective_quiz_type,
             campus_edition=campus_edition,
@@ -209,9 +237,9 @@ def export_quiz_payload(
     payload: Dict[str, Any] = Body(...),
     format: str = Query("pptx", pattern="^(json|csv|pptx)$"),
     quiz_type: str = Query("school", pattern="^(school|corporate|minimalist|qshala_school|qshala|zvq)$"),
-    campus_edition: Optional[str] = Query("Bangalore Campus Edition"),
-    prize_money: Optional[str] = Query("3.5 lakh"),
-    custom_title: Optional[str] = Query(None),
+    campus_edition: Optional[str] = Query("Bangalore Campus Edition", max_length=255),
+    prize_money: Optional[str] = Query("3.5 lakh", max_length=100),
+    custom_title: Optional[str] = Query(None, max_length=255),
     include_social_slides: bool = Query(True),
     theme: Optional[str] = Query(None),
     custom_subtitle: Optional[str] = Query(None),
@@ -219,6 +247,8 @@ def export_quiz_payload(
     template_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
+    if not isinstance(payload, dict) or not isinstance(payload.get("questions", []), list):
+        raise HTTPException(status_code=422, detail="Quiz payload must be an object with a 'questions' list")
     quiz_id = payload.get("id", "custom")
     clean_id = str(quiz_id)[:8] if quiz_id else "custom"
     if format == "json":
@@ -243,7 +273,7 @@ def export_quiz_payload(
             effective_quiz_type = "minimalist"
         elif theme and theme in ("qshala_school", "qshala", "qshala-school"):
             effective_quiz_type = "qshala_school"
-        pptx_bytes = QuizExporter.to_pptx(
+        pptx_bytes = _safe_to_pptx(
             payload,
             quiz_type=effective_quiz_type,
             campus_edition=campus_edition,

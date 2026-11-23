@@ -395,6 +395,7 @@ class JobQueueService:
 
     async def step_tag(self, job: IngestionJob, db: Session):
         """Step 7: Auto-tagging with multi-modal context (OCR clues + audio transcripts)."""
+        # TODO: Migrate to tag_questions_batched for ~80% input token savings (requires INSERT before TAG step reordering)
         step_data = dict(job.step_data or {})
         candidates = step_data.get("dedup_candidates", [])
         doc_title = Path(job.filename).stem

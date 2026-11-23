@@ -118,13 +118,37 @@ const FALLBACK_STARTERS = [
 
 // (format counts: see components/FormatCounts.tsx)
 async function apiFetch<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Request failed (${res.status})`);
-  return res.json();
+  let res: Response;
+  try {
+    res = await fetch(`${getApiBase()}${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      // A stuck AI call must not leave the screen spinning forever.
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (e) {
+    if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      throw new Error('This is taking longer than expected. Please try again in a moment.');
+    }
+    throw new Error('Could not reach the server. Check your connection and try again.');
+  }
+  if (!res.ok) {
+    const j = await res.json().catch(() => null);
+    const d = j && typeof j === 'object' ? (j as { detail?: unknown }).detail : undefined;
+    throw new Error(
+      typeof d === 'string' && d
+        ? d
+        : Array.isArray(d)
+        ? 'Some of the details you entered are not valid. Please check and try again.'
+        : `Something went wrong (${res.status}). Please try again.`,
+    );
+  }
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new Error('The server sent an unexpected response. Please try again.');
+  }
 }
 
 export default function QuizzerHome() {
@@ -305,6 +329,7 @@ export default function QuizzerHome() {
 
 
   async function swap(id: string) {
+    if (loading) return;
     try {
       const nq = await apiFetch<DraftQ>('/prompt-quiz/swap', {
         prompt: lastPrompt,
@@ -357,7 +382,7 @@ export default function QuizzerHome() {
 
   async function save() {
     const selectedIds = qs.filter((q) => checked.has(q.id)).map((q) => q.id);
-    if (selectedIds.length === 0) return;
+    if (selectedIds.length === 0 || saving) return;
     setSaving(true);
     try {
       const r = await apiFetch<{ quiz_id: string }>('/prompt-quiz/save', {

@@ -153,7 +153,11 @@ export default function SharePointImporter() {
   // Admin Mode & Access Control States
   const [adminToken, setAdminToken] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('sp_admin_token');
+      try {
+        return sessionStorage.getItem('sp_admin_token');
+      } catch {
+        return null;
+      }
     }
     return null;
   });
@@ -241,7 +245,7 @@ export default function SharePointImporter() {
     } catch (e) {
       if (e instanceof Error && (e.message.includes('401') || e.message.includes('expired'))) {
         setAdminToken(null);
-        if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token');
+        try { if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token'); } catch {}
         setShowAdminManager(false);
         setShowPasswordModal(true);
         setPasswordError('Admin session expired. Please enter the password again.');
@@ -277,7 +281,7 @@ export default function SharePointImporter() {
     try {
       const res = await api.spAdminVerify(passwordInput);
       setAdminToken(res.token);
-      if (typeof window !== 'undefined') sessionStorage.setItem('sp_admin_token', res.token);
+      try { if (typeof window !== 'undefined') sessionStorage.setItem('sp_admin_token', res.token); } catch {}
       setShowPasswordModal(false);
       setPasswordInput('');
       setShowAdminManager(true);
@@ -291,7 +295,7 @@ export default function SharePointImporter() {
 
   function handleLogoutAdmin() {
     setAdminToken(null);
-    if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token');
+    try { if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token'); } catch {}
     setShowAdminManager(false);
   }
 

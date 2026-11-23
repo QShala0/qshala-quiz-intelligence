@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict, computed_field
+from pydantic import BaseModel, Field, ConfigDict, computed_field, field_validator
 
 class QuizGenerateRequest(BaseModel):
-    topic: str = Field(..., example="Australian History")
+    topic: str = Field(..., min_length=1, max_length=100, example="Australian History")
     subtopic: Optional[str] = None
     quiz_format: Optional[str] = Field(default="TOURNAMENT_PRELIMS", example="TOURNAMENT_PRELIMS")  # TOURNAMENT_PRELIMS, STAGE_FINALS, CLASSROOM_WARMUP, THEMATIC_SPECIAL, GENERAL_CHAMPIONSHIP
     audience_type: Optional[str] = Field(default=None, example="general")
@@ -20,9 +20,17 @@ class QuizGenerateRequest(BaseModel):
     generation_mode: str = Field(default="NEW", example="NEW")  # NEW, REMIX, HISTORICAL, SIMILAR
     tags: Optional[List[str]] = Field(default=None, description="Focus concept tags")
     tag_match_mode: str = Field(default="ANY", description="ANY or ALL")
-    personality: Optional[str] = Field(default=None, description="Optional host persona")
+    personality: Optional[str] = Field(default=None, max_length=50, description="Optional host persona")
     style: str = Field(default="QSHALA_HISTORICAL")
-    raw_prompt: Optional[str] = None
+    raw_prompt: Optional[str] = Field(default=None, max_length=4000)
+
+    @field_validator("topic")
+    @classmethod
+    def _topic_not_blank(cls, v: str) -> str:
+        v = (v or "").replace(chr(0), "").strip()
+        if not v:
+            raise ValueError("Topic cannot be empty")
+        return v
 
 class RetrievalSourceResponse(BaseModel):
     id: str

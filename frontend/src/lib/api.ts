@@ -45,6 +45,8 @@ import {
 //     network failure or a 429/5xx response. Only GET is retried -- retrying a POST/PUT/DELETE
 //     here could duplicate a write (e.g. double-create), so those still fail on the first error
 //     and are handled by their own call sites (chunked upload already has its own retry loop).
+const INTERACTIVE_URL_RE = /\/(quizzes\/generate|quizzes\/export|prompt-quiz\/|quizzes\/[^/?]+\/export|quizzes\/questions\/[^/?]+\/action)/;
+const INTERACTIVE_TIMEOUT_MS = 120_000;
 const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
 const RETRY_DELAYS_MS = [300, 900];
 
@@ -59,7 +61,20 @@ const fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<
 
   const method = (finalInit.method || 'GET').toUpperCase();
   if (method !== 'GET') {
-    return globalThis.fetch(input, finalInit);
+    // Interactive AI/export calls must never hang the UI forever. Long file transfers (uploads,
+    // SharePoint imports) are deliberately NOT capped here.
+    const urlText = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (!finalInit.signal && INTERACTIVE_URL_RE.test(urlText)) {
+      finalInit = { ...finalInit, signal: AbortSignal.timeout(INTERACTIVE_TIMEOUT_MS) };
+    }
+    try {
+      return await globalThis.fetch(input, finalInit);
+    } catch (err) {
+      if (err && typeof err === 'object' && (err as { name?: string }).name === 'TimeoutError') {
+        throw new Error('This is taking longer than expected. Please try again in a moment.');
+      }
+      throw err;
+    }
   }
 
   let lastError: unknown;
@@ -244,6 +259,8 @@ async function handleResponse<T>(res: Response): Promise<T> {
           ? String(errJson.detail.detail)
           : typeof errJson.detail === 'string'
           ? errJson.detail
+          : Array.isArray(errJson.detail)
+          ? 'Some of the details you entered are not valid. Please check and try again.'
           : errJson.message || 'API request failed';
       const code = (typeof errJson.detail === 'object' && errJson.detail?.code) || errJson.code;
       const err = Object.assign(new Error(detailMsg), {
@@ -256,7 +273,12 @@ async function handleResponse<T>(res: Response): Promise<T> {
       throw new Error(errorText || `HTTP ${res.status}: ${res.statusText}`);
     }
   }
-  return res.json();
+  if (res.status === 204) return undefined as T;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new Error('The server sent an unexpected response. Please try again.');
+  }
 }
 
 export interface QuestionSearchParams {
@@ -1371,8 +1393,14 @@ export const api = {
       if (getRes.ok) {
         return await getRes.blob();
       }
-    } catch {
-      // Fallback to POST
+      // Only a missing server copy (404) warrants re-sending the quiz; any other failure would just
+      // make the server build the same slow PPTX a second time.
+      if (getRes.status !== 404) {
+        throw new Error(`Export request failed (${getRes.status}). Please try again.`);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Export request failed')) throw err;
+      // Network trouble or missing server copy: fall back to POST
     }
 
     // 2. Fallback to POST /quizzes/export with full quiz payload

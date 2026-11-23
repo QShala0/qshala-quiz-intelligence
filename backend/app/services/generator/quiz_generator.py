@@ -336,6 +336,11 @@ Please return a JSON object with this exact structure:
             except Exception as e:
                 logger.exception(f"Error calling LLM for quiz generation: {e}")
                 from backend.app.services.ai.local_provider import LocalLLMProvider
+                if not isinstance(self.llm, LocalLLMProvider):
+                    # A real model failed: never hand office users mock questions without saying so.
+                    raise RuntimeError(
+                        "The AI service is busy or unavailable right now. Please try again in a minute."
+                    ) from e
                 fallback_llm = LocalLLMProvider()
                 mock_res = await fallback_llm.generate_json(user_prompt)
                 for item in mock_res.get("questions", []):

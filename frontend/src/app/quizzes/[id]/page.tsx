@@ -215,13 +215,19 @@ export default function QuizReviewStudioPage() {
   };
 
   const handleDownload = async (format: 'pptx' | 'json' | 'csv', options?: ExportOptions) => {
-    if (!quiz) return;
+    if (!quiz || isExporting) return;
     try {
       setIsExporting(format);
       await downloadQuizFile(quiz, format, options);
     } catch (err: any) {
-      console.warn('Direct blob export error, falling back to export link:', err);
-      window.location.href = api.exportQuizUrl(quiz.id, format, options);
+      // Stay on the page: navigating to the raw export URL would dump the user onto a JSON error.
+      console.warn('Export failed:', err);
+      window.alert(
+        `Could not export the ${format.toUpperCase()} just now. Please try again in a moment.` +
+          (err?.message ? `
+
+${err.message}` : ''),
+      );
     } finally {
       setIsExporting(null);
     }
