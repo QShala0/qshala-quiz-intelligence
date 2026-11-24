@@ -83,7 +83,7 @@ _SYSTEM = (
     "Only output the brief.\n"
     "Rules:\n"
     "- count: how many questions they want (default 10 if unstated).\n"
-    "- format_filter: 'CONNECT_4' if the user asks for connect 4 / common link questions, 'STEPPED_CLUE' if stepped clues / portfolio builder, 'ARRANGE_ORDER' if arrange / chronological order; otherwise null.\n"
+    "- format_filter: 'CONNECT_4' if the user asks for connect 4 / common link questions, 'STEPPED_CLUE' if 3 clue / stepped clues / portfolio builder, 'ARRANGE_ORDER' if arrange / chronological order; otherwise null.\n"
     "- query: a short, clean semantic topic phrase for keyword search — strip filler "
     "like 'give me', 'questions', 'round', counts, and difficulty/audience words.\n"
     f"- topics_l1: zero or more themes drawn ONLY from this list: {', '.join(V6_THEMES)}. Must be copied from this list, never invented. For cross-cutting or entity prompts (e.g. important people, leaders, inventions, records) that cut across domains (science, business, history, politics, sports), leave topics_l1 as [] so questions across all categories can be retrieved.\n"

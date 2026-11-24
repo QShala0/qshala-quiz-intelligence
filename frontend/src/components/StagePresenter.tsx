@@ -120,7 +120,7 @@ function progressiveSteps(p: StructuredPayload | null): number {
   return 0;
 }
 
-/** Stepped clues start with the first clue already on screen; everything else starts covered. */
+/** 3 clue questions start with the first clue already on screen; everything else starts covered. */
 function initialStep(p: StructuredPayload | null): number {
   if (isStepped(p)) return Math.min(1, p.clues.length);
   return 0;

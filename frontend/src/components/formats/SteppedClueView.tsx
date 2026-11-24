@@ -10,7 +10,7 @@ interface Props {
   setPreviewImage: (url: string) => void;
 }
 
-// Stepped clue: one slide per clue, each worth fewer points than the one before. Every clue and the answer are shown at
+// 3 clue: one slide per clue, each worth fewer points than the one before. Every clue and the answer are shown at
 // once (no reveal buttons): the card is for reading and curating a question, not for playing it.
 export default function SteppedClueView({ payload, getImageSrc, handleImgError, setPreviewImage }: Props) {
   const clues = payload.clues;

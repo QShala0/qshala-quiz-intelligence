@@ -561,8 +561,8 @@ def classify_taxonomy(q_text: str, ans_text: str, round_name: str = "", fmt: str
     fmt_display = {
         "CONNECT_4": "Connect 4",
         "CONNECT": "Connect 4",
-        "STEPPED_CLUE": "Stepped Clue (Portfolio Builder)",
-        "THREE_CLUE": "Stepped Clue (Portfolio Builder)",
+        "STEPPED_CLUE": "3 Clue",
+        "THREE_CLUE": "3 Clue",
         "ARRANGE_ORDER": "Arrange the Order (Ticker Tangle)",
         "BUZZER": "Buzzer (Closing Bell)",
         "QA": "Direct QA",
