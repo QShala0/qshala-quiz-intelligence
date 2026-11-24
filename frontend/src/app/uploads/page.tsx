@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Clock,
   X,
+  Cloud,
 } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '../../lib/api';
@@ -18,6 +19,7 @@ import LoadErrorBanner from '../../components/LoadErrorBanner';
 import { DocumentItem, Slide } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
 import UploadReportDialog from '../../components/UploadReportDialog';
+import SharePointImporter from '../../components/SharePointImporter';
 import { useUpload } from '../../context/UploadContext';
 import { useConfirm, useToast, QT } from '../../components/ui';
 import { UploadDuplicateReport } from '../../lib/types';
@@ -97,6 +99,16 @@ export default function UploadPage() {
   const [autoReports, setAutoReports] = useState<FoundReport[]>([]);
   const [progressById, setProgressById] = useState<Record<string, { pct: number; step: string }>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadSource, setUploadSource] = useState<'local' | 'sharepoint'>('local');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('tab') === 'sharepoint' || window.location.hash === '#sharepoint') {
+        setUploadSource('sharepoint');
+      }
+    }
+  }, []);
 
   const {
     activeBatchId,
@@ -314,11 +326,44 @@ export default function UploadPage() {
           Upload Center
         </h1>
         <p className="mt-1 text-[14px] text-slate-500 font-normal leading-relaxed">
-          Upload up to 25 PPTX or PDF decks at once. Ingestion runs smoothly via a server-side queue.
+          Upload presentation decks from your computer or import directly from your organization&apos;s SharePoint library.
         </p>
       </div>
 
-      {/* Drag & Drop Upload Zone (supports multi-file select up to 25) */}
+      {/* Source Mode Switcher: Local Files vs SharePoint Library */}
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 w-fit">
+        <button
+          type="button"
+          onClick={() => setUploadSource('local')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-semibold transition-all cursor-pointer ${
+            uploadSource === 'local'
+              ? 'bg-white text-slate-900 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <UploadCloud className="h-4 w-4 text-blue-600" />
+          <span>Local Files</span>
+          {hasActiveItems && uploadSource !== 'local' && (
+            <span className="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse ml-0.5" title="Local upload in progress" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setUploadSource('sharepoint')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-semibold transition-all cursor-pointer ${
+            uploadSource === 'sharepoint'
+              ? 'bg-white text-slate-900 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Cloud className="h-4 w-4 text-blue-600" />
+          <span>SharePoint Library</span>
+        </button>
+      </div>
+
+      {uploadSource === 'local' ? (
+        <>
+          {/* Drag & Drop Upload Zone (supports multi-file select up to 25) */}
       <div
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
@@ -854,6 +899,12 @@ export default function UploadPage() {
               );
             })}
           </div>
+        </div>
+      )}
+        </>
+      ) : (
+        <div className="space-y-6 animate-in fade-in transition-all">
+          <SharePointImporter />
         </div>
       )}
 
