@@ -707,6 +707,7 @@ async def sharepoint_not_imported(
     include_pdf: int = Query(0, ge=0, le=1),
     folder: Optional[str] = None,
     q: Optional[str] = None,
+    modified: str = Query("all", pattern="^(30d|90d|1y|older|all)$"),
     limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -726,6 +727,7 @@ async def sharepoint_not_imported(
             include_pdf=bool(include_pdf),
             folder=folder,
             q=q,
+            modified=modified,
         )
     except Exception as e:
         raise _graph_error(e)
