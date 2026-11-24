@@ -8,6 +8,7 @@ import tempfile
 import shutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Union
+from backend.app.services.export.slide_clone import drop_slide, duplicate_slide, fill_text, find_title_and_subtitle
 from PIL import Image
 
 logger = logging.getLogger(__name__)
@@ -386,6 +387,7 @@ def _format_question_source_notes(q: Any) -> str:
 
     # Resolve web URLs from database if available
     doc_urls = {}
+    doc_titles = {}
     doc_ids_to_fetch = set()
     for s in raw_sources:
         did = _get_val(s, "document_id")
@@ -405,24 +407,26 @@ def _format_question_source_notes(q: Any) -> str:
                 sp_ids = [d.sharepoint_file_id for d in docs if d.sharepoint_file_id]
                 sp_urls = {}
                 if sp_ids:
-                    sp_files = db.query(SharePointFile).filter(SharePointFile.sharepoint_file_id.in_(sp_ids)).all()
+                    sp_files = db.query(SharePointFile).filter(SharePointFile.id.in_(sp_ids)).all()
                     for spf in sp_files:
                         if spf.web_url:
-                            sp_urls[spf.sharepoint_file_id] = spf.web_url
+                            sp_urls[spf.id] = spf.web_url
                 for d in docs:
-                    u = d.blob_url or sp_urls.get(d.sharepoint_file_id)
+                    if d.title:
+                        doc_titles[str(d.id)] = d.title
+                    u = sp_urls.get(d.sharepoint_file_id) or d.blob_url
                     if u:
                         doc_urls[d.id] = u
                         if d.title:
                             doc_urls[d.title] = u
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"_format_question_source_notes DB lookup error: {e}")
 
     seen = set()
     for s in raw_sources:
-        doc_title = (_get_val(s, "document_title") or "").strip()
-        slide_num = _get_val(s, "slide_number")
         doc_id = _get_val(s, "document_id")
+        doc_title = (_get_val(s, "document_title") or doc_titles.get(str(doc_id)) or "").strip()
+        slide_num = _get_val(s, "slide_number")
         url = (
             _get_val(s, "web_url")
             or _get_val(s, "source_url")
@@ -458,9 +462,10 @@ def _format_question_source_notes(q: Any) -> str:
         else:
             lines.append(f"Source: {ref_text}")
 
-    direct_url = _get_val(q, "fact_check_url") or _get_val(q, "source_url")
-    if direct_url and direct_url not in "".join(lines):
-        lines.append(f"Reference Link: {direct_url}")
+    for u_field in ["fact_check_url", "source_url", "reference_link", "web_url"]:
+        direct_url = _get_val(q, u_field)
+        if direct_url and str(direct_url).strip() and str(direct_url).strip() not in "".join(lines):
+            lines.append(f"Reference Link: {str(direct_url).strip()}")
 
     if not lines:
         return "Source: QShala Knowledge Vault"
@@ -754,6 +759,7 @@ def _apply_custom_style(
     title_size_pt: Optional[float] = None,
     header_size_pt: Optional[float] = None,
     body_size_pt: Optional[float] = None,
+    skip_slide_ids: Optional[set] = None,
 ) -> None:
     """Make every run explicit with custom template fonts and typography sizes across Latin, East-Asian, and complex scripts."""
     from pptx.util import Pt
@@ -823,6 +829,8 @@ def _apply_custom_style(
                             _style_para(par, bold_face=False)
 
     for slide in prs.slides:
+        if skip_slide_ids and slide.slide_id in skip_slide_ids:
+            continue   # the template's own cover / divider keep their designed fonts
         _walk(slide.shapes)
 
 
@@ -1141,16 +1149,22 @@ class QuizExporter:
 
         is_qshala_school = (quiz_type in ("qshala_school", "qshala")) or (custom_template and custom_template.category == "qshala_school")
         master_prs = None
+        cover_src = divider_src = None
+        retained_ids: set = set()   # slides taken from the template as they are: never restyled, rescaled or rebuilt
 
         if custom_template and custom_dir is not None:
             try:
                 prs = Presentation(str(custom_dir / template_store.MASTER_NAME))
-                while len(prs.slides) > 0:
-                    rId = prs.slides._sldIdLst[0].rId
-                    prs.part.drop_rel(rId)
-                    del prs.slides._sldIdLst[0]
-
                 layouts_info = (custom_template.layout_metadata or {}).get("layouts", {})
+                # The template's real title slide and Answer divider are kept in the master and reused as they are
+                # (see TemplateExtractor._generate_clean_master). Any other slide in an old master is dropped.
+                n_kept = len(prs.slides)
+                ci, di = layouts_info.get("cover_slide_index"), layouts_info.get("divider_slide_index")
+                cover_src = prs.slides[ci] if isinstance(ci, int) and 0 <= ci < n_kept else None
+                divider_src = prs.slides[di] if isinstance(di, int) and 0 <= di < n_kept else None
+                for sl in list(prs.slides):
+                    if sl is not cover_src and sl is not divider_src:
+                        drop_slide(prs, sl)
                 cov_name = layouts_info.get("cover_layout")
                 q_name = layouts_info.get("question_layout")
                 div_name = layouts_info.get("divider_layout")
@@ -1298,7 +1312,17 @@ class QuizExporter:
         # -------------------------------------------------------------
         # 1. Cover Slide
         # -------------------------------------------------------------
-        if master_prs is not None:
+        if master_prs is not None and cover_src is not None:
+            # The template's own title slide, text replaced in place (logos, art and formatting untouched).
+            s_title = cover_src
+            retained_ids.add(s_title.slide_id)
+            t_shape, sub_shape = find_title_and_subtitle(s_title)
+            if t_shape is not None:
+                fill_text(t_shape, final_title)
+            sub_text = (custom_subtitle or "").strip()   # not the default campus line: the template's own tagline stays
+            if sub_shape is not None and sub_text:
+                fill_text(sub_shape, sub_text)
+        elif master_prs is not None:
             s_title = _school_cover(prs, cover_layout, final_title, (custom_subtitle or campus_edition or "").strip(), Pt)
             if not _has_visual_background(s_title) and not is_minimalist and cover_bg.exists():
                 pic_c = s_title.shapes.add_picture(str(cover_bg), 0, 0, prs.slide_width, prs.slide_height)
@@ -1329,7 +1353,7 @@ class QuizExporter:
                 p_qc1.font.bold = True
                 p_qc1.font.color.rgb = C_TEXT_DARK
 
-                sub_display = (custom_subtitle or campus_edition or "").strip()
+                sub_display = (custom_subtitle if custom_template else (custom_subtitle or campus_edition or "")).strip()
                 if sub_display:
                     sub_lines = [ln.strip() for ln in sub_display.splitlines() if ln.strip()]
                     for k, ln in enumerate(sub_lines):
@@ -1448,7 +1472,7 @@ class QuizExporter:
         # -------------------------------------------------------------
         # 2. Social Media & QR Slides (School Quiz)
         # -------------------------------------------------------------
-        if quiz_type == "school" and include_social_slides and not is_minimalist:
+        if quiz_type == "school" and include_social_slides and not is_minimalist and not custom_template:
             # Slide 2: Social Media Guidelines
             s_soc = prs.slides.add_slide(blank_layout)
             if question_bg.exists():
@@ -2068,7 +2092,10 @@ class QuizExporter:
             # ---------------------------------------------------------
             render_divider = (show_answer_divider is not False)
             if render_divider:
-                if master_prs is not None:
+                if master_prs is not None and divider_src is not None:
+                    s_ai = duplicate_slide(prs, divider_src)   # the template's own Answer slide, as designed
+                    retained_ids.add(s_ai.slide_id)
+                elif master_prs is not None:
                     s_ai = prs.slides.add_slide(divider_layout)
                     ttl_ai = s_ai.shapes.title if hasattr(s_ai.shapes, "title") else None
                     if ttl_ai is not None:
@@ -2324,6 +2351,9 @@ class QuizExporter:
                 source_notes = _format_question_source_notes(q)
                 sa.notes_slide.notes_text_frame.text = source_notes
 
+        if divider_src is not None:
+            drop_slide(prs, divider_src)   # exemplar only: each divider above is a copy of it
+
         if custom_template:
             _apply_custom_style(
                 prs,
@@ -2332,6 +2362,7 @@ class QuizExporter:
                 title_size_pt=custom_template.title_size_pt,
                 header_size_pt=custom_template.header_size_pt,
                 body_size_pt=custom_template.body_size_pt,
+                skip_slide_ids=retained_ids,
             )
         elif is_qshala_school:
             _apply_causten_style(prs)
@@ -2340,7 +2371,7 @@ class QuizExporter:
         # size (custom decks are often 10 x 5.625 or 4:3, the layout code above works on a 13.333 x 7.5 canvas).
         if master_prs is not None:
             remove_empty_placeholders(prs)
-            fit_deck_to_slide(prs)
+            fit_deck_to_slide(prs, skip_slide_ids=retained_ids)
 
         buffer = io.BytesIO()
         prs.save(buffer)

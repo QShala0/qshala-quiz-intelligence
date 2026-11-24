@@ -15,7 +15,7 @@ or any other size; before this module the shapes simply ran off the slide.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from pptx.enum.shapes import MSO_SHAPE_TYPE, PP_PLACEHOLDER
 from pptx.util import Inches
@@ -93,10 +93,11 @@ def _clamp_into_slide(shape, W: int, H: int) -> None:
     shape.top = int(min(max(t, 0), H - h2))
 
 
-def fit_deck_to_slide(prs: Any) -> bool:
+def fit_deck_to_slide(prs: Any, skip_slide_ids: Optional[set] = None) -> bool:
     """Re-map all slides built on the 13.333 x 7.5 in canvas onto the presentation's real slide size, then make sure
     nothing sticks out of the slide. Returns True when a rescale was needed."""
     W, H = int(prs.slide_width), int(prs.slide_height)
+    skip = skip_slide_ids or set()
     if not needs_fit(prs):
         for slide in prs.slides:
             for shape in slide.shapes:
@@ -109,6 +110,14 @@ def fit_deck_to_slide(prs: Any) -> bool:
     ox = (W - BASE_W * s) / 2.0
     oy = (H - BASE_H * s) / 2.0
     for slide in prs.slides:
+        if slide.slide_id in skip:
+            # template-native slides already match the template's own size: never rescale, only keep inside the slide
+            for shape in slide.shapes:
+                try:
+                    _clamp_into_slide(shape, W, H)
+                except Exception:
+                    continue
+            continue
         for shape in slide.shapes:
             try:
                 if _is_background_picture(shape, W, H):

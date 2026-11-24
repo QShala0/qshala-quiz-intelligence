@@ -68,6 +68,8 @@ export default function ExportQuizModal({
 
   // QShala School Template Fields
   const [customSubtitle, setCustomSubtitle] = useState('Grades 6 - 8 • Middle School Assembly');
+  // A custom template keeps its own subtitle/tagline unless the user actually typed one.
+  const [subtitleTouched, setSubtitleTouched] = useState(false);
   const [showAnswerDivider, setShowAnswerDivider] = useState(true);
 
   // ZSV Fields
@@ -143,7 +145,7 @@ export default function ExportQuizModal({
         campusEdition: templateCategory === 'zsv' ? (campusEdition.trim() || undefined) : undefined,
         prizeMoney: templateCategory === 'zsv' && zsvSubtype === 'school' ? (prizeMoney.trim() || undefined) : undefined,
         customTitle: customTitle.trim() || undefined,
-        customSubtitle: templateCategory === 'qshala' ? (customSubtitle.trim() || undefined) : undefined,
+        customSubtitle: templateCategory === 'qshala' && (!selectedTemplateId || subtitleTouched) ? (customSubtitle.trim() || undefined) : undefined,
         includeSocialSlides: templateCategory === 'zsv' && zsvSubtype === 'school' ? includeSocialSlides : false,
         showAnswerDivider: templateCategory === 'qshala' ? showAnswerDivider : true,
       });
@@ -425,7 +427,7 @@ export default function ExportQuizModal({
                 <input
                   type="text"
                   value={customSubtitle}
-                  onChange={(e) => setCustomSubtitle(e.target.value)}
+                  onChange={(e) => { setCustomSubtitle(e.target.value); setSubtitleTouched(true); }}
                   placeholder="e.g., Grades 6 - 8 • Middle School Assembly"
                   className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none bg-white"
                 />
