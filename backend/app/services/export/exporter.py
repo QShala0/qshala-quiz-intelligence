@@ -1945,29 +1945,6 @@ class QuizExporter:
                             po.font.name = FONT_BODY
                             po.font.size = Pt(22)
                             po.font.color.rgb = C_TEXT_BODY
-
-                # Style Guide Speaker Notes
-                q_notes = [f"Official Answer: {ans_val}"]
-                sources = _get_val(q, "retrieval_sources", []) or _get_val(q, "sources", [])
-                if sources:
-                    s_titles = []
-                    for s in sources:
-                        dt = _get_val(s, "document_title", "")
-                        sn = _get_val(s, "slide_number", "")
-                        if dt:
-                            s_titles.append(f"{dt} (Slide {sn})" if sn else dt)
-                    if s_titles:
-                        q_notes.append("Source Reference: " + "; ".join(s_titles))
-                if video_path:
-                    q_notes.append(f"Media Reference (Video): {video_path.name}")
-                elif resolved_q_imgs:
-                    q_notes.append(f"Media Reference (Image): {resolved_q_imgs[0].name}")
-                v_clue = _get_val(q, "visual_clues") or _get_val(q, "clue")
-                if v_clue:
-                    q_notes.append(f"Presenter Clues: {v_clue}")
-                sq.notes_slide.notes_text_frame.text = "\n".join(q_notes)
-                if has_media and not fits_same_slide and 'sq_img' in locals():
-                    sq_img.notes_slide.notes_text_frame.text = sq.notes_slide.notes_text_frame.text
             elif has_media:
                 # South Zone 2-Column Protocol: Question text left (7.80 in), Media clue right (3.90 in)
                 tb_q = sq.shapes.add_textbox(Inches(0.80), Inches(1.50), Inches(7.80), Inches(4.80))
@@ -2080,12 +2057,25 @@ class QuizExporter:
                         po.font.size = Pt(20)
                         po.font.color.rgb = C_TEXT_BODY
 
-            if not is_qshala_school:
-                # Speaker Notes (ZSV / School) - replace generic notes with question source links
-                source_notes = _format_question_source_notes(q)
-                sq.notes_slide.notes_text_frame.text = source_notes
-                if 'sq_img' in locals() and sq_img is not None:
-                    sq_img.notes_slide.notes_text_frame.text = source_notes
+            # Speaker Notes for Question Slide: Presenter Clues, Media Refs, and Source Links.
+            # CRITICAL: Official Answer must NEVER be included on the Question slide notes!
+            source_notes = _format_question_source_notes(q)
+            q_notes_parts = []
+            v_clue = _get_val(q, "visual_clues") or _get_val(q, "clue")
+            if v_clue:
+                q_notes_parts.append(f"Presenter Clues: {v_clue}")
+            if video_path:
+                q_notes_parts.append(f"Media Reference (Video): {video_path.name}")
+            elif resolved_q_imgs:
+                q_notes_parts.append(f"Media Reference (Image): {resolved_q_imgs[0].name}")
+            if is_starred:
+                q_notes_parts.append("★ Important: Star tie-breaker question!")
+            if source_notes:
+                q_notes_parts.append(source_notes)
+
+            sq.notes_slide.notes_text_frame.text = "\n\n".join(q_notes_parts)
+            if 'sq_img' in locals() and sq_img is not None:
+                sq_img.notes_slide.notes_text_frame.text = sq.notes_slide.notes_text_frame.text
 
             # ---------------------------------------------------------
             # (B) ANSWER TRANSITION SLIDE (Divider)
@@ -2113,7 +2103,7 @@ class QuizExporter:
                         pai.font.size = Pt(50)
                         pai.font.bold = True
                         pai.font.color.rgb = C_TEXT_DARK
-                    if not _has_visual_background(s_ai) and not is_minimalist and answer_intro_bg.exists():
+                    if (custom_template or not _has_visual_background(s_ai)) and not is_minimalist and answer_intro_bg.exists():
                         pic_ai = s_ai.shapes.add_picture(str(answer_intro_bg), 0, 0, prs.slide_width, prs.slide_height)
                         _send_shape_to_back(pic_ai, s_ai)
                 else:
@@ -2140,7 +2130,7 @@ class QuizExporter:
             # ---------------------------------------------------------
             sa = prs.slides.add_slide(blank_layout)
             if master_prs is not None:
-                if not _has_visual_background(sa) and not is_minimalist and answer_bg.exists():
+                if (custom_template or not _has_visual_background(sa)) and not is_minimalist and answer_bg.exists():
                     pic_a = sa.shapes.add_picture(str(answer_bg), 0, 0, prs.slide_width, prs.slide_height)
                     _send_shape_to_back(pic_a, sa)
             elif not is_minimalist and answer_bg.exists():
@@ -2253,13 +2243,6 @@ class QuizExporter:
                         pa_head.font.size = Pt(48) if len(ans_val) < 40 else Pt(38)
                         pa_head.font.bold = True
                         pa_head.font.color.rgb = C_TEXT_DARK
-
-                sa.notes_slide.notes_text_frame.text = (
-                    f"Presenter Talking Points:\n"
-                    f"Official Answer: {ans_val}\n"
-                    f"Award points for correct answer or verified synonym.\n"
-                    f"Trivia Context: {explanation}"
-                )
             elif has_ans_img:
                 if explanation and len(explanation) > 100:
                     # 2-Column Solution Layout
@@ -2346,10 +2329,15 @@ class QuizExporter:
                     pa_head.font.bold = True
                     pa_head.font.color.rgb = C_TEXT_DARK
 
-            if not is_qshala_school:
-                # Speaker Notes for Answer Slide (ZSV / School) - source links in notes
-                source_notes = _format_question_source_notes(q)
-                sa.notes_slide.notes_text_frame.text = source_notes
+            # Speaker Notes for Answer Slide: Context and Source Links (clean, no old boilerplate)
+            source_notes = _format_question_source_notes(q)
+            a_notes_parts = []
+            if explanation:
+                a_notes_parts.append(f"Context: {explanation}")
+            if source_notes:
+                a_notes_parts.append(source_notes)
+
+            sa.notes_slide.notes_text_frame.text = "\n\n".join(p for p in a_notes_parts if p)
 
         if divider_src is not None:
             drop_slide(prs, divider_src)   # exemplar only: each divider above is a copy of it

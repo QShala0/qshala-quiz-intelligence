@@ -602,3 +602,69 @@ def test_custom_template_formatting_font_sizes_and_bold_retention():
             client.delete(f"/api/v1/templates/{created_tpl_id}")
         db.close()
 
+
+def test_speaker_notes_source_links_and_answer_removal_on_question_slide():
+    """
+    Verify that in downloaded PPT slides:
+    1. Question slide notes contains source references and links.
+    2. Question slide notes does NOT contain the answer or 'Official Answer:' (no answer leak).
+    3. Answer slide notes contains source links and context, without obsolete boilerplate.
+    4. Works across standard School export and Custom Template export.
+    """
+    sample_quiz = {
+        "id": "quiz-notes-test-clean",
+        "title": "Maritime History Championship",
+        "topic": "Exploration",
+        "questions": [
+            {
+                "id": "q-notes-1",
+                "question_text": "Which celestial event or landmark guided ancient Polynesian navigators across the Pacific Ocean?",
+                "answer": "The Southern Cross Constellation",
+                "explanation": "Used as a navigational compass by Pacific waypoint voyagers.",
+                "visual_clues": "Look at the Southern sky stars.",
+                "retrieval_sources": [
+                    {
+                        "document_title": "Polynesian Wayfinding & Astronomy.pptx",
+                        "slide_number": 7,
+                        "web_url": "https://qshala.sharepoint.com/:p:/s/Quizzes/Wayfinding_Pacific.pptx",
+                    }
+                ],
+                "is_approved": True,
+            }
+        ]
+    }
+
+    pptx_bytes = QuizExporter.to_pptx(
+        sample_quiz,
+        quiz_type="school",
+        include_social_slides=False,
+        show_answer_divider=True,
+    )
+    assert len(pptx_bytes) > 1000
+    prs = Presentation(io.BytesIO(pptx_bytes))
+
+    # Slide index 1: Question Slide
+    q_slide = prs.slides[1]
+    assert q_slide.has_notes_slide
+    q_notes = q_slide.notes_slide.notes_text_frame.text
+
+    # 1. Answer MUST NOT leak in Question slide notes
+    assert "Official Answer:" not in q_notes, "Question slide notes must not contain 'Official Answer:'"
+    assert "Southern Cross" not in q_notes, "Question slide notes must not reveal the answer!"
+    # 2. Presenter clues and source links MUST be present
+    assert "Presenter Clues: Look at the Southern sky stars." in q_notes
+    assert "Source: Polynesian Wayfinding & Astronomy.pptx (Slide 7)" in q_notes
+    assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Wayfinding_Pacific.pptx" in q_notes
+
+    # Slide index 3: Answer Reveal Slide
+    a_slide = prs.slides[3]
+    assert a_slide.has_notes_slide
+    a_notes = a_slide.notes_slide.notes_text_frame.text
+
+    # 3. Answer slide notes must contain source links and context, no old boilerplate
+    assert "Presenter Talking Points:" not in a_notes
+    assert "Context: Used as a navigational compass by Pacific waypoint voyagers." in a_notes
+    assert "Source: Polynesian Wayfinding & Astronomy.pptx (Slide 7)" in a_notes
+    assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Wayfinding_Pacific.pptx" in a_notes
+
+
