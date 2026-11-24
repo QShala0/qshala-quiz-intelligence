@@ -517,12 +517,12 @@ export default function QuizzerHome() {
           {draft && (
             <div className="shrink-0 transition-transform duration-300">
               <QT
-                pose={showCelebration ? 'professor' : 'round'}
-                height={48}
+                pose={showCelebration ? 'winner' : 'round'}
+                height={52}
                 motion={showCelebration ? 'bob' : 'breathe'}
                 interactive={true}
-                speechBubble={showCelebration ? 'Your quiz is calibrated and ready, scholar!' : 'Quiz generated successfully!'}
-                alt="Professor QT celebrating your quiz"
+                speechBubble={showCelebration ? 'Quiz champion! Your quiz is calibrated and ready!' : 'Quiz generated successfully!'}
+                alt="Champion QT celebrating your quiz"
               />
             </div>
           )}
@@ -592,7 +592,7 @@ export default function QuizzerHome() {
                 }}
               />
               <button onClick={() => run()} disabled={loading || prompt.trim().length < 2} aria-label="Build quiz"
-                className="flex h-10 w-9 items-center justify-center rounded-full bg-slate-900 text-white transition disabled:opacity-30 hover:bg-slate-700">
+                className="flex h-10 w-9 items-center justify-center rounded-full bg-sun text-ink shadow-sticker-sm transition disabled:opacity-30 hover:brightness-105 active:scale-[0.98]">
                 <ArrowUp size={18} />
               </button>
             </div>
@@ -615,12 +615,12 @@ export default function QuizzerHome() {
           <div className="mt-8 flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
             <div className="relative mb-2">
               <QT
-                pose="chase-blue"
-                height={58}
-                motion="pounce"
+                pose="quizzing"
+                height={62}
+                motion="bob"
                 interactive={true}
-                speechBubble="Chasing trivia gems across your sources..."
-                alt="QT pouncing after the blue trivia ball"
+                speechBubble="Crafting your quiz questions from the archive..."
+                alt="QT crafting quiz questions"
               />
             </div>
             {/* Stage paw-prints 1..6 */}
@@ -643,12 +643,12 @@ export default function QuizzerHome() {
         {error && (
           <div className="mt-6 flex flex-col items-center justify-center text-center">
             <QT
-              pose="dizzy"
-              height={52}
-              className="mb-2 opacity-85"
+              pose="scared"
+              height={56}
+              className="mb-2"
               interactive={true}
-              speechBubble="Oops! Something got tangled up..."
-              alt="Dizzy cat"
+              speechBubble="Oops! Something got tangled in the yarn..."
+              alt="Scared cat"
             />
             <p className="text-[14px] text-red-600 font-medium" role="alert">{error}</p>
           </div>

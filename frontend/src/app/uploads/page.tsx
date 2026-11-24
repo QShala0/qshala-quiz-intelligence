@@ -321,8 +321,8 @@ export default function UploadPage() {
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-6xl mx-auto space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900 leading-tight">
+      <div className="border-b-2 border-sun pb-5">
+        <h1 className="text-[28px] sm:text-[32px] font-black tracking-tight text-ink leading-tight">
           Upload Center
         </h1>
         <p className="mt-1 text-[14px] text-slate-500 font-normal leading-relaxed">
@@ -335,28 +335,28 @@ export default function UploadPage() {
         <button
           type="button"
           onClick={() => setUploadSource('local')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-semibold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-bold transition-all cursor-pointer ${
             uploadSource === 'local'
-              ? 'bg-white text-slate-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-sun text-ink shadow-sticker-sm'
+              : 'text-slate-600 hover:text-ink'
           }`}
         >
-          <UploadCloud className="h-4 w-4 text-blue-600" />
+          <UploadCloud className="h-4 w-4 text-ink" />
           <span>Local Files</span>
           {hasActiveItems && uploadSource !== 'local' && (
-            <span className="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse ml-0.5" title="Local upload in progress" />
+            <span className="flex h-2 w-2 rounded-full bg-sun animate-pulse ml-0.5" title="Local upload in progress" />
           )}
         </button>
         <button
           type="button"
           onClick={() => setUploadSource('sharepoint')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-semibold transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-bold transition-all cursor-pointer ${
             uploadSource === 'sharepoint'
-              ? 'bg-white text-slate-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-sun text-ink shadow-sticker-sm'
+              : 'text-slate-600 hover:text-ink'
           }`}
         >
-          <Cloud className="h-4 w-4 text-blue-600" />
+          <Cloud className="h-4 w-4 text-ink" />
           <span>SharePoint Library</span>
         </button>
       </div>
@@ -370,16 +370,16 @@ export default function UploadPage() {
         onClick={() => fileInputRef.current?.click()}
         className="relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-white p-10 text-center hover:border-amber-400 transition-colors cursor-pointer group shadow-sm shadow-slate-100/50"
       >
-        {/* Fishbowl Cat perched at the corner of the dropzone */}
+        {/* Reading Cat perched at the corner of the dropzone */}
         <div className="absolute top-3 right-4 select-none opacity-85 group-hover:opacity-100 transition-opacity">
           <QT
-            pose="fishbowl"
-            height={44}
+            pose="reading"
+            height={46}
             interactive={true}
             motion="breathe"
-            speechBubble="Drop decks into the pool! I'm watching the slides."
+            speechBubble="Drop decks into the pool! I'm reading every slide."
             bubblePosition="top-left"
-            alt="QT looking curiously into the fishbowl"
+            alt="QT reading slide materials"
           />
         </div>
 
@@ -725,7 +725,7 @@ export default function UploadPage() {
           </div>
 
           <div className="relative pt-7 pb-1">
-            {/* Mascot chasing the progress ball along the bar, curling up asleep when done */}
+            {/* Mascot reading during progress, curling up asleep when done */}
             <div
               className="absolute top-0 -translate-x-1/2 select-none transition-all duration-300 z-10"
               style={{
@@ -733,17 +733,17 @@ export default function UploadPage() {
               }}
             >
               <QT
-                pose={pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100 ? 'sleepy' : 'chase-blue'}
-                height={34}
+                pose={pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100 ? 'sleeping' : 'reading'}
+                height={36}
                 interactive={true}
-                motion={pipelineProgress.status === 'COMPLETED' ? 'breathe' : 'pounce'}
+                motion={pipelineProgress.status === 'COMPLETED' ? 'breathe' : 'breathe'}
                 speechBubble={
                   pipelineProgress.status === 'COMPLETED'
                     ? 'All decks indexed! Time for a catnap.'
-                    : 'Pouncing through slides!'
+                    : 'Reading and ingesting your presentation slides...'
                 }
                 bubblePosition="top"
-                alt={pipelineProgress.status === 'COMPLETED' ? 'QT sleeping after upload' : 'QT chasing the progress ball'}
+                alt={pipelineProgress.status === 'COMPLETED' ? 'QT sleeping after upload' : 'QT reading slides'}
               />
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">

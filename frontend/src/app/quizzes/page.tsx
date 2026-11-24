@@ -129,10 +129,10 @@ export default function QuizzesLibraryPage() {
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-6xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200/60 pb-5">
+      <div className="flex items-center justify-between border-b-2 border-sun pb-5">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900 leading-tight">
+            <h1 className="text-[28px] sm:text-[32px] font-black tracking-tight text-ink leading-tight">
               Generated Quizzes
             </h1>
             <QT
@@ -152,9 +152,9 @@ export default function QuizzesLibraryPage() {
 
         <Link
           href="/generate"
-          className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-[13px] sm:text-[14px] font-semibold text-white hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
+          className="flex items-center gap-1.5 rounded-xl bg-sun px-4 py-2 text-[13.5px] font-bold text-ink hover:brightness-105 active:scale-[0.99] transition-all shadow-sticker-sm cursor-pointer"
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
           <span>New Quiz</span>
         </Link>
       </div>
@@ -314,12 +314,12 @@ export default function QuizzesLibraryPage() {
                   <td colSpan={7} className="py-12 text-center text-[13px] text-slate-400 font-normal">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <QT
-                        pose="box-yellow"
-                        height={52}
+                        pose="looking-up"
+                        height={54}
                         interactive={true}
                         motion="bob"
                         speechBubble="An empty library! Click 'New Quiz' to fill it up."
-                        alt="QT sitting in a yellow box"
+                        alt="QT looking up curiously"
                       />
                       <p className="text-[13px] text-slate-500 font-normal mt-2">
                         {loadError
