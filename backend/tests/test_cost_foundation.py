@@ -357,3 +357,41 @@ def test_alembic_0013_upgrade_and_downgrade(monkeypatch):
         insp = inspect(conn)
         tables_after = set(insp.get_table_names())
         assert "cost_events" not in tables_after
+
+
+def test_reingest_same_doc_records_both_runs():
+    doc_id = str(uuid.uuid4())
+
+    # Run 1
+    with cost_scope(document_id=doc_id) as scope1:
+        scope1.add_gemini_usage(
+            operation="ingest_vision",
+            model="gemini-3.5-flash-lite",
+            tokens_in=1000,
+            tokens_out=100,
+        )
+
+    # Run 2 (Re-ingestion of the same document)
+    with cost_scope(document_id=doc_id) as scope2:
+        scope2.add_gemini_usage(
+            operation="ingest_vision",
+            model="gemini-3.5-flash-lite",
+            tokens_in=1200,
+            tokens_out=120,
+        )
+
+    db = SessionLocal()
+    try:
+        events = (
+            db.query(CostEvent)
+            .filter(CostEvent.document_id == doc_id, CostEvent.operation == "ingest_vision")
+            .all()
+        )
+        # Expect BOTH runs recorded
+        assert len(events) == 2
+        # Different dedupe keys due to unique run_id
+        assert events[0].dedupe_key != events[1].dedupe_key
+        tokens = {e.units["tokens_in"] for e in events}
+        assert tokens == {1000, 1200}
+    finally:
+        db.close()

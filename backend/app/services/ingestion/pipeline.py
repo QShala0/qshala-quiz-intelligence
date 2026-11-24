@@ -276,6 +276,9 @@ class IngestionPipeline:
             db = SessionLocal()
             own_session = True
 
+        from backend.app.services.costs.ledger import cost_scope
+        _cscope = cost_scope(document_id=document_id)
+        _cscope.__enter__()
         try:
             t0 = time.perf_counter()
             doc = db.query(Document).filter(Document.id == document_id).first()
@@ -1050,6 +1053,10 @@ class IngestionPipeline:
                 "_ts": time.time(),
             })
         finally:
+            try:
+                _cscope.__exit__(None, None, None)
+            except Exception:
+                pass
             if own_session:
                 try:
                     db.close()
