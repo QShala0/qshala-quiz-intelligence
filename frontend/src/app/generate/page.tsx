@@ -10,7 +10,6 @@ import SourceMultiPicker, { summarizeSelectedSources } from '../../components/So
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
 import QT, { PawIcon } from '../../components/ui/QT';
-import YarnPlayCat from '../../components/mascot/YarnPlayCat';
 import VoiceInputButton from '../../components/VoiceInputButton';
 import { buildVocabulary } from '../../lib/voiceVocabulary';
 
@@ -530,22 +529,22 @@ export default function QuizzerHome() {
         </div>
 
         <div className="relative mt-20 sm:mt-24 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
-          {/* While idle or typing: Prominent animator-choreographed Cat playing with green yarn ball */}
+          {/* While idle or typing: Prominent official QT cat playing */}
           {!draft && !loading && (
             <div className="absolute -top-[68px] right-6 sm:right-8 z-10 select-none">
-              <YarnPlayCat
+              <QT
+                pose="playing"
                 height={76}
                 interactive={true}
                 speechBubble={[
                   'Batting around quiz ideas!',
-                  'Swat! High bounce!',
                   'Feed me a quiz prompt!',
                   'Purr-fect question incoming...',
                   'Try: "Grade 6 Space & Solar System quiz"',
                   'Ask me anything!',
                 ]}
                 bubblePosition="top"
-                alt="QT playing and batting the green yarn ball"
+                alt="QT playing playfully with quiz ideas"
               />
             </div>
           )}
