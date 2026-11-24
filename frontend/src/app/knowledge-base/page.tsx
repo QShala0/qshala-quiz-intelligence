@@ -105,35 +105,25 @@ function KnowledgeBaseContent() {
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b-2 border-sun pb-5 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200/60 pb-5 gap-4">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[28px] sm:text-[32px] font-black tracking-tight text-ink leading-tight">
-              Questions
-            </h1>
-            <QT
-              pose="sherlock"
-              height={36}
-              interactive={true}
-              speechBubble="Detective QT on the quest for the best trivia!"
-              bubblePosition="top-right"
-              alt="Detective QT"
-            />
-          </div>
+          <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900 leading-tight">
+            Questions
+          </h1>
           <p className="mt-1 text-[14px] text-slate-500 font-normal leading-relaxed">
             Verified, structured, and deduplicated questions across all historical QShala tournaments.
           </p>
         </div>
 
         {/* View Tabs */}
-        <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 gap-0.5">
+        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/80 gap-0.5">
           <button
             type="button"
             onClick={() => setActiveTab('all')}
-            className={`px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`px-2.5 py-1 rounded text-[11.5px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'all'
-                ? 'bg-sun text-ink shadow-sticker-sm'
-                : 'text-slate-700 hover:text-ink'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             All Questions
@@ -141,17 +131,17 @@ function KnowledgeBaseContent() {
           <button
             type="button"
             onClick={() => setActiveTab('duplicates')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'duplicates'
-                ? 'bg-ink text-white shadow-sticker-sm'
-                : 'text-amber-800 hover:text-ink'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-amber-700 hover:text-amber-800'
             }`}
           >
             <AlertTriangle className="h-3 w-3 shrink-0" />
             <span>Possible Duplicates</span>
             {duplicateCount > 0 && (
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
-                activeTab === 'duplicates' ? 'bg-sun text-ink' : 'bg-amber-200 text-amber-900'
+                activeTab === 'duplicates' ? 'bg-white text-amber-600' : 'bg-amber-200 text-amber-900'
               }`}>
                 {duplicateCount}
               </span>
@@ -160,17 +150,17 @@ function KnowledgeBaseContent() {
           <button
             type="button"
             onClick={() => setActiveTab('review')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'review'
-                ? 'bg-sky text-ink shadow-sticker-sm'
-                : 'text-sky-800 hover:text-ink'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-indigo-700 hover:text-indigo-800'
             }`}
           >
             <Eye className="h-3 w-3 shrink-0" />
             <span>Needs Review</span>
             {reviewCount > 0 && (
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
-                activeTab === 'review' ? 'bg-ink text-white' : 'bg-sky-200 text-sky-900'
+                activeTab === 'review' ? 'bg-white text-indigo-600' : 'bg-indigo-200 text-indigo-900'
               }`}>
                 {reviewCount}
               </span>
@@ -257,39 +247,27 @@ function KnowledgeBaseContent() {
                       ) : activeTab === 'review' ? (
                         'Nothing needs review — every tag is confirmed!'
                       ) : (appliedQuery || query) ? (
-                        <div className="flex flex-col items-center justify-center py-8 text-center space-y-2">
+                        <div className="flex flex-col items-center justify-center py-6 text-center space-y-2">
                           <div className="relative inline-block">
                             <QT
-                              pose="sherlock"
-                              height={58}
+                              pose="box-yellow"
+                              height={54}
                               interactive={true}
                               motion="bob"
-                              speechBubble="Detective QT looked everywhere — no clues found!"
+                              speechBubble="Looked in every cardboard box — nothing here!"
                               bubblePosition="top"
-                              alt="Detective QT searching for clues"
+                              alt="QT sitting in a yellow box looking skeptical"
                             />
                           </div>
-                          <p className="text-sm font-bold text-ink">
-                            No questions contain &ldquo;{appliedQuery || query}&rdquo;. Detective QT looked everywhere.
+                          <p className="text-sm font-semibold text-slate-800">
+                            No questions contain &ldquo;{appliedQuery || query}&rdquo;. The cat looked in every box.
                           </p>
                           <p className="text-xs text-slate-500">
                             Try checking for typos or searching with a broader word.
                           </p>
                         </div>
                       ) : (
-                        <div className="flex flex-col items-center justify-center py-8 text-center space-y-2">
-                          <QT
-                            pose="thinking"
-                            height={52}
-                            interactive={true}
-                            motion="breathe"
-                            speechBubble="Paws for thought! Try relaxing your filters."
-                            alt="QT thinking"
-                          />
-                          <p className="text-sm font-bold text-slate-700">
-                            No questions match your current search and filters.
-                          </p>
-                        </div>
+                        'No questions match your current search and filters.'
                       )}
                     </td>
                   </tr>

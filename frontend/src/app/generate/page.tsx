@@ -10,6 +10,7 @@ import SourceMultiPicker, { summarizeSelectedSources } from '../../components/So
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
 import QT, { PawIcon } from '../../components/ui/QT';
+import YarnPlayCat from '../../components/mascot/YarnPlayCat';
 import VoiceInputButton from '../../components/VoiceInputButton';
 import { buildVocabulary } from '../../lib/voiceVocabulary';
 
@@ -517,34 +518,34 @@ export default function QuizzerHome() {
           {draft && (
             <div className="shrink-0 transition-transform duration-300">
               <QT
-                pose={showCelebration ? 'winner' : 'round'}
-                height={52}
+                pose={showCelebration ? 'professor' : 'round'}
+                height={48}
                 motion={showCelebration ? 'bob' : 'breathe'}
                 interactive={true}
-                speechBubble={showCelebration ? 'Quiz champion! Your quiz is calibrated and ready!' : 'Quiz generated successfully!'}
-                alt="Champion QT celebrating your quiz"
+                speechBubble={showCelebration ? 'Your quiz is calibrated and ready, scholar!' : 'Quiz generated successfully!'}
+                alt="Professor QT celebrating your quiz"
               />
             </div>
           )}
         </div>
 
         <div className="relative mt-20 sm:mt-24 rounded-3xl border border-slate-200 bg-white shadow-sm focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20 focus-within:shadow-md transition-all">
-          {/* While idle or typing: Prominent official QT cat playing */}
+          {/* While idle or typing: Prominent animator-choreographed Cat playing with green yarn ball */}
           {!draft && !loading && (
             <div className="absolute -top-[68px] right-6 sm:right-8 z-10 select-none">
-              <QT
-                pose="playing"
+              <YarnPlayCat
                 height={76}
                 interactive={true}
                 speechBubble={[
                   'Batting around quiz ideas!',
+                  'Swat! High bounce!',
                   'Feed me a quiz prompt!',
                   'Purr-fect question incoming...',
                   'Try: "Grade 6 Space & Solar System quiz"',
                   'Ask me anything!',
                 ]}
                 bubblePosition="top"
-                alt="QT playing playfully with quiz ideas"
+                alt="QT playing and batting the green yarn ball"
               />
             </div>
           )}
@@ -592,7 +593,7 @@ export default function QuizzerHome() {
                 }}
               />
               <button onClick={() => run()} disabled={loading || prompt.trim().length < 2} aria-label="Build quiz"
-                className="flex h-10 w-9 items-center justify-center rounded-full bg-sun text-ink shadow-sticker-sm transition disabled:opacity-30 hover:brightness-105 active:scale-[0.98]">
+                className="flex h-10 w-9 items-center justify-center rounded-full bg-slate-900 text-white transition disabled:opacity-30 hover:bg-slate-700">
                 <ArrowUp size={18} />
               </button>
             </div>
@@ -615,12 +616,12 @@ export default function QuizzerHome() {
           <div className="mt-8 flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
             <div className="relative mb-2">
               <QT
-                pose="quizzing"
-                height={62}
-                motion="bob"
+                pose="chase-blue"
+                height={58}
+                motion="pounce"
                 interactive={true}
-                speechBubble="Crafting your quiz questions from the archive..."
-                alt="QT crafting quiz questions"
+                speechBubble="Chasing trivia gems across your sources..."
+                alt="QT pouncing after the blue trivia ball"
               />
             </div>
             {/* Stage paw-prints 1..6 */}
@@ -643,12 +644,12 @@ export default function QuizzerHome() {
         {error && (
           <div className="mt-6 flex flex-col items-center justify-center text-center">
             <QT
-              pose="scared"
-              height={56}
-              className="mb-2"
+              pose="dizzy"
+              height={52}
+              className="mb-2 opacity-85"
               interactive={true}
-              speechBubble="Oops! Something got tangled in the yarn..."
-              alt="Scared cat"
+              speechBubble="Oops! Something got tangled up..."
+              alt="Dizzy cat"
             />
             <p className="text-[14px] text-red-600 font-medium" role="alert">{error}</p>
           </div>

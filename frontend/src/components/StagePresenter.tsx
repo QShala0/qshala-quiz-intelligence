@@ -95,7 +95,7 @@ type StructuredPayload =
 
 type ResolveMedia = (url: string | null | undefined) => string;
 
-const ACCENT = '#30B2E7'; // Qurious Sky blue accent
+const ACCENT = '#5bb4de'; // softened sky blue accent
 
 // ---------------------------------------------------------------------------
 // Payload helpers
@@ -631,11 +631,11 @@ function TimerRing({ seconds, duration, warning }: { seconds: number; duration: 
           aria-hidden="true"
         >
           {/* Left Ear */}
-          <path d="M 18 18 L 13 4 L 26 12 Z" fill="#FDB913" stroke="#000000" strokeWidth="1.6" strokeLinejoin="round" />
-          <path d="M 18 16 L 15 7 L 23 12 Z" fill="#FFF6E1" opacity="0.6" />
+          <path d="M 18 18 L 13 4 L 26 12 Z" fill="#F8B42C" stroke="#2B3040" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M 18 16 L 15 7 L 23 12 Z" fill="#FFFCF5" opacity="0.6" />
           {/* Right Ear */}
-          <path d="M 46 18 L 51 4 L 38 12 Z" fill="#FDB913" stroke="#000000" strokeWidth="1.6" strokeLinejoin="round" />
-          <path d="M 46 16 L 49 7 L 41 12 Z" fill="#FFF6E1" opacity="0.6" />
+          <path d="M 46 18 L 51 4 L 38 12 Z" fill="#F8B42C" stroke="#2B3040" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M 46 16 L 49 7 L 41 12 Z" fill="#FFFCF5" opacity="0.6" />
         </svg>
       )}
       <svg viewBox="0 0 64 64" className="h-16 w-16 -rotate-90">
@@ -1123,9 +1123,9 @@ export default function StagePresenter({
               className="mx-auto w-full max-w-6xl shrink-0 px-6 pb-2"
               style={reduceMotion ? undefined : { animation: 'stageSlideUp 300ms ease-out' }}
             >
-              <div className="rounded-t-3xl border-2 border-sun bg-white px-8 py-5 text-slate-900 shadow-2xl">
+              <div className="rounded-t-3xl border border-slate-200 bg-white px-8 py-5 text-slate-900 shadow-2xl">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <span className="text-sm font-bold uppercase tracking-widest text-green-700">Answer</span>
+                  <span className="text-sm font-bold uppercase tracking-widest text-emerald-700">Answer</span>
                   <h3 className="font-black leading-tight" style={{ fontSize: 'clamp(1.75rem, 3vw, 3rem)' }}>
                     {current.answer}
                   </h3>
@@ -1133,7 +1133,7 @@ export default function StagePresenter({
                     <button
                       type="button"
                       onClick={() => setStoryOpen((v) => !v)}
-                      className="ml-auto flex items-center gap-2 rounded-xl bg-sun px-4 py-2 text-sm font-bold text-ink hover:bg-sun-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
+                      className="ml-auto flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
                     >
                       <BookOpen className="h-4 w-4" />
                       {storyOpen ? 'Hide story' : 'Story behind the question'}

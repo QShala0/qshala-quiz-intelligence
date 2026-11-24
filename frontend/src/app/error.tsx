@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { RefreshCcw } from 'lucide-react';
-import { QT } from '../components/ui';
+import { AlertTriangle, RefreshCcw } from 'lucide-react';
 
 // Next.js App Router error boundary: catches any uncaught error thrown while rendering
 // a page or its children, instead of taking down the whole app with a blank white screen
@@ -16,35 +15,31 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
+    // eslint-disable-next-line no-console
     console.error('[ErrorBoundary]', error);
   }, [error]);
 
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center p-8 text-center">
-      <div className="mb-4">
-        <QT
-          pose="scared"
-          height={68}
-          interactive={true}
-          speechBubble="Oops! Even QT stumbled on that one..."
-          alt="Startled QT"
-        />
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-50">
+        <AlertTriangle className="h-7 w-7 text-red-600" />
       </div>
-      <h2 className="text-2xl font-black text-ink">Something went a little sideways</h2>
-      <p className="mt-2 max-w-md text-sm text-slate-600 font-normal">
-        This view hit an unexpected hiccup. Don&apos;t worry — your questions and quizzes are safe in the vault.
+      <h2 className="text-xl font-semibold text-slate-900">Something went wrong</h2>
+      <p className="mt-2 max-w-md text-sm text-slate-500">
+        This page hit an unexpected error. Try again, or refresh the page if it keeps
+        happening.
       </p>
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+      <div className="mt-6 flex gap-3">
         <button
           onClick={() => reset()}
-          className="inline-flex items-center gap-2 rounded-xl bg-sun px-4 py-2 text-sm font-bold text-ink shadow-sticker-sm hover:brightness-105 active:scale-[0.99] transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           <RefreshCcw className="h-4 w-4" />
           Try again
         </button>
         <button
           onClick={() => window.location.reload()}
-          className="inline-flex items-center gap-2 rounded-xl border-2 border-ink/20 bg-white px-4 py-2 text-sm font-bold text-ink hover:bg-slate-50 transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
           Refresh page
         </button>

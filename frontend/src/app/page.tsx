@@ -7,8 +7,10 @@ import {
   Sparkles,
   ArrowRight,
   UploadCloud,
+  Layers,
   Lightbulb,
   CheckCircle2,
+  BookOpen,
   AlertTriangle,
   RefreshCw,
 } from 'lucide-react';
@@ -47,9 +49,9 @@ export default function DashboardPage() {
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-7xl mx-auto space-y-8">
       {/* Header with Executive Title and Quick Navigation Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-3 border-b-2 border-sun">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-100">
         <div className="flex items-center gap-3">
-          <h1 className="text-[28px] sm:text-[32px] font-black tracking-tight text-ink leading-tight">
+          <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900 leading-tight">
             Dashboard Overview
           </h1>
           <div className="hidden sm:inline-block">
@@ -73,15 +75,15 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3 shrink-0">
           <Link
             href="/uploads"
-            className="inline-flex items-center gap-2 rounded-xl border-2 border-ink/15 bg-white px-3.5 py-2 text-[13.5px] font-bold text-ink shadow-xs hover:bg-slate-50 transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13.5px] font-medium text-slate-700 shadow-xs hover:bg-slate-50 hover:text-slate-900 transition-colors"
           >
-            <UploadCloud className="h-4 w-4 text-ink/70" />
+            <UploadCloud className="h-4 w-4 text-slate-500" />
             <span>Upload Materials</span>
           </Link>
 
           <Link
             href="/generate"
-            className="inline-flex items-center gap-2 rounded-xl bg-sun px-4 py-2 text-[13.5px] font-bold text-ink shadow-sticker-sm hover:brightness-105 active:scale-[0.99] transition-all"
+            className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-[13.5px] font-semibold text-white shadow-sm hover:bg-slate-800 active:scale-[0.99] transition-all"
           >
             <Sparkles className="h-4 w-4" />
             <span>Create Quiz</span>
@@ -118,23 +120,23 @@ export default function DashboardPage() {
         {/* Left Column (8 cols): Recent Generated Quizzes & Knowledge Decks */}
         <div className="lg:col-span-8 space-y-7">
           {/* Recent Generated Quizzes */}
-          <div className="rounded-[20px] border border-sun/30 bg-white shadow-sticker-sm overflow-hidden">
-            <div className="p-5 border-b border-slate-100">
-              <div className="flex items-center justify-between">
-                <h3 className="section-bar text-[13px] tracking-wider">
+          <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div>
+                <h3 className="text-[16px] font-bold tracking-tight text-slate-900">
                   Recent Generated Quizzes
                 </h3>
-                <Link
-                  href="/quizzes"
-                  className="flex items-center gap-1 text-[13px] font-bold text-ink hover:text-sky-700 transition-colors shrink-0 ml-4"
-                >
-                  <span>View all quizzes</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
+                <p className="text-[12.5px] text-slate-500 font-normal mt-0.5">
+                  Slide-pair quizzes calibrated for school and tournament audiences
+                </p>
               </div>
-              <p className="text-[12.5px] text-slate-500 font-normal mt-1.5">
-                Slide-pair quizzes calibrated for school and tournament audiences
-              </p>
+              <Link
+                href="/quizzes"
+                className="flex items-center gap-1 text-[13px] font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+              >
+                <span>View all quizzes</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
             </div>
 
             <div className="divide-y divide-slate-100">
@@ -143,22 +145,22 @@ export default function DashboardPage() {
                   <Link
                     key={quiz.id}
                     href={`/quizzes/${quiz.id}`}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:px-5 hover:bg-amber-50/40 transition-colors group gap-3"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:px-5 hover:bg-slate-50/70 transition-colors group gap-3"
                   >
                     <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sun/20 text-ink group-hover:bg-sun group-hover:text-ink transition-colors">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                         <Sparkles className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[14px] font-bold text-ink group-hover:text-ink transition-colors truncate">
+                        <p className="text-[14px] font-semibold text-slate-900 group-hover:text-blue-600 transition-colors truncate">
                           {quiz.title}
                         </p>
                         <div className="flex flex-wrap items-center gap-2 mt-1 text-[12px] text-slate-500">
-                          <span className="font-semibold text-slate-700">{quiz.topic}</span>
+                          <span className="font-medium text-slate-600">{quiz.topic}</span>
                           <span className="text-slate-300">•</span>
                           <span>{quiz.question_count} Questions</span>
                           <span className="text-slate-300">•</span>
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
                             {quiz.difficulty}
                           </span>
                           {quiz.grade_range && (
@@ -178,7 +180,7 @@ export default function DashboardPage() {
                           day: 'numeric',
                         })}
                       </span>
-                      <div className="flex items-center gap-1 text-[12px] font-bold text-ink opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 text-[12px] font-semibold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
                         <span>View</span>
                         <ArrowRight className="h-3 w-3" />
                       </div>
@@ -198,7 +200,7 @@ export default function DashboardPage() {
                   <p className="text-[13px] text-slate-500 font-normal mt-2">No quizzes generated yet.</p>
                   <Link
                     href="/generate"
-                    className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-bold text-ink hover:underline"
+                    className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-blue-600 hover:underline"
                   >
                     <span>Create your first quiz</span>
                     <ArrowRight className="h-3 w-3" />
@@ -209,23 +211,23 @@ export default function DashboardPage() {
           </div>
 
           {/* Recent Uploaded Quizzes */}
-          <div className="rounded-[20px] border border-sun/30 bg-white shadow-sticker-sm overflow-hidden">
-            <div className="p-5 border-b border-slate-100">
-              <div className="flex items-center justify-between">
-                <h3 className="section-bar text-[13px] tracking-wider">
+          <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div>
+                <h3 className="text-[16px] font-bold tracking-tight text-slate-900">
                   Uploaded Quizzes
                 </h3>
-                <Link
-                  href="/uploads"
-                  className="flex items-center gap-1 text-[13px] font-bold text-ink hover:text-sky-700 transition-colors shrink-0 ml-4"
-                >
-                  <span>View all uploaded quizzes</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
+                <p className="text-[12.5px] text-slate-500 font-normal mt-0.5">
+                  Uploaded PowerPoint presentations and quiz decks
+                </p>
               </div>
-              <p className="text-[12.5px] text-slate-500 font-normal mt-1.5">
-                Uploaded PowerPoint presentations and quiz decks
-              </p>
+              <Link
+                href="/uploads"
+                className="flex items-center gap-1 text-[13px] font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+              >
+                <span>View all uploaded quizzes</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
             </div>
 
             <div className="divide-y divide-slate-100">
@@ -233,11 +235,11 @@ export default function DashboardPage() {
                 stats.recent_documents.slice(0, 4).map((doc) => (
                   <div key={doc.id} className="flex items-center justify-between p-4 sm:px-5 hover:bg-slate-50/50 transition-colors">
                     <div className="flex items-center gap-3.5 min-w-0">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
                         <FileText className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate text-[13.5px] font-bold text-ink">
+                        <p className="truncate text-[13.5px] font-semibold text-slate-900">
                           {doc.title}
                         </p>
                         <p className="text-[12px] text-slate-500 font-normal mt-0.5">
@@ -247,8 +249,8 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="flex items-center gap-2.5 shrink-0">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-200">
-                        <CheckCircle2 className="h-3 w-3 text-emerald-700" />
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-100">
+                        <CheckCircle2 className="h-3 w-3" />
                         Completed
                       </span>
                     </div>
@@ -273,19 +275,19 @@ export default function DashboardPage() {
         {/* Right Column (4 cols): Knowledge Distribution & Workflow */}
         <div className="lg:col-span-4 space-y-6">
           {/* Topic Coverage & Knowledge Distribution */}
-          <div className="rounded-[20px] border border-sun/30 bg-white p-5 shadow-sticker-sm">
+          <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-100/50">
             <div className="border-b border-slate-100 pb-3 mb-4 flex items-center justify-between">
               <div>
-                <h3 className="section-bar text-[13px] tracking-wider">
+                <h3 className="text-[15px] font-bold tracking-tight text-slate-900">
                   Topic Coverage
                 </h3>
-                <p className="text-[12px] text-slate-500 font-normal mt-1">
+                <p className="text-[12px] text-slate-500 font-normal">
                   Question distribution by topic
                 </p>
               </div>
               <Link
                 href="/knowledge-base"
-                className="text-[12px] font-bold text-ink hover:text-sky-700 shrink-0 ml-3"
+                className="text-[12px] font-medium text-blue-600 hover:text-blue-700"
               >
                 Browse questions
               </Link>
@@ -299,12 +301,12 @@ export default function DashboardPage() {
                   return (
                     <div key={t.topic} className="space-y-1.5">
                       <div className="flex items-center justify-between text-[13px]">
-                        <span className="font-semibold text-ink">{t.topic}</span>
-                        <span className="font-bold text-slate-600">{t.count} Qs</span>
+                        <span className="font-medium text-slate-800">{t.topic}</span>
+                        <span className="font-semibold text-slate-600">{t.count} Qs</span>
                       </div>
                       <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-sky transition-all duration-500"
+                          className="h-full rounded-full bg-blue-600 transition-all duration-500"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
@@ -320,37 +322,37 @@ export default function DashboardPage() {
           </div>
 
           {/* Platform Workflow Card */}
-          <div className="rounded-[20px] border border-sun/30 bg-white p-5 shadow-sticker-sm space-y-4">
-            <h3 className="section-bar text-[13px] tracking-wider">
+          <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-100/50 space-y-3">
+            <h3 className="text-[14px] font-bold text-slate-900 tracking-tight">
               Platform Workflow
             </h3>
-            <div className="space-y-3 text-[12.5px] text-slate-600">
+            <div className="space-y-2.5 text-[12.5px] text-slate-600">
               <div className="flex items-start gap-2.5">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sun text-ink font-black text-[11px] mt-0.5 shadow-xs">
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 font-bold text-[11px] mt-0.5">
                   1
                 </div>
                 <div>
-                  <span className="font-bold text-ink">Upload Presentation Decks</span>
+                  <span className="font-semibold text-slate-800">Upload Presentation Decks</span>
                   <p className="text-slate-500 font-normal">Add PPTX or PDF slides to expand the question repository.</p>
                 </div>
               </div>
 
               <div className="flex items-start gap-2.5">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sun text-ink font-black text-[11px] mt-0.5 shadow-xs">
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 font-bold text-[11px] mt-0.5">
                   2
                 </div>
                 <div>
-                  <span className="font-bold text-ink">Automatic Extraction</span>
+                  <span className="font-semibold text-slate-800">Automatic Extraction</span>
                   <p className="text-slate-500 font-normal">Slides are paired into Question → Answer & Explanation.</p>
                 </div>
               </div>
 
               <div className="flex items-start gap-2.5">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sun text-ink font-black text-[11px] mt-0.5 shadow-xs">
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 font-bold text-[11px] mt-0.5">
                   3
                 </div>
                 <div>
-                  <span className="font-bold text-ink">Create Calibrated Quizzes</span>
+                  <span className="font-semibold text-slate-800">Create Calibrated Quizzes</span>
                   <p className="text-slate-500 font-normal">Select target audience and difficulty distribution.</p>
                 </div>
               </div>
@@ -359,7 +361,7 @@ export default function DashboardPage() {
             <div className="pt-2 border-t border-slate-100">
               <Link
                 href="/generate"
-                className="flex items-center justify-center gap-1.5 w-full rounded-xl bg-sun py-2 text-[13px] font-bold text-ink shadow-sticker-sm hover:brightness-105 active:scale-[0.99] transition-all"
+                className="flex items-center justify-center gap-1.5 w-full rounded-lg bg-slate-900 py-2 text-[13px] font-semibold text-white hover:bg-slate-800 transition-colors"
               >
                 <span>Go to Create Quiz</span>
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -368,20 +370,20 @@ export default function DashboardPage() {
           </div>
 
           {/* Need to add new material? Callout card */}
-          <div className="rounded-[20px] border border-sun/40 bg-amber-50/60 p-5 shadow-sticker-sm">
+          <div className="rounded-xl border border-amber-200/80 bg-amber-50/40 p-5">
             <div className="flex items-start gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sun text-ink font-bold shadow-xs">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
                 <Lightbulb className="h-4 w-4" />
               </div>
               <div>
-                <h4 className="text-[14px] font-bold text-ink">Need to add new material?</h4>
+                <h4 className="text-[14px] font-semibold text-slate-900">Need to add new material?</h4>
                 <p className="mt-1 text-[13px] text-slate-600 leading-relaxed font-normal">
-                  Upload your PPT, PPTX or PDF files and they&apos;ll be parsed into slide-pair questions
+                  Upload your PPT, PPTX or PDF files and they'll be parsed into slide-pair questions
                   automatically.
                 </p>
                 <Link
                   href="/uploads"
-                  className="mt-3 inline-flex items-center gap-1 text-[13px] font-bold text-ink hover:text-sky-700 transition-colors"
+                  className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-blue-600 hover:text-blue-700 transition-colors"
                 >
                   <span>Go to Uploads</span>
                   <ArrowRight className="h-3 w-3" />
