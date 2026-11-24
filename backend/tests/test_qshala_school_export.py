@@ -364,7 +364,8 @@ def test_qshala_school_font_size_28_and_image_in_next_slide():
         shutil.rmtree(img_dir, ignore_errors=True)
 
 
-def test_school_export_puts_original_deck_notes_on_answer_slide_only():
+@pytest.mark.parametrize("quiz_type", ["qshala_school", "zsv"])
+def test_export_puts_original_deck_notes_on_answer_slide_only(quiz_type):
     import uuid
     from backend.app.database import SessionLocal
     from backend.app.models.document import Document, Slide
@@ -385,7 +386,7 @@ def test_school_export_puts_original_deck_notes_on_answer_slide_only():
         quiz = {"id": "q_notes", "title": "Notes", "questions": [
             {"id": q_id, "order_index": 1, "question_text": "Which planet is the Red Planet?",
              "answer": "Mars", "is_approved": True}]}
-        prs = Presentation(io.BytesIO(QuizExporter.to_pptx(quiz, quiz_type="qshala_school", show_answer_divider=True)))
+        prs = Presentation(io.BytesIO(QuizExporter.to_pptx(quiz, quiz_type=quiz_type, show_answer_divider=True)))
 
         q_slide, ans_slide = prs.slides[1], prs.slides[3]
         q_notes = q_slide.notes_slide.notes_text_frame.text if q_slide.has_notes_slide else ""

@@ -1862,19 +1862,6 @@ class QuizExporter:
                         po.font.size = Pt(20)
                         po.font.color.rgb = C_TEXT_BODY
 
-            if not is_qshala_school:
-                # Speaker Notes (ZSV)
-                host_notes = []
-                if is_starred:
-                    host_notes.append("★ Important: Star tie-breaker question!")
-                ans_val = (_get_val(q, "answer") or "N/A").strip()
-                host_notes.append(f"Official Answer: {ans_val}")
-                if video_path:
-                    host_notes.append(f"Video clue: {video_path.name}")
-                elif audio_path:
-                    host_notes.append(f"Audio clue: {audio_path.name}")
-                sq.notes_slide.notes_text_frame.text = "\n".join(host_notes)
-
             # ---------------------------------------------------------
             # (B) ANSWER TRANSITION SLIDE (Divider)
             # ---------------------------------------------------------
@@ -2125,18 +2112,9 @@ class QuizExporter:
                     pa_head.font.bold = True
                     pa_head.font.color.rgb = C_TEXT_DARK
 
-            if not is_qshala_school:
-                # Speaker Notes for Answer Slide (ZSV)
-                sa.notes_slide.notes_text_frame.text = (
-                    f"Presenter Talking Points:\n"
-                    f"Official Answer: {ans_val}\n"
-                    f"Award +10 points to any team with the correct answer or verified synonym.\n"
-                    f"Trivia Context: {explanation}"
-                )
-            else:
-                original_notes = _source_notes(q)
-                if original_notes:
-                    sa.notes_slide.notes_text_frame.text = original_notes
+            original_notes = _source_notes(q)
+            if original_notes:
+                sa.notes_slide.notes_text_frame.text = original_notes
 
         if custom_template:
             _apply_custom_style(prs, custom_template.body_font or FONT_BODY, custom_template.header_font or FONT_HEAD)
