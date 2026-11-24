@@ -949,10 +949,15 @@ export interface CostPeriodSummary {
 }
 
 export interface CostsSummaryResponse {
-  period: string;
-  current_month: CostPeriodSummary;
-  last_month: CostPeriodSummary;
-  all_time: CostPeriodSummary;
+  period?: string;
+  current_month?: CostPeriodSummary;
+  last_month?: CostPeriodSummary;
+  all_time?: CostPeriodSummary;
+  periods?: {
+    current_month: CostPeriodSummary;
+    last_month: CostPeriodSummary;
+    all_time: CostPeriodSummary;
+  };
   approx?: boolean;
   last_refresh_at?: string | null;
   fx_rate?: number;
@@ -960,20 +965,31 @@ export interface CostsSummaryResponse {
   fx_stale?: boolean;
 }
 
+export interface DocumentsCostResponse {
+  total: number;
+  items?: DocumentCostItem[];
+  documents?: DocumentCostItem[];
+  limit?: number;
+  offset?: number;
+}
+
 export interface DocumentCostItem {
   document_id: string;
   filename: string;
   title?: string | null;
   total_inr: number;
-  inr_per_question: number;
+  inr_per_question?: number;
+  cost_per_question_inr?: number;
   question_count: number;
   vision_inr: number;
   tagging_inr: number;
-  embedding_inr: number;
+  embedding_inr?: number;
+  embed_inr?: number;
   job_compute_inr: number;
   r2_inr: number;
   has_estimated?: boolean;
   created_at?: string | null;
+  first_seen?: string | null;
 }
 
 export interface CostRefreshStatusResponse {

@@ -46,7 +46,7 @@ export default function CostsPage() {
       .then(([sum, docs, refStatus]) => {
         if (active) {
           setSummary(sum);
-          setDocuments(docs?.documents || []);
+          setDocuments(((docs?.items ?? docs?.documents ?? []) as DocumentCostItem[]));
           setRefreshStatus(refStatus);
           setError(null);
         }
@@ -68,9 +68,9 @@ export default function CostsPage() {
     };
   }, [refreshKey]);
 
-  const cur = summary?.current_month;
-  const last = summary?.last_month;
-  const allTime = summary?.all_time;
+  const cur = summary?.current_month ?? summary?.periods?.current_month;
+  const last = summary?.last_month ?? summary?.periods?.last_month;
+  const allTime = summary?.all_time ?? summary?.periods?.all_time;
 
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-7xl mx-auto space-y-8">
@@ -300,7 +300,7 @@ export default function CostsPage() {
                 documents.map((d) => (
                   <tr key={d.document_id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3 px-4 font-medium text-slate-900 max-w-[240px] truncate">
-                      {d.filename}
+                      {d.filename || d.title || 'Deck'}
                       {d.has_estimated && (
                         <span className="ml-1.5 text-[10.5px] text-slate-400 font-normal">~est.</span>
                       )}
@@ -314,7 +314,7 @@ export default function CostsPage() {
                       {formatInr(d.total_inr)}
                     </td>
                     <td className="py-3 px-4 text-right font-medium text-blue-600 font-mono text-[12px]">
-                      {formatInr(d.inr_per_question)}
+                      {formatInr(d.inr_per_question ?? d.cost_per_question_inr)}
                     </td>
                   </tr>
                 ))

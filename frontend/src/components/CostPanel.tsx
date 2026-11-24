@@ -62,11 +62,12 @@ export default function CostPanel() {
     try {
       const [sum, docs, refStatus] = await Promise.all([
         api.getCostsSummary().catch(() => null),
-        api.getCostsDocuments(5).catch(() => ({ documents: [] })),
+        api.getCostsDocuments(5).catch(() => ({ total: 0, items: [], documents: [] })),
         api.getCostsRefreshStatus().catch(() => null),
       ]);
       if (sum) setSummaryData(sum);
-      if (docs && docs.documents) setRecentDecks(docs.documents);
+      const deckList = (docs?.items ?? docs?.documents ?? []) as DocumentCostItem[];
+      if (deckList.length > 0) setRecentDecks(deckList);
       if (refStatus) setRefreshStatus(refStatus);
     } catch (err) {
       console.warn('Failed to load cost details:', err);
@@ -249,58 +250,67 @@ export default function CostPanel() {
             ) : (
               <>
                 {/* 1. Comparison: Last Month & All Time */}
-                <div className="rounded-lg bg-slate-50/70 p-2.5 space-y-1.5 border border-slate-100">
-                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                    Historical Spend
-                  </div>
-                  <div className="flex items-center justify-between text-slate-600">
-                    <span>Last Month</span>
-                    <span className="font-medium text-slate-800 tabular-nums">
-                      {formatInr(summaryData?.last_month?.headline_inr)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-slate-600">
-                    <span>All Time</span>
-                    <span className="font-medium text-slate-800 tabular-nums">
-                      {formatInr(summaryData?.all_time?.headline_inr)}
-                    </span>
-                  </div>
-                </div>
+                {(() => {
+                  const curMonth = summaryData?.current_month ?? summaryData?.periods?.current_month;
+                  const lastMonth = summaryData?.last_month ?? summaryData?.periods?.last_month;
+                  const allTime = summaryData?.all_time ?? summaryData?.periods?.all_time;
+                  return (
+                    <>
+                      <div className="rounded-lg bg-slate-50/70 p-2.5 space-y-1.5 border border-slate-100">
+                        <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                          Historical Spend
+                        </div>
+                        <div className="flex items-center justify-between text-slate-600">
+                          <span>Last Month</span>
+                          <span className="font-medium text-slate-800 tabular-nums">
+                            {formatInr(lastMonth?.headline_inr)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-600">
+                          <span>All Time</span>
+                          <span className="font-medium text-slate-800 tabular-nums">
+                            {formatInr(allTime?.headline_inr)}
+                          </span>
+                        </div>
+                      </div>
 
-                {/* 2. Gemini Stage Breakdown */}
-                {summaryData?.current_month?.gemini_breakdown && (
-                  <div className="space-y-1.5">
-                    <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                      Gemini Stage Breakdown (MTD)
-                    </div>
-                    <div className="space-y-1 text-slate-600">
-                      <div className="flex justify-between items-center pl-1 text-[11.5px]">
-                        <span>Ingestion Vision</span>
-                        <span className="tabular-nums font-mono text-[11px]">
-                          {formatInr(summaryData.current_month.gemini_breakdown.ingestion?.vision)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center pl-1 text-[11.5px]">
-                        <span>Ingestion Tagging</span>
-                        <span className="tabular-nums font-mono text-[11px]">
-                          {formatInr(summaryData.current_month.gemini_breakdown.ingestion?.tagging)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center pl-1 text-[11.5px]">
-                        <span>Search Embeddings</span>
-                        <span className="tabular-nums font-mono text-[11px]">
-                          {formatInr(summaryData.current_month.gemini_breakdown.ingestion?.embedding)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center pl-1 text-[11.5px]">
-                        <span>Quiz Generation (Curator/Intent)</span>
-                        <span className="tabular-nums font-mono text-[11px]">
-                          {formatInr(summaryData.current_month.gemini_breakdown.quiz?.total)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                      {/* 2. Gemini Stage Breakdown */}
+                      {curMonth?.gemini_breakdown && (
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                            Gemini Stage Breakdown (MTD)
+                          </div>
+                          <div className="space-y-1 text-slate-600">
+                            <div className="flex justify-between items-center pl-1 text-[11.5px]">
+                              <span>Ingestion Vision</span>
+                              <span className="tabular-nums font-mono text-[11px]">
+                                {formatInr(curMonth.gemini_breakdown.ingestion?.vision)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center pl-1 text-[11.5px]">
+                              <span>Ingestion Tagging</span>
+                              <span className="tabular-nums font-mono text-[11px]">
+                                {formatInr(curMonth.gemini_breakdown.ingestion?.tagging)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center pl-1 text-[11.5px]">
+                              <span>Search Embeddings</span>
+                              <span className="tabular-nums font-mono text-[11px]">
+                                {formatInr(curMonth.gemini_breakdown.ingestion?.embedding)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center pl-1 text-[11.5px]">
+                              <span>Quiz Generation (Curator/Intent)</span>
+                              <span className="tabular-nums font-mono text-[11px]">
+                                {formatInr(curMonth.gemini_breakdown.quiz?.total)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {/* 3. Per-Deck Costs */}
                 {recentDecks.length > 0 && (
@@ -313,10 +323,10 @@ export default function CostPanel() {
                         <div key={deck.document_id} className="p-2 flex items-center justify-between gap-2">
                           <div className="min-w-0">
                             <p className="truncate font-medium text-slate-800 text-[11.5px]">
-                              {deck.filename}
+                              {deck.filename || deck.title || 'Deck'}
                             </p>
                             <p className="text-[10.5px] text-slate-400">
-                              {deck.question_count} Qs • {formatInr(deck.inr_per_question)}/Q
+                              {deck.question_count} Qs • {formatInr(deck.inr_per_question ?? deck.cost_per_question_inr)}/Q
                             </p>
                           </div>
                           <span className="font-semibold text-slate-800 tabular-nums text-[11.5px] shrink-0">

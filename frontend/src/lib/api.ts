@@ -37,7 +37,7 @@ import {
   CancelPendingResponse,
   CostsSimpleResponse,
   CostsSummaryResponse,
-  DocumentCostItem,
+  DocumentsCostResponse,
   CostRefreshStatusResponse,
 } from './types';
 
@@ -626,13 +626,17 @@ export const api = {
     return handleResponse<CostsSummaryResponse>(res);
   },
 
-  getCostsDocuments: async (limit = 20, offset = 0): Promise<{ period: string; documents: DocumentCostItem[]; total_count: number }> => {
+  getCostsDocuments: async (limit = 20, offset = 0): Promise<DocumentsCostResponse> => {
     const res = await fetch(`${getApiBase()}/costs/documents?limit=${limit}&offset=${offset}`, { cache: 'no-store' });
-    return handleResponse<{ period: string; documents: DocumentCostItem[]; total_count: number }>(res);
+    return handleResponse<DocumentsCostResponse>(res);
   },
 
   getCostsRefreshStatus: async (): Promise<CostRefreshStatusResponse> => {
     const res = await fetch(`${getApiBase()}/costs/refresh-status`, { cache: 'no-store' });
+    if (res.status === 404) {
+      const fallback = await fetch(`${getApiBase()}/costs/refresh/status`, { cache: 'no-store' });
+      return handleResponse<CostRefreshStatusResponse>(fallback);
+    }
     return handleResponse<CostRefreshStatusResponse>(res);
   },
 
