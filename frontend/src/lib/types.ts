@@ -890,3 +890,63 @@ export interface CustomPptTemplate {
   created_at?: string | null;
   updated_at?: string | null;
 }
+
+export const cleanSteps = [
+  'Uploading',
+  'Extracting slides',
+  'Identifying questions',
+  'Indexing knowledge',
+  'Ready',
+] as const;
+
+export function getActiveStageIndex(percentage: number, stepText?: string): number {
+  if (percentage >= 100) return 4;
+  const s = (stepText || '').toLowerCase();
+  if (
+    s.includes('upload') ||
+    s.includes('download') ||
+    s.includes('queued') ||
+    s.includes('transferring') ||
+    s.includes('waiting')
+  ) {
+    return 0;
+  }
+  if (
+    s.includes('extract') ||
+    s.includes('slide') ||
+    s.includes('visual asset') ||
+    s.includes('ocr') ||
+    s.includes('1.') ||
+    s.includes('2.')
+  ) {
+    return 1;
+  }
+  if (
+    s.includes('detect') ||
+    s.includes('question') ||
+    s.includes('pattern') ||
+    s.includes('answer') ||
+    s.includes('3.') ||
+    s.includes('4.')
+  ) {
+    return 2;
+  }
+  if (
+    s.includes('tag') ||
+    s.includes('embed') ||
+    s.includes('vector') ||
+    s.includes('dedup') ||
+    s.includes('multimodal') ||
+    s.includes('inspection') ||
+    s.includes('5.') ||
+    s.includes('6.') ||
+    s.includes('7.') ||
+    s.includes('8.')
+  ) {
+    return 3;
+  }
+  if (s.includes('storing') || s.includes('ready') || s.includes('complet')) {
+    return 4;
+  }
+  return Math.min(4, Math.floor((Math.max(0, percentage) / 100) * 5));
+}

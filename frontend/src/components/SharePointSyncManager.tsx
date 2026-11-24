@@ -16,7 +16,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem, SpNotImportedResponse } from '@/lib/types';
+import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem, SpNotImportedResponse, cleanSteps, getActiveStageIndex } from '@/lib/types';
 import SharePointImporter from '@/components/SharePointImporter';
 import { useToast } from '@/components/ui';
 
@@ -304,6 +304,17 @@ export default function SharePointSyncManager({ showImporter = true }: SharePoin
     };
   }, []);
 
+  const hasActiveJobs = jobs.some((j) => j.status === 'PROCESSING' || j.status === 'PENDING');
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void loadSharePointData();
+    }, hasActiveJobs ? 2000 : 15000);
+
+    return () => clearInterval(interval);
+  }, [hasActiveJobs]);
+
   const handleTriggerSync = async () => {
     setLoadingSync(true);
     setActionMessage(null);
@@ -543,8 +554,56 @@ export default function SharePointSyncManager({ showImporter = true }: SharePoin
                         {job.status}
                       </span>
                     </td>
-                    <td className="py-3 px-4 font-mono text-[11.5px] text-slate-600">
-                      {job.current_step}
+                    <td className="py-3 px-4 min-w-[220px]">
+                      <div className="space-y-1">
+                        <span className="font-mono text-[11.5px] text-slate-700 block truncate max-w-[200px]" title={job.current_step}>
+                          {job.current_step}
+                        </span>
+                        {job.status === 'PROCESSING' || job.status === 'PENDING' ? (
+                          <div className="grid grid-cols-5 gap-1 pt-0.5">
+                            {cleanSteps.map((stName, sIdx) => {
+                              const activeStage = getActiveStageIndex(0, job.current_step);
+                              const isDone = sIdx < activeStage;
+                              const isCur = sIdx === activeStage;
+                              return (
+                                <div key={stName} title={`${stName}: ${isDone ? 'Done' : isCur ? 'In progress' : 'Pending'}`}>
+                                  <div
+                                    className={`h-1.5 rounded-full transition-all ${
+                                      isDone
+                                        ? 'bg-emerald-500'
+                                        : isCur
+                                        ? 'bg-blue-600 animate-pulse'
+                                        : 'bg-slate-200'
+                                    }`}
+                                  />
+                                  <span
+                                    className={`block text-[9.5px] truncate pt-0.5 ${
+                                      isDone
+                                        ? 'text-emerald-700 font-medium'
+                                        : isCur
+                                        ? 'text-blue-600 font-bold'
+                                        : 'text-slate-400'
+                                    }`}
+                                  >
+                                    {stName}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : job.status === 'COMPLETED' ? (
+                          <div className="grid grid-cols-5 gap-1 pt-0.5">
+                            {cleanSteps.map((stName) => (
+                              <div key={stName}>
+                                <div className="h-1.5 rounded-full bg-emerald-500" />
+                                <span className="block text-[9.5px] truncate pt-0.5 text-emerald-700 font-medium">
+                                  {stName}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-slate-600">
                       {job.retry_count} / {job.max_retries}

@@ -16,13 +16,12 @@ import {
 import Link from 'next/link';
 import { api } from '../../lib/api';
 import LoadErrorBanner from '../../components/LoadErrorBanner';
-import { DocumentItem, Slide } from '../../lib/types';
+import { DocumentItem, Slide, UploadDuplicateReport, IngestionStatus, cleanSteps, getActiveStageIndex } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
 import UploadReportDialog from '../../components/UploadReportDialog';
 import SharePointSyncManager from '../../components/SharePointSyncManager';
 import { useUpload } from '../../context/UploadContext';
 import { useConfirm, useToast, QT, QTAnim } from '../../components/ui';
-import { UploadDuplicateReport } from '../../lib/types';
 
 // Decks whose duplicate report was already shown (or that finished before this feature): never shown again.
 const SEEN_KEY = 'qshala_upload_reports_seen';
@@ -116,6 +115,7 @@ export default function UploadPage() {
     summary,
     uploading,
     activeDocId,
+    activeFileName,
     pipelineProgress,
     uploadDetail,
     cancelling,
@@ -137,13 +137,13 @@ export default function UploadPage() {
     fmtDuration,
   } = useUpload();
 
-  const cleanSteps = [
-    'Uploading',
-    'Extracting slides',
-    'Identifying questions',
-    'Indexing knowledge',
-    'Ready',
-  ];
+  const [activeStatuses, setActiveStatuses] = useState<Record<string, IngestionStatus>>({});
+  const [justCompletedDoc, setJustCompletedDoc] = useState<{ id: string; filename: string; completedAt: number } | null>(null);
+  const [cancellingServerDoc, setCancellingServerDoc] = useState(false);
+  const activeStatusesRef = useRef(activeStatuses);
+  useEffect(() => {
+    activeStatusesRef.current = activeStatuses;
+  }, [activeStatuses]);
 
   // P1-2: Load documents on initial mount, and on version bump only when an upload newly completes
   const prevItemsRef = useRef(items);
@@ -192,7 +192,7 @@ export default function UploadPage() {
   }, [version, items]);
 
   // Keep the list live: decks that arrive from SharePoint are ingested by the worker, not by this tab, so poll
-  // (every 5 s while something is processing, every 20 s otherwise), show each processing deck's progress, and
+  // (every 1.5 s while something is processing, every 15 s otherwise), show each processing deck's progress, and
   // open the duplicate report when a deck finishes.
   const hasActive = documents.some(isActive);
   const itemsForPoll = useRef(items);
@@ -212,21 +212,47 @@ export default function UploadPage() {
           active.map(async (d) => {
             try {
               const st = await api.getIngestionStatus(d.id);
-              return [d.id, { pct: Math.max(0, Math.min(100, Math.round(st.progress_percentage || 0))), step: st.current_step || '' }] as const;
+              return [d.id, st] as const;
             } catch {
               return null;
             }
           })
         );
         if (stop) return;
-        setProgressById(Object.fromEntries(entries.filter((e): e is NonNullable<typeof e> => e !== null)));
+        const validEntries = entries.filter((e): e is [string, IngestionStatus] => e !== null);
+        const nextStatusMap = Object.fromEntries(validEntries);
+        setActiveStatuses(nextStatusMap);
+
+        // Check if any deck that was previously active in state has just completed
+        const prevActiveMap = activeStatusesRef.current;
+        for (const [pId, pStatus] of Object.entries(prevActiveMap)) {
+          const docNow = docs.find((d) => d.id === pId);
+          if (docNow && docNow.processing_status === 'COMPLETED' && pStatus.status !== 'COMPLETED') {
+            setJustCompletedDoc({ id: docNow.id, filename: docNow.filename, completedAt: Date.now() });
+            setTimeout(() => {
+              setJustCompletedDoc((cur) => (cur?.id === docNow.id ? null : cur));
+            }, 5000);
+          }
+        }
+
+        setProgressById(
+          Object.fromEntries(
+            validEntries.map(([id, st]) => [
+              id,
+              {
+                pct: Math.max(0, Math.min(100, Math.round(st.progress_percentage || 0))),
+                step: st.current_step || '',
+              },
+            ])
+          )
+        );
         const found = await findNewReports(docs, new Set(itemsForPoll.current.map((i) => i.docId).filter(Boolean) as string[]));
         if (!stop && found.length) setAutoReports((prev) => [...prev, ...found.filter((f) => !prev.some((p) => p.docId === f.docId))]);
       } catch {
         /* a failed refresh keeps what is on screen; the next one tries again */
       }
     };
-    const timer = setInterval(tick, hasActive ? 5000 : 20000);
+    const timer = setInterval(tick, hasActive ? 1500 : 15000);
     return () => {
       stop = true;
       clearInterval(timer);
@@ -279,6 +305,85 @@ export default function UploadPage() {
     } catch (err) {
       console.error(err);
       setDeleteError(`The deck was not deleted: ${err instanceof Error && err.message ? err.message : 'the server could not be reached.'}`);
+    }
+  };
+
+  // Active deck calculation: supports both in-browser uploads and server-side processing decks (SharePoint imports)
+  const serverActiveDoc =
+    documents.find((d) => d.processing_status === 'PROCESSING') ||
+    documents.find((d) => d.processing_status === 'PENDING');
+  const serverActiveStatus = serverActiveDoc ? activeStatuses[serverActiveDoc.id] : null;
+
+  const isLocalActive = Boolean(activeDocId && pipelineProgress);
+  const isServerActive = Boolean(serverActiveDoc);
+  const effectiveDocId = activeDocId || serverActiveDoc?.id || justCompletedDoc?.id || null;
+  const effectiveFileName =
+    activeFileName || serverActiveDoc?.filename || justCompletedDoc?.filename || null;
+
+  const effectiveProgress = isLocalActive
+    ? pipelineProgress
+    : isServerActive && serverActiveDoc
+    ? {
+        step:
+          serverActiveStatus?.current_step ||
+          (serverActiveDoc.processing_status === 'PENDING'
+            ? 'Queued for processing — one deck at a time'
+            : 'Processing presentation...'),
+        percentage: Math.max(
+          0,
+          Math.min(
+            100,
+            Math.round(
+              serverActiveStatus?.progress_percentage ??
+                (serverActiveDoc.processing_status === 'PENDING' ? 5 : 20)
+            )
+          )
+        ),
+        slides: serverActiveStatus?.slides_processed ?? serverActiveDoc.slide_count ?? 0,
+        questions: serverActiveStatus?.questions_extracted ?? serverActiveDoc.question_count ?? 0,
+        status: serverActiveStatus?.status || serverActiveDoc.processing_status,
+        detail: serverActiveStatus?.detail || null,
+        events: serverActiveStatus?.events || [],
+        memory: serverActiveStatus
+          ? {
+              cur: serverActiveStatus.memory_mb,
+              peak: serverActiveStatus.peak_memory_mb,
+              limit: serverActiveStatus.memory_limit_mb,
+            }
+          : undefined,
+        error: serverActiveStatus?.error || null,
+      }
+    : justCompletedDoc
+    ? {
+        step: 'Ingestion completed successfully',
+        percentage: 100,
+        slides: 0,
+        questions: 0,
+        status: 'COMPLETED',
+        detail: null,
+        events: [],
+        memory: undefined,
+        error: null,
+      }
+    : null;
+
+  const handleCancelActiveDeck = async () => {
+    if (activeDocId) {
+      await handleCancel();
+      return;
+    }
+    if (serverActiveDoc) {
+      setCancellingServerDoc(true);
+      try {
+        await api.cancelIngestion(serverActiveDoc.id);
+        toast.info('Cancellation requested for active presentation.');
+        const updated = await api.listDocuments();
+        setDocuments(updated);
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to cancel deck');
+      } finally {
+        setCancellingServerDoc(false);
+      }
     }
   };
 
@@ -343,8 +448,8 @@ export default function UploadPage() {
         >
           <UploadCloud className="h-4 w-4 text-blue-600" />
           <span>Local Files</span>
-          {hasActiveItems && uploadSource !== 'local' && (
-            <span className="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse ml-0.5" title="Local upload in progress" />
+          {(hasActiveItems || hasActive) && uploadSource !== 'local' && (
+            <span className="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse ml-0.5" title="Deck processing on platform" />
           )}
         </button>
         <button
@@ -667,58 +772,77 @@ export default function UploadPage() {
       )}
 
       {/* Real-time Ingestion Progress for currently processing deck (step detail + activity log) */}
-      {pipelineProgress && activeDocId && (
+      {effectiveProgress && (effectiveDocId || effectiveProgress.status === 'COMPLETED') && (
         <div
           className={`rounded-xl border p-6 shadow-sm space-y-4 animate-in fade-in transition-all ${
-            pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100
+            effectiveProgress.status === 'COMPLETED' || effectiveProgress.percentage >= 100
               ? 'border-emerald-200 bg-emerald-50/25'
-              : pipelineProgress.status === 'FAILED'
+              : effectiveProgress.status === 'FAILED'
               ? 'border-rose-200 bg-rose-50/25'
-              : pipelineProgress.status === 'CANCELLED'
+              : effectiveProgress.status === 'CANCELLED'
               ? 'border-amber-200 bg-amber-50/30'
               : 'border-slate-200 bg-white'
           }`}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100 ? (
+              {effectiveProgress.status === 'COMPLETED' || effectiveProgress.percentage >= 100 ? (
                 <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
-              ) : pipelineProgress.status === 'FAILED' ? (
+              ) : effectiveProgress.status === 'FAILED' ? (
                 <AlertCircle className="h-5 w-5 text-rose-600 shrink-0" />
-              ) : pipelineProgress.status === 'CANCELLED' ? (
+              ) : effectiveProgress.status === 'CANCELLED' ? (
                 <X className="h-5 w-5 text-amber-600 shrink-0" />
               ) : (
                 <Loader2 className="h-5 w-5 animate-spin text-blue-600 shrink-0" />
               )}
               <div>
-                <h4 className="text-[13px] font-semibold text-slate-900">Active Deck Processing</h4>
-                <p className="text-[12px] text-slate-500 font-normal">{pipelineProgress.step}</p>
+                <h4 className="text-[13px] font-semibold text-slate-900 flex items-center gap-2">
+                  <span>Active Deck Processing</span>
+                  {effectiveFileName && (
+                    <span className="font-normal text-slate-500 truncate max-w-sm block">
+                      · {effectiveFileName}
+                    </span>
+                  )}
+                </h4>
+                <p className="text-[12px] text-slate-500 font-normal">{effectiveProgress.step}</p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
               <span
                 className={`text-[14px] font-bold ${
-                  pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100
+                  effectiveProgress.status === 'COMPLETED' || effectiveProgress.percentage >= 100
                     ? 'text-emerald-600'
-                    : pipelineProgress.status === 'FAILED'
+                    : effectiveProgress.status === 'FAILED'
                     ? 'text-rose-600'
                     : 'text-blue-600'
                 }`}
               >
-                {pipelineProgress.status === 'CANCELLED' ? '' : `${pipelineProgress.percentage}%`}
+                {effectiveProgress.status === 'CANCELLED' ? '' : `${effectiveProgress.percentage}%`}
               </span>
 
-              {pipelineProgress.status === 'PROCESSING' && (uploading || activeDocId) && (
+              {effectiveProgress.status === 'PROCESSING' && (
                 <button
                   type="button"
-                  onClick={handleCancel}
-                  disabled={cancelling}
+                  onClick={handleCancelActiveDeck}
+                  disabled={cancelling || cancellingServerDoc}
                   className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-60 cursor-pointer"
                   title="Stop this upload and remove everything it created on the server"
                 >
                   <X className="h-3.5 w-3.5" />
-                  {cancelling ? 'Cancelling...' : 'Cancel deck'}
+                  {cancelling || cancellingServerDoc ? 'Cancelling...' : 'Cancel deck'}
+                </button>
+              )}
+              {effectiveProgress.status === 'COMPLETED' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setJustCompletedDoc(null);
+                    dismissProgress();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11.5px] font-medium text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Dismiss
                 </button>
               )}
             </div>
@@ -729,41 +853,41 @@ export default function UploadPage() {
             <div
               className="absolute top-0 -translate-x-1/2 select-none transition-all duration-300 z-10"
               style={{
-                left: `${Math.max(6, Math.min(94, pipelineProgress.percentage))}%`,
+                left: `${Math.max(6, Math.min(94, effectiveProgress.percentage))}%`,
               }}
             >
               <QT
-                pose={pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100 ? 'sleepy' : 'chase-blue'}
+                pose={effectiveProgress.status === 'COMPLETED' || effectiveProgress.percentage >= 100 ? 'sleepy' : 'chase-blue'}
                 height={34}
                 interactive={true}
-                motion={pipelineProgress.status === 'COMPLETED' ? 'breathe' : 'pounce'}
+                motion={effectiveProgress.status === 'COMPLETED' ? 'breathe' : 'pounce'}
                 speechBubble={
-                  pipelineProgress.status === 'COMPLETED'
+                  effectiveProgress.status === 'COMPLETED'
                     ? 'All decks indexed! Time for a catnap.'
                     : 'Pouncing through slides!'
                 }
                 bubblePosition="top"
-                alt={pipelineProgress.status === 'COMPLETED' ? 'QT sleeping after upload' : 'QT chasing the progress ball'}
+                alt={effectiveProgress.status === 'COMPLETED' ? 'QT sleeping after upload' : 'QT chasing the progress ball'}
               />
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
               <div
                 className={`h-full transition-all duration-300 ${
-                  pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100
+                  effectiveProgress.status === 'COMPLETED' || effectiveProgress.percentage >= 100
                     ? 'bg-emerald-600'
-                    : pipelineProgress.status === 'FAILED'
+                    : effectiveProgress.status === 'FAILED'
                     ? 'bg-rose-600'
-                    : pipelineProgress.status === 'CANCELLED'
+                    : effectiveProgress.status === 'CANCELLED'
                     ? 'bg-amber-500'
-                    : 'bg-amber-500'
+                    : 'bg-blue-600'
                 }`}
-                style={{ width: `${pipelineProgress.percentage}%` }}
+                style={{ width: `${effectiveProgress.percentage}%` }}
               />
             </div>
           </div>
 
           {/* Live upload detail: which slice is going up and how many MB have been sent */}
-          {uploadDetail && pipelineProgress.status === 'PROCESSING' && (
+          {uploadDetail && effectiveProgress.status === 'PROCESSING' && (
             <div className="space-y-1.5">
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[12px]">
                 <span className="font-semibold text-slate-800">
@@ -791,7 +915,7 @@ export default function UploadPage() {
           {timing && timing.finishedAt && (
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[12px]">
               <span className="font-semibold text-slate-800 tabular-nums">
-                {pipelineProgress.status === 'COMPLETED'
+                {effectiveProgress.status === 'COMPLETED'
                   ? `Finished in ${fmtDuration(timing.finishedAt - timing.startedAt)}`
                   : `Stopped after ${fmtDuration(timing.finishedAt - timing.startedAt)}`}
               </span>
@@ -804,16 +928,16 @@ export default function UploadPage() {
           )}
 
           {/* Activity log and memory info */}
-          {pipelineProgress.status === 'PROCESSING' &&
-            (pipelineProgress.detail || (pipelineProgress.events || []).length > 0) && (
+          {effectiveProgress.status === 'PROCESSING' &&
+            (effectiveProgress.detail || (effectiveProgress.events || []).length > 0) && (
               <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-2">
                 <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
                   <p className="text-[12.5px] font-semibold text-slate-800 leading-snug">
-                    {pipelineProgress.detail || pipelineProgress.step}
+                    {effectiveProgress.detail || effectiveProgress.step}
                   </p>
-                  {pipelineProgress.memory?.cur != null && (() => {
-                    const cur = pipelineProgress.memory!.cur as number;
-                    const limit = pipelineProgress.memory!.limit || 2048;
+                  {effectiveProgress.memory?.cur != null && (() => {
+                    const cur = effectiveProgress.memory!.cur as number;
+                    const limit = effectiveProgress.memory!.limit || 2048;
                     const ratio = limit ? cur / limit : 0;
                     const cls =
                       ratio > 0.92
@@ -831,7 +955,7 @@ export default function UploadPage() {
                     );
                   })()}
                 </div>
-                {(pipelineProgress.events || []).length > 0 && (
+                {(effectiveProgress.events || []).length > 0 && (
                   <div>
                     <button
                       type="button"
@@ -840,11 +964,11 @@ export default function UploadPage() {
                     >
                       {showLog
                         ? 'Hide activity log'
-                        : `Show activity log (${(pipelineProgress.events || []).length})`}
+                        : `Show activity log (${(effectiveProgress.events || []).length})`}
                     </button>
                     {showLog && (
                       <ul className="mt-1.5 max-h-44 space-y-0.5 overflow-y-auto font-mono text-[11px] text-slate-600">
-                        {[...(pipelineProgress.events || [])].reverse().map((e, i) => (
+                        {[...(effectiveProgress.events || [])].reverse().map((e, i) => (
                           <li key={i} className="flex gap-2">
                             <span className="shrink-0 text-slate-400 tabular-nums">
                               {new Date(e.ts * 1000).toLocaleTimeString()}
@@ -859,31 +983,32 @@ export default function UploadPage() {
               </div>
             )}
 
-          {/* 5 Clean Steps */}
+          {/* 5 Clean Steps for EVERY STAGE */}
           <div
             className={`grid grid-cols-5 gap-2 pt-2 text-center text-xs ${
-              pipelineProgress.status === 'CANCELLED' ? 'hidden' : ''
+              effectiveProgress.status === 'CANCELLED' ? 'hidden' : ''
             }`}
           >
             {cleanSteps.map((step, idx) => {
               const isFinished =
-                pipelineProgress.status === 'COMPLETED' || pipelineProgress.percentage >= 100;
-              const isPast = pipelineProgress.percentage >= ((idx + 1) / 5) * 100;
-              const isCurrent = pipelineProgress.percentage >= (idx / 5) * 100 && !isPast;
+                effectiveProgress.status === 'COMPLETED' || effectiveProgress.percentage >= 100;
+              const activeStage = getActiveStageIndex(effectiveProgress.percentage, effectiveProgress.step);
+              const isPast = !isFinished && idx < activeStage;
+              const isCurrent = !isFinished && idx === activeStage;
 
               return (
                 <div key={step} className="space-y-1">
                   <div
-                    className={`h-1 rounded-full ${
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
                       isFinished || isPast
                         ? 'bg-emerald-500'
                         : isCurrent
-                        ? 'bg-blue-600'
+                        ? 'bg-blue-600 animate-pulse'
                         : 'bg-slate-200'
                     }`}
                   />
                   <span
-                    className={`text-[12px] ${
+                    className={`text-[12px] block truncate ${
                       isFinished
                         ? 'text-emerald-700 font-medium'
                         : isCurrent
@@ -932,14 +1057,63 @@ export default function UploadPage() {
                     {doc.slide_count} slides · {doc.question_count} questions extracted
                     {fmtIngested(doc.uploaded_at) ? ` · Ingested ${fmtIngested(doc.uploaded_at)}` : ''}
                   </p>
-                  {isActive(doc) && progressById[doc.id] && (
-                    <div className="mt-1.5 flex items-center gap-2" aria-live="polite">
-                      <div className="h-1.5 w-40 overflow-hidden rounded-full bg-slate-100">
-                        <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${progressById[doc.id].pct}%` }} />
+                  {isActive(doc) && (
+                    <div className="mt-2.5 space-y-1.5 max-w-lg" aria-live="polite">
+                      <div className="flex items-center justify-between text-[11.5px]">
+                        <span className="font-semibold text-blue-600 flex items-center gap-1.5 truncate">
+                          <Loader2 className="h-3 w-3 animate-spin text-blue-600 shrink-0" />
+                          <span className="truncate">
+                            {progressById[doc.id]?.step ||
+                              (doc.processing_status === 'PENDING'
+                                ? 'Queued in platform'
+                                : 'Processing presentation...')}
+                          </span>
+                        </span>
+                        <span className="font-bold text-blue-600 tabular-nums ml-2 shrink-0">
+                          {progressById[doc.id]?.pct ?? 0}%
+                        </span>
                       </div>
-                      <span className="text-[11px] text-slate-500 truncate">
-                        {progressById[doc.id].pct}%{progressById[doc.id].step ? ` · ${progressById[doc.id].step}` : ''}
-                      </span>
+
+                      {/* 5 Clean Steps Bar for every stage */}
+                      <div className="grid grid-cols-5 gap-1.5 pt-0.5">
+                        {cleanSteps.map((stepName, sIdx) => {
+                          const pct = progressById[doc.id]?.pct ?? 0;
+                          const stText = progressById[doc.id]?.step ?? '';
+                          const activeStage = getActiveStageIndex(pct, stText);
+                          const isDone = pct >= 100 || sIdx < activeStage;
+                          const isCur = pct < 100 && sIdx === activeStage;
+                          return (
+                            <div
+                              key={stepName}
+                              className="space-y-0.5"
+                              title={`${stepName}: ${
+                                isDone ? 'Done' : isCur ? 'In progress' : 'Pending'
+                              }`}
+                            >
+                              <div
+                                className={`h-1.5 rounded-full transition-all duration-300 ${
+                                  isDone
+                                    ? 'bg-emerald-500'
+                                    : isCur
+                                    ? 'bg-blue-600 animate-pulse'
+                                    : 'bg-slate-200'
+                                }`}
+                              />
+                              <span
+                                className={`block text-[10px] truncate leading-none pt-0.5 ${
+                                  isDone
+                                    ? 'text-emerald-700 font-medium'
+                                    : isCur
+                                    ? 'text-blue-600 font-bold'
+                                    : 'text-slate-400'
+                                }`}
+                              >
+                                {stepName}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
