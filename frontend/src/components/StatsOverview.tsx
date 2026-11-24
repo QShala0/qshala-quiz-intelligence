@@ -16,7 +16,7 @@ export default function StatsOverview({ stats, loading }: Props) {
       value: loading ? '-' : (stats?.total_documents ?? 0).toLocaleString(),
       sub: 'Uploaded slide decks',
       icon: FileText,
-      iconBg: 'bg-sky-50 text-sky-600',
+      iconBg: 'bg-purple-50 text-purple-600',
       href: '/uploads',
     },
     {
@@ -24,7 +24,7 @@ export default function StatsOverview({ stats, loading }: Props) {
       value: loading ? '-' : (stats?.total_slides ?? 0).toLocaleString(),
       sub: 'Across all presentations',
       icon: Layers,
-      iconBg: 'bg-green-50 text-green-700',
+      iconBg: 'bg-emerald-50 text-emerald-600',
       href: '/uploads',
     },
     {
@@ -32,7 +32,7 @@ export default function StatsOverview({ stats, loading }: Props) {
       value: loading ? '-' : (stats?.total_questions ?? 0).toLocaleString(),
       sub: 'From historical quizzes',
       icon: HelpCircle,
-      iconBg: 'bg-sun-50 text-sun-600',
+      iconBg: 'bg-blue-50 text-blue-600',
       href: '/knowledge-base',
     },
     {
@@ -40,7 +40,7 @@ export default function StatsOverview({ stats, loading }: Props) {
       value: loading ? '-' : (stats?.total_topics ?? 0).toLocaleString(),
       sub: 'Categorized topics',
       icon: Tag,
-      iconBg: 'bg-slate-100 text-slate-800',
+      iconBg: 'bg-amber-50 text-amber-600',
       href: '/knowledge-base',
     },
   ];

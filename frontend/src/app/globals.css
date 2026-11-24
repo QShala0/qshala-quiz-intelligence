@@ -1,179 +1,128 @@
 @import "tailwindcss";
 
 /* ───────────────────────────── QShala brand tokens ─────────────────────────────
-   June 2026 Brand Guidelines:
-   - Joy of Quest (Sun): #FDB913 (hero accent, bars, rules, cards)
-   - Qurious Sky: #30B2E7 (blue supporting)
-   - Always Questioning: #75B543 (green supporting & success)
-   - Ink: #000000 (black headings, text, logo cat)
-   - Cream: #FFF6E1 (page background)
-   - Paper: #FFFFFF (cards on cream)
-   - Warm Grey: #5F5F66 (secondary text, passes 4.5:1 on cream)
-   - Functional Red: #D62828 (errors & destructive actions only)
+   A soothing, warm paper & cream palette:
+   - Page background: warm oat (#FBF7EE)
+   - Card surface: warm paper (#FFFCF5), never pure #FFFFFF
+   - Text: soft ink (#232733), never harsh #000000
+   - Accent 1: sunny yellow (#F8B42C) with soft tint (#FFF0C7)
+   - Accent 2: softened sky (#5BB4DE) with light tint (#E4F3FA) & sky ink (#1F6F96)
+   - Primary actions: warm ink (#2B3040) with cream text (#FFF9EA)
+   - Success: muted emerald (#2D8054), Danger: muted brick red (#C24138)
 ────────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* Brand core */
-  --brand-sky: #30B2E7;      /* Qurious Sky */
-  --brand-sun: #FDB913;      /* Joy of Quest (hero accent) */
-  --brand-grass: #75B543;    /* Always Questioning */
-  --brand-ink: #000000;
-  --brand-cream: #FFF6E1;    /* page background */
-  --brand-paper: #FFFFFF;    /* cards on cream */
-  --brand-grey: #5F5F66;     /* secondary text, passes 4.5:1 on cream */
-  --brand-line: #F0DFB8;     /* hairlines on cream */
-
-  /* Tints (for hover/selected/chips; derived, keep subtle) */
-  --brand-sun-50: #FFF4D1;
-  --brand-sun-100: #FFE9A6;
-  --brand-sky-50: #E3F5FC;
-  --brand-sky-100: #BFE8F8;
-  --brand-grass-50: #EAF5E0;
-  --brand-grass-100: #CFE8B8;
-
-  /* Functional (not brand): only for errors/destructive */
-  --brand-error: #D62828;
-  --brand-error-50: #FDE8E8;
-
-  /* Semantic */
-  --background: var(--brand-cream);
-  --foreground: var(--brand-ink);
-  --surface: var(--brand-paper);
-  --surface-hover: var(--brand-sun-50);
-  --border: var(--brand-line);
-  --focus-ring: var(--brand-sun);
-
-  --radius-card: 20px;
-  --radius-pill: 9999px;
-  --rule-yellow: 2px solid var(--brand-sun);
+  --background: #fbf7ee; /* warm oat page background */
+  --foreground: #232733; /* soft ink body text */
+  --surface: #fffcf5;    /* warm paper card surface */
+  --surface-hover: #fff6e0; /* warm hover tint */
   --font-sans-stack: var(--font-plus-jakarta), "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 @theme {
-  --color-white: #FFFFFF;
-  --color-black: #000000;
-  --color-ink: #000000;
-  --color-ink-primary: #000000;
-  --color-cream: #FFF6E1;
-  --color-paper: #FFFFFF;
-  --color-hover-tint: #FFF4D1;
+  --color-white: #fffcf5;
+  --color-black: #1e222d;
 
-  /* Remapped slate ramp -> warm neutrals, no blue cast */
-  --color-slate-50: #FFF9EC;
-  --color-slate-100: #FBF0D6;
-  --color-slate-200: #F0DFB8;
-  --color-slate-300: #D9C79B;
-  --color-slate-400: #9A9AA0;
-  --color-slate-500: #77777E;
-  --color-slate-600: #5F5F66;
-  --color-slate-700: #3F3F45;
-  --color-slate-800: #222226;
-  --color-slate-900: #0D0D0F;
-  --color-slate-950: #000000;
+  /* Remapped slate ramp -> warm neutrals & sand */
+  --color-slate-50: #fbf7ee;
+  --color-slate-100: #f6f0e2;
+  --color-slate-200: #e9dfc9;
+  --color-slate-300: #d8cbb0;
+  --color-slate-400: #9c9fa8;
+  --color-slate-500: #686d7b;
+  --color-slate-600: #545967;
+  --color-slate-700: #4b5263;
+  --color-slate-800: #333846;
+  --color-slate-900: #232733;
+  --color-slate-950: #1a1d26;
+
+  /* Remapped blue ramp -> softened sky */
+  --color-blue-50: #e4f3fa;
+  --color-blue-100: #cdebf7;
+  --color-blue-200: #9bd4ed;
+  --color-blue-300: #74c3e6;
+  --color-blue-400: #5bb4de;
+  --color-blue-500: #3ea4d3;
+  --color-blue-600: #2a90c0;
+  --color-blue-700: #1f6f96;
+  --color-blue-800: #195878;
+  --color-blue-900: #14445d;
+  --color-blue-950: #0d2e3f;
 
   /* Remapped gray ramp */
-  --color-gray-50: #FFF9EC;
-  --color-gray-100: #FBF0D6;
-  --color-gray-200: #F0DFB8;
-  --color-gray-300: #D9C79B;
-  --color-gray-400: #9A9AA0;
-  --color-gray-500: #77777E;
-  --color-gray-600: #5F5F66;
-  --color-gray-700: #3F3F45;
-  --color-gray-800: #222226;
-  --color-gray-900: #0D0D0F;
+  --color-gray-50: #fbf7ee;
+  --color-gray-100: #f6f0e2;
+  --color-gray-200: #e9dfc9;
+  --color-gray-300: #d8cbb0;
+  --color-gray-400: #9c9fa8;
+  --color-gray-500: #686d7b;
+  --color-gray-600: #545967;
+  --color-gray-700: #4b5263;
+  --color-gray-800: #333846;
+  --color-gray-900: #232733;
 
-  /* Qurious Sky (#30B2E7) & blue ramp */
-  --color-sky: #30B2E7;
-  --color-sky-50: #E3F5FC;
-  --color-sky-100: #BFE8F8;
-  --color-sky-200: #8DD6F2;
-  --color-sky-400: #30B2E7;
-  --color-sky-600: #1C95C8;
-  --color-sky-700: #14759F;
+  /* Brand core tokens */
+  --color-ink: #232733;
+  --color-ink-primary: #2b3040;
+  --color-cream: #fbf7ee;
+  --color-paper: #fffcf5;
+  --color-hover-tint: #fff6e0;
 
-  --color-blue-50: #E3F5FC;
-  --color-blue-100: #BFE8F8;
-  --color-blue-200: #8DD6F2;
-  --color-blue-300: #5FC4EC;
-  --color-blue-400: #3FB8E9;
-  --color-blue-500: #30B2E7;
-  --color-blue-600: #1C95C8;
-  --color-blue-700: #14759F;
-  --color-blue-800: #0F5878;
-  --color-blue-900: #0B3F56;
-  --color-blue-950: #062635;
+  /* QShala Sunny Yellow (~#F8B42C) */
+  --color-sun: #f8b42c;
+  --color-sun-50: #fff9ea;
+  --color-sun-100: #fff0c7;
+  --color-sun-200: #ffe28a;
+  --color-sun-600: #d99411;
 
-  /* Joy of Quest Sun Yellow (#FDB913) & amber ramp */
-  --color-sun: #FDB913;
-  --color-sun-50: #FFF4D1;
-  --color-sun-100: #FFE9A6;
-  --color-sun-200: #FFDD73;
-  --color-sun-600: #E0A000;
+  --color-amber-50: #fff9ea;
+  --color-amber-100: #fff0c7;
+  --color-amber-200: #ffe28a;
+  --color-amber-300: #fcd068;
+  --color-amber-400: #f9c043;
+  --color-amber-500: #f8b42c;
+  --color-amber-600: #d99411;
 
-  --color-amber-50: #FFF4D1;
-  --color-amber-100: #FFE9A6;
-  --color-amber-200: #FFDD73;
-  --color-amber-300: #FFD040;
-  --color-amber-400: #FDB913;
-  --color-amber-500: #FDB913;
-  --color-amber-600: #E0A000;
+  /* Softened Sky (~#5BB4DE, #E4F3FA, #1F6F96) */
+  --color-sky: #5bb4de;
+  --color-sky-50: #e4f3fa;
+  --color-sky-100: #cdebf7;
+  --color-sky-200: #9bd4ed;
+  --color-sky-400: #5bb4de;
+  --color-sky-600: #2a90c0;
+  --color-sky-700: #1f6f96;
 
-  /* Always Questioning Green (#75B543) & emerald ramp */
-  --color-grass: #75B543;
-  --color-grass-50: #EAF5E0;
-  --color-grass-100: #CFE8B8;
+  /* Muted Emerald (Success) */
+  --color-emerald-50: #f0f7f2;
+  --color-emerald-100: #dcefe2;
+  --color-emerald-200: #b5e0c2;
+  --color-emerald-300: #88cfa0;
+  --color-emerald-400: #57b77e;
+  --color-emerald-500: #3b9b68;
+  --color-emerald-600: #2d8054;
+  --color-emerald-700: #226341;
 
-  --color-green-50: #EAF5E0;
-  --color-green-100: #CFE8B8;
-  --color-green-200: #B2DE94;
-  --color-green-300: #96D16F;
-  --color-green-400: #75B543;
-  --color-green-500: #75B543;
-  --color-green-600: #5B9530;
-  --color-green-700: #4C8A25;  /* text-safe green */
-  --color-green-800: #38691A;
-  --color-green-900: #264711;
-
-  --color-emerald-50: #EAF5E0;
-  --color-emerald-100: #CFE8B8;
-  --color-emerald-200: #B2DE94;
-  --color-emerald-300: #96D16F;
-  --color-emerald-400: #75B543;
-  --color-emerald-500: #75B543;
-  --color-emerald-600: #5B9530;
-  --color-emerald-700: #4C8A25;
-
-  /* Functional Red (Error / Destructive) */
-  --color-red-50: #FDE8E8;
-  --color-red-100: #FBD0D0;
-  --color-red-200: #F7A8A8;
-  --color-red-300: #F17575;
-  --color-red-400: #E54B4B;
-  --color-red-500: #D62828;
-  --color-red-600: #B51F1F;
-  --color-red-700: #941818;
-
-  --color-rose-50: #FDE8E8;
-  --color-rose-100: #FBD0D0;
-  --color-rose-200: #F7A8A8;
-  --color-rose-300: #F17575;
-  --color-rose-400: #E54B4B;
-  --color-rose-500: #D62828;
-  --color-rose-600: #B51F1F;
-  --color-rose-700: #941818;
+  /* Muted Brick Red (Danger) */
+  --color-red-50: #fdf2f0;
+  --color-red-100: #f9e0dc;
+  --color-red-200: #f3c2bb;
+  --color-red-300: #e99b91;
+  --color-red-400: #db7064;
+  --color-red-500: #d9534f;
+  --color-red-600: #c24138;
+  --color-red-700: #9e2d25;
 
   /* Typography */
   --font-sans: var(--font-sans-stack);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* Shape & Shadow */
-  --radius-card: 20px;
+  --radius-card: 1.25rem;
   --radius-pill: 9999px;
-  --shadow-sticker: 3px 3px 0 0 #000000;
-  --shadow-sticker-sm: 2px 2px 0 0 #000000;
-  --shadow-sticker-lg: 5px 5px 0 0 #000000;
-  --shadow-soft: 0 6px 24px -8px rgba(0, 0, 0, 0.08);
-  --shadow-warm-focus: 0 0 0 4px rgba(253, 185, 19, 0.35);
+  --shadow-sticker: 3px 3px 0 0 #232733;
+  --shadow-sticker-sm: 2px 2px 0 0 #232733;
+  --shadow-sticker-lg: 5px 5px 0 0 #232733;
+  --shadow-soft: 0 6px 24px -8px rgba(35, 39, 51, 0.10);
+  --shadow-warm-focus: 0 0 0 4px rgba(248, 180, 44, 0.22);
 
   /* Motion */
   --animate-wiggle: qt-wiggle 0.6s ease-in-out;
@@ -210,8 +159,9 @@ input, button, select, textarea, optgroup {
 }
 
 /* ───────────────────────────── Shared Warm Focus System ─────────────────────────
-   Brand Joy of Quest outline (#FDB913) and ambient warm glow across all inputs,
-   selects, textareas, buttons, and links.
+   Replaces harsh default blue rings with a soft warm amber outline (#F2C265)
+   and ambient warm glow (rgba(248, 180, 44, 0.20)) across all inputs, selects,
+   textareas, buttons, and links.
 ────────────────────────────────────────────────────────────────────────────── */
 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
 textarea,
@@ -224,8 +174,8 @@ textarea:focus,
 select:focus,
 .focus-warm:focus,
 .focus-warm:focus-within {
-  border-color: #FDB913 !important;
-  box-shadow: 0 0 0 4px rgba(253, 185, 19, 0.25) !important;
+  border-color: #f2c265 !important;
+  box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20) !important;
   outline: none !important;
 }
 
@@ -237,25 +187,25 @@ textarea.focus-none:focus {
   outline: none !important;
 }
 
-/* Brand Sun Yellow for checkboxes and radio toggles */
+/* Brand warm yellow for checkboxes and radio toggles */
 input[type="checkbox"],
 input[type="radio"] {
-  accent-color: #FDB913;
+  accent-color: #f8b42c;
 }
 
 button:focus-visible,
 a:focus-visible,
 [role="button"]:focus-visible,
 :focus-visible {
-  outline: 2px solid #FDB913 !important;
+  outline: 2px solid #f2c265 !important;
   outline-offset: 2px !important;
-  box-shadow: 0 0 0 4px rgba(253, 185, 19, 0.25) !important;
+  box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20) !important;
   border-radius: 6px;
 }
 
 ::selection {
-  background: #FFE9A6;
-  color: #000000;
+  background: #fff0c7;
+  color: #232733;
 }
 
 /* Custom subtle warm scrollbar */
@@ -372,14 +322,124 @@ a:focus-visible,
   animation: qt-shimmer 1.6s linear infinite;
 }
 
+/* ───────────────────────────── QCat Mascot Keyframes ───────────────────────── */
+@keyframes qcat-breathe {
+  0%, 100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(-1.5px) scaleY(1.02);
+  }
+}
+
+@keyframes qcat-blink {
+  0%, 92%, 97%, 100% {
+    transform: scaleY(1);
+  }
+  94.5% {
+    transform: scaleY(0.1);
+  }
+}
+
+@keyframes qcat-tail-swish {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+
+@keyframes qcat-happy-wag {
+  0%, 100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+
+@keyframes qcat-happy-hop {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-5px);
+  }
+  55% {
+    transform: translateY(-1.5px);
+  }
+}
+
+@keyframes qcat-float-question {
+  0% {
+    opacity: 0;
+    transform: translateY(2px) scale(0.7);
+  }
+  25% {
+    opacity: 0.95;
+    transform: translateY(-4px) scale(1);
+  }
+  75% {
+    opacity: 0.75;
+    transform: translateY(-12px) scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scale(1.1);
+  }
+}
+
+@keyframes qcat-paw-wave {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-14deg);
+  }
+}
+
+@keyframes qcat-sleep-breathe {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.025, 0.98);
+  }
+}
+
+.qcat-breathe {
+  animation: qcat-breathe 4s ease-in-out infinite;
+}
+.qcat-blink {
+  animation: qcat-blink 5.2s ease-in-out infinite;
+}
+.qcat-tail {
+  animation: qcat-tail-swish 3.6s ease-in-out infinite;
+}
+.qcat-wag {
+  animation: qcat-happy-wag 0.8s ease-in-out infinite;
+}
+.qcat-happy {
+  animation: qcat-happy-hop 1.6s ease-in-out infinite;
+}
+.qcat-question {
+  animation: qcat-float-question 2.4s ease-out infinite;
+}
+.qcat-wave {
+  animation: qcat-paw-wave 1.8s ease-in-out infinite;
+}
+.qcat-sleep {
+  animation: qcat-sleep-breathe 4.8s ease-in-out infinite;
+}
 
 /* Warm focus utility */
 .focus-warm {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .focus-warm:focus, .focus-warm:focus-within {
-  border-color: #FDB913 !important;
-  box-shadow: 0 0 0 4px rgba(253, 185, 19, 0.25) !important;
+  border-color: #f2c265 !important;
+  box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20) !important;
   outline: none !important;
 }
 
@@ -392,13 +452,8 @@ a:focus-visible,
 }
 .qt-press:active:not(:disabled) {
   transform: translate(2px, 2px);
-  box-shadow: 0 0 0 0 #000000;
+  box-shadow: 0 0 0 0 #232733;
 }
-
-/* Signature section divider: BLACK CAPS heading + full-width Sun-yellow bar */
-.section-bar { display: flex; align-items: center; gap: 12px; }
-.section-bar::after { content: ""; flex: 1; height: 28px; background: var(--brand-sun); border-radius: 4px; }
-.page-title-rule { border-bottom: var(--rule-yellow); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
