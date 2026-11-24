@@ -9,8 +9,8 @@ from backend.app.services.ai.usage_cost import estimate_cost_usd, save_usage
 
 def test_thinking_tokens_are_billed_as_output_and_cached_at_a_discount():
     base = estimate_cost_usd(1_000_000, 1_000_000)
-    assert abs(base - (0.075 + 0.30)) < 1e-9
-    assert abs(estimate_cost_usd(0, 0, thinking=1_000_000) - 0.30) < 1e-9
+    assert abs(base - (0.30 + 2.50)) < 1e-9
+    assert abs(estimate_cost_usd(0, 0, thinking=1_000_000) - 2.50) < 1e-9
     # 400k of the 1M prompt tokens were cached -> cheaper than uncached
     assert estimate_cost_usd(1_000_000, 0, cached=400_000) < estimate_cost_usd(1_000_000, 0)
     # cached can never exceed the prompt tokens
