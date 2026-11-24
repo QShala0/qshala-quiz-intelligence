@@ -307,7 +307,7 @@ ${err.message}` : ''),
           {approvedQuestions.length > 0 && (
             <button
               onClick={() => setIsStageOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl bg-sun px-3.5 py-1.5 text-[13px] font-bold text-ink hover:brightness-105 active:scale-[0.99] transition-all shadow-sticker-sm cursor-pointer"
+              className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
             >
               <Presentation className="h-3.5 w-3.5" />
               <span>Present Live</span>
@@ -495,15 +495,15 @@ ${err.message}` : ''),
       {/* Questions Stream */}
       <div className="space-y-4">
         {quiz.questions.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-sun/40 bg-white p-12 text-center shadow-sticker-sm">
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
             <div className="relative mx-auto mb-3 flex items-center justify-center">
               <QT
-                pose="looking-up"
-                height={58}
+                pose="box-yellow"
+                height={56}
                 interactive={true}
                 motion="bob"
                 speechBubble="An empty box! Add some questions to begin."
-                alt="QT looking up curiously"
+                alt="QT sitting in a yellow box"
               />
             </div>
             <h3 className="text-[16px] font-semibold text-slate-800">No questions added yet.</h3>

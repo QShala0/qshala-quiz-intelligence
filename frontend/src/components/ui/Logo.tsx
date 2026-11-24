@@ -1,71 +1,26 @@
-import Image from 'next/image';
+import QT from './QT';
 
-export interface LogoProps {
-  /** Variant of the official QShala lockup */
-  variant?: 'horizontal' | 'stacked' | 'mark' | 'white' | 'sky' | 'grass' | 'sun';
-  /** Cat mark only (used when the sidebar is collapsed or for compact avatar) */
+interface LogoProps {
+  /** Cat only (used when the sidebar is collapsed). */
   collapsed?: boolean;
-  /** Show the tagline (defaults to true in the official lockups) */
+  /** Show the "Questions • Quriosity • Quests" tagline under the wordmark. */
   tagline?: boolean;
-  /** Height in pixels (default: 34) */
-  height?: number;
   className?: string;
-  priority?: boolean;
 }
 
-/**
- * Official QShala® Brand Lockup (June 2026 Brand Guidelines):
- * - Primary unit: black cat above wordmark + tagline
- * - Alt Stack (horizontal): black cat left + wordmark + tagline
- * - Always includes the registered trademark ® mark
- * - Preserves official clear space (height of "Q" on all sides)
- */
-export default function Logo({
-  variant = 'horizontal',
-  collapsed = false,
-  tagline = true,
-  height = 34,
-  className = '',
-  priority = true,
-}: LogoProps) {
-  if (collapsed || variant === 'mark') {
-    return (
-      <span className={`inline-flex items-center justify-center select-none ${className}`}>
-        <Image
-          src="/brand/qt-mark.svg"
-          alt="QT the QShala companion cat"
-          width={Math.round(height * 1.36)}
-          height={height}
-          priority={priority}
-          className="h-auto w-auto max-h-[36px] object-contain transition-transform hover:scale-105"
-        />
-      </span>
-    );
-  }
-
-  const logoSrc = {
-    horizontal: tagline ? '/brand/logo-horizontal-black.png' : '/brand/logo-black.png',
-    stacked: tagline ? '/brand/logo-tagline-black.png' : '/brand/logo-black.png',
-    white: '/brand/logo-white.png',
-    sky: '/brand/logo-sky.png',
-    grass: '/brand/logo-grass.png',
-    sun: '/brand/logo-sun.png',
-  }[variant] || '/brand/logo-horizontal-black.png';
-
-  const width = variant === 'stacked'
-    ? Math.round(height * 3.19)
-    : Math.round(height * 4.63);
-
+/** QShala lockup: QT + wordmark. The cat does a little wiggle on hover. */
+export default function Logo({ collapsed = false, tagline = false, className = '' }: LogoProps) {
   return (
-    <span className={`inline-flex items-center select-none ${className}`}>
-      <Image
-        src={logoSrc}
-        alt="QShala® — Questions • Quriosity • Quests"
-        width={width}
-        height={height}
-        priority={priority}
-        className="h-auto w-auto object-contain max-h-[44px]"
-      />
+    <span className={`inline-flex items-center gap-2.5 ${className}`}>
+      <QT pose="sit" height={collapsed ? 30 : 34} alt="QT, the QShala cat" motion="wiggle" priority />
+      {!collapsed && (
+        <span className="flex flex-col leading-none">
+          <span className="text-[22px] font-black tracking-tight text-slate-900">QSHALA</span>
+          {tagline && (
+            <span className="mt-1 text-[10px] font-semibold text-slate-600">Questions • Quriosity • Quests</span>
+          )}
+        </span>
+      )}
     </span>
   );
 }

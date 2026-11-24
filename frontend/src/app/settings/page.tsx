@@ -24,9 +24,9 @@ export default function SettingsPage() {
   return (
     <div className="p-6 sm:p-8 lg:p-10 max-w-5xl mx-auto space-y-7 pb-20">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b-2 border-sun pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/60 pb-5">
         <div>
-          <h1 className="text-[28px] sm:text-[32px] font-black tracking-tight text-ink leading-tight">
+          <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-slate-900 leading-tight">
             Settings & Admin
           </h1>
           <p className="mt-1 text-[13.5px] text-slate-500 font-normal">
@@ -35,14 +35,14 @@ export default function SettingsPage() {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+        <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200/80">
           <button
             type="button"
             onClick={() => setActiveTab('platform')}
-            className={`px-3.5 py-1.5 rounded-lg text-[13px] font-bold transition-all cursor-pointer ${
+            className={`px-3.5 py-1.5 rounded-md text-[13px] font-semibold transition-all cursor-pointer ${
               activeTab === 'platform'
-                ? 'bg-sun text-ink shadow-sticker-sm'
-                : 'text-slate-600 hover:text-ink'
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             Platform Config
@@ -51,10 +51,10 @@ export default function SettingsPage() {
           <button
             type="button"
             onClick={() => setActiveTab('templates')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[13px] font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[13px] font-semibold transition-all cursor-pointer ${
               activeTab === 'templates'
-                ? 'bg-sun text-ink shadow-sticker-sm'
-                : 'text-slate-600 hover:text-ink'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-amber-800 hover:text-amber-900'
             }`}
           >
             <Layers className="h-3.5 w-3.5" />
@@ -98,14 +98,14 @@ export default function SettingsPage() {
           </div>
 
           {/* SharePoint Library & Import Info Card */}
-          <div className="rounded-[20px] border border-sun/30 bg-white p-6 shadow-sticker-sm space-y-3">
+          <div className="rounded-xl border border-blue-200/80 bg-blue-50/50 p-6 shadow-sm shadow-blue-50 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-start sm:items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sun text-ink font-bold shadow-xs">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
                   <Cloud className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-[15px] font-bold text-ink">SharePoint Library & Import</h3>
+                  <h3 className="text-[15px] font-bold text-slate-900">SharePoint Library & Import</h3>
                   <p className="text-[12.5px] text-slate-500 font-normal mt-0.5">
                     SharePoint importing and folder browsing has been integrated directly into the Upload Center for a unified ingestion experience.
                   </p>
@@ -113,7 +113,7 @@ export default function SettingsPage() {
               </div>
               <Link
                 href="/uploads?tab=sharepoint"
-                className="inline-flex items-center gap-1.5 shrink-0 rounded-xl bg-sun hover:brightness-105 px-4 py-2 text-[13px] font-bold text-ink transition-all cursor-pointer shadow-sticker-sm"
+                className="inline-flex items-center gap-1.5 shrink-0 rounded-lg bg-blue-600 hover:bg-blue-700 px-4 py-2 text-[13px] font-semibold text-white transition-colors cursor-pointer shadow-sm"
               >
                 <span>Go to Upload Center</span>
                 <ArrowRight className="h-3.5 w-3.5" />
