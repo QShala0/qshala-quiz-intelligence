@@ -1,8 +1,10 @@
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel, Field
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.app.config import settings
@@ -14,6 +16,22 @@ from backend.app.services.auth.dependencies import (
     get_current_user_optional,
     require_admin,
 )
+from backend.app.services.auth.microsoft import (
+    OAUTH_STATE_COOKIE_NAME,
+    OAUTH_STATE_MAX_AGE,
+    build_redirect_url,
+    exchange_code_for_tokens,
+    generate_code_challenge,
+    generate_code_verifier,
+    generate_nonce,
+    generate_state,
+    get_authorize_url,
+    get_oauth_redirect_uri,
+    sign_oauth_state,
+    validate_email_domain,
+    validate_microsoft_id_token,
+    verify_oauth_state,
+)
 from backend.app.services.auth.passwords import dummy_verify, hash_password, verify_password
 from backend.app.services.auth.sessions import (
     SESSION_COOKIE_NAME,
@@ -23,6 +41,8 @@ from backend.app.services.auth.sessions import (
     delete_user_sessions,
     set_session_cookie,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -181,6 +201,210 @@ def login(
     db.commit()
 
     return {"user": _serialize_user(user)}
+
+
+# ---------------------------------------------------------------------- Microsoft Entra ID OAuth Endpoints
+
+@router.get("/microsoft/login")
+def microsoft_login(request: Request):
+    """Initiate Microsoft Entra ID PKCE authorization code flow."""
+    state = generate_state()
+    nonce = generate_nonce()
+    verifier = generate_code_verifier()
+    challenge = generate_code_challenge(verifier)
+
+    redirect_uri = get_oauth_redirect_uri(str(request.base_url))
+    authorize_url = get_authorize_url(
+        state=state,
+        nonce=nonce,
+        code_challenge=challenge,
+        redirect_uri=redirect_uri,
+    )
+
+    signed_state = sign_oauth_state(state=state, nonce=nonce, verifier=verifier)
+
+    is_https = (
+        request.url.scheme == "https"
+        or request.headers.get("x-forwarded-proto") == "https"
+        or bool(settings.AUTH_PUBLIC_BASE_URL and settings.AUTH_PUBLIC_BASE_URL.startswith("https"))
+    )
+
+    response = RedirectResponse(url=authorize_url, status_code=303)
+    response.set_cookie(
+        key=OAUTH_STATE_COOKIE_NAME,
+        value=signed_state,
+        max_age=OAUTH_STATE_MAX_AGE,
+        httponly=True,
+        secure=is_https,
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@router.get("/microsoft/callback")
+async def microsoft_callback(
+    request: Request,
+    code: Optional[str] = Query(default=None),
+    state: Optional[str] = Query(default=None),
+    error: Optional[str] = Query(default=None),
+    error_description: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Handle Microsoft OAuth 2.0 callback, validate ID token, and map user account."""
+    def _error_redirect(err_code: str) -> RedirectResponse:
+        resp = RedirectResponse(url=build_redirect_url(f"/login?error={err_code}"), status_code=303)
+        resp.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/")
+        return resp
+
+    if error:
+        logger.warning(f"Microsoft OAuth returned error: {error} - {error_description}")
+        return _error_redirect("oauth_error")
+
+    if not code or not state:
+        return _error_redirect("missing_parameters")
+
+    # Read and verify oauth state cookie
+    cookie_token = request.cookies.get(OAUTH_STATE_COOKIE_NAME)
+    state_payload = verify_oauth_state(cookie_token) if cookie_token else None
+    if not state_payload or state_payload.get("state") != state:
+        logger.warning("Microsoft OAuth callback state mismatch or expired state cookie")
+        return _error_redirect("state_mismatch")
+
+    verifier = state_payload.get("code_verifier")
+    nonce = state_payload.get("nonce")
+    if not verifier or not nonce:
+        return _error_redirect("state_invalid")
+
+    redirect_uri = get_oauth_redirect_uri(str(request.base_url))
+
+    # Exchange code for tokens
+    try:
+        token_data = await exchange_code_for_tokens(
+            code=code,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+    except Exception as e:
+        logger.error(f"Failed to exchange Microsoft OAuth code: {e}")
+        return _error_redirect("token_exchange_failed")
+
+    id_token = token_data.get("id_token")
+    if not id_token:
+        logger.error("Microsoft token response did not contain id_token")
+        return _error_redirect("missing_id_token")
+
+    # Validate ID token
+    try:
+        claims = validate_microsoft_id_token(id_token=id_token, expected_nonce=nonce)
+    except Exception as e:
+        logger.error(f"Microsoft ID token validation failed: {e}")
+        return _error_redirect("invalid_id_token")
+
+    # Read email from email claim, falling back to preferred_username; lowercase it
+    email = (claims.get("email") or claims.get("preferred_username") or "").strip().lower()
+    if not email:
+        logger.warning("No email or preferred_username claim found in ID token")
+        return _error_redirect("missing_email")
+
+    # Reject domain not in AUTH_ALLOWED_EMAIL_DOMAINS
+    if not validate_email_domain(email):
+        logger.warning(f"Email domain rejected for user: {email}")
+        return _error_redirect("unauthorized_domain")
+
+    ms_oid = claims.get("oid") or claims.get("sub")
+    if not ms_oid:
+        logger.warning("No oid or sub claim found in ID token")
+        return _error_redirect("missing_oid")
+
+    display_name = claims.get("name") or (email.split("@")[0] if "@" in email else email)
+
+    # Mapping rules:
+    # Match by ms_oid, then by email.
+    user = db.query(AuthUser).filter(AuthUser.ms_oid == ms_oid).first()
+    if not user and email:
+        user = db.query(AuthUser).filter(AuthUser.email == email).first()
+
+    now = datetime.now(timezone.utc)
+
+    if user:
+        # User found
+        if user.status == "active":
+            if user.ms_oid != ms_oid:
+                user.ms_oid = ms_oid
+            if not user.display_name and display_name:
+                user.display_name = display_name
+            user.last_login_at = now
+            db.commit()
+
+            # Create session
+            raw_token, session_record = create_session(db, user)
+            log_auth_audit(
+                db,
+                actor_user_id=user.id,
+                action="microsoft_login",
+                target_user_id=user.id,
+                detail={"email": email, "ms_oid": ms_oid},
+            )
+            db.commit()
+
+            response = RedirectResponse(url=build_redirect_url("/"), status_code=303)
+            set_session_cookie(response, raw_token, request)
+            response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/")
+            return response
+
+        elif user.status == "pending":
+            if user.ms_oid != ms_oid:
+                user.ms_oid = ms_oid
+                db.commit()
+            response = RedirectResponse(url=build_redirect_url("/pending"), status_code=303)
+            response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/")
+            return response
+
+        elif user.status == "blocked":
+            response = RedirectResponse(url=build_redirect_url("/login?error=blocked"), status_code=303)
+            response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/")
+            return response
+
+        else:
+            response = RedirectResponse(url=build_redirect_url("/pending"), status_code=303)
+            response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/")
+            return response
+
+    else:
+        # Not found: create a pending user (name, email, oid, no team) and redirect to /pending.
+        new_user = AuthUser(
+            id=str(uuid.uuid4()),
+            email=email,
+            username=None,
+            display_name=display_name,
+            team_id=None,
+            role="member",
+            status="pending",
+            provider="microsoft",
+            password_hash=None,
+            ms_oid=ms_oid,
+            must_change_password=False,
+            failed_logins=0,
+            locked_until=None,
+            last_login_at=None,
+            created_at=now,
+            created_by="microsoft_oauth",
+        )
+        db.add(new_user)
+        db.commit()
+
+        log_auth_audit(
+            db,
+            actor_user_id=new_user.id,
+            action="user_registered",
+            target_user_id=new_user.id,
+            detail={"provider": "microsoft", "email": email, "ms_oid": ms_oid, "status": "pending"},
+        )
+
+        response = RedirectResponse(url=build_redirect_url("/pending"), status_code=303)
+        response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/")
+        return response
 
 
 @router.post("/logout")

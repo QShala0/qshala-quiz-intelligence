@@ -42,6 +42,7 @@ cryptography==50.0.2
     # via
     #   google-auth
     #   pdfminer-six
+    #   pyjwt
 fastapi==0.162.5
     # via
     #   -r requirements.txt
@@ -146,6 +147,8 @@ pydantic==2.14.3
 pydantic-core==2.50.4
     # via pydantic
 pydantic-settings==2.16.2
+    # via -r requirements.txt
+pyjwt==2.10.1
     # via -r requirements.txt
 pypdf==7.0.1
     # via -r requirements.txt

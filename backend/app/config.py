@@ -267,7 +267,9 @@ class Settings(BaseSettings):
         "kedar@walnuts.co.in:Corporate,"
         "anagha@walnuts.co.in:School,"
         "sachin@walnuts.co.in:QShala,"
-        "raghav@walnuts.co.in:School"
+        "raghav@walnuts.co.in:QShala,"
+        "glenn@walnuts.co.in:QShala,"
+        "aakshay@walnuts.co.in:QShala"
     )
     AUTH_SEED_CONSULTANT_PASSWORD: str = "pass123"
     AUTH_ALLOWED_EMAIL_DOMAINS: str = "walnuts.co.in"
@@ -419,7 +421,9 @@ class Settings(BaseSettings):
                 "kedar@walnuts.co.in:Corporate,"
                 "anagha@walnuts.co.in:School,"
                 "sachin@walnuts.co.in:QShala,"
-                "raghav@walnuts.co.in:School"
+                "raghav@walnuts.co.in:QShala,"
+                "glenn@walnuts.co.in:QShala,"
+                "aakshay@walnuts.co.in:QShala"
             )
         return str(v).strip()
 
