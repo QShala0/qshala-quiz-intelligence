@@ -19,7 +19,7 @@ import LoadErrorBanner from '../../components/LoadErrorBanner';
 import { DocumentItem, Slide } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
 import UploadReportDialog from '../../components/UploadReportDialog';
-import SharePointImporter from '../../components/SharePointImporter';
+import SharePointSyncManager from '../../components/SharePointSyncManager';
 import { useUpload } from '../../context/UploadContext';
 import { useConfirm, useToast, QT, QTAnim } from '../../components/ui';
 import { UploadDuplicateReport } from '../../lib/types';
@@ -901,14 +901,8 @@ export default function UploadPage() {
           </div>
         </div>
       )}
-        </>
-      ) : (
-        <div className="space-y-6 animate-in fade-in transition-all">
-          <SharePointImporter />
-        </div>
-      )}
 
-      {/* Ingested Decks Table */}
+      {/* Ingested Decks Table (Local Manual Uploads) */}
       <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden">
         <div className="border-b border-slate-100 px-6 py-4 flex items-center justify-between">
           <h2 className="text-[16px] font-semibold tracking-tight text-slate-900">Recent uploads</h2>
@@ -1006,6 +1000,12 @@ export default function UploadPage() {
           )}
         </div>
       </div>
+        </>
+      ) : (
+        <div className="space-y-6 animate-in fade-in transition-all">
+          <SharePointSyncManager showImporter={true} />
+        </div>
+      )}
 
       <SlideViewerModal
         isOpen={Boolean(selectedSlide)}
