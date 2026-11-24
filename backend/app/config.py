@@ -258,6 +258,22 @@ class Settings(BaseSettings):
     GCP_REGION: Optional[str] = "asia-southeast1" if is_cloud_run else None
     INGESTION_JOB_NAME: Optional[str] = "qshala-ingestion-worker" if is_cloud_run else None
 
+    # Auth configuration (PR 1-4)
+    # AUTH_ENFORCED: off by default so zero behavior change until PR 4 verifies flow.
+    AUTH_ENFORCED: bool = False
+    AUTH_INITIAL_ADMINS: str = (
+        "akshath@walnuts.co.in:Corporate,"
+        "kedar@walnuts.co.in:Corporate,"
+        "anagha@walnuts.co.in:School,"
+        "sachin@walnuts.co.in:QShala,"
+        "raghav@walnuts.co.in:School"
+    )
+    AUTH_SEED_CONSULTANT_PASSWORD: str = "pass123"
+    AUTH_ALLOWED_EMAIL_DOMAINS: str = "walnuts.co.in"
+    AUTH_PUBLIC_BASE_URL: Optional[str] = None
+    AUTH_MS_CLIENT_ID: Optional[str] = None
+    AUTH_MS_CLIENT_SECRET: Optional[str] = None
+
     @field_validator("INGESTION_MAX_CONCURRENCY", mode="before")
     @classmethod
     def _parse_ingestion_max_concurrency(cls, v, info):
@@ -384,6 +400,42 @@ class Settings(BaseSettings):
             return default_db_url
         return str(v)
 
+    @field_validator("AUTH_ENFORCED", mode="before")
+    @classmethod
+    def _parse_auth_enforced(cls, v, info):
+        if v == "" or v is None:
+            return False
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in {"1", "true", "yes", "on"}
+
+    @field_validator("AUTH_INITIAL_ADMINS", mode="before")
+    @classmethod
+    def _parse_auth_initial_admins(cls, v):
+        if not v or not str(v).strip():
+            return (
+                "akshath@walnuts.co.in:Corporate,"
+                "kedar@walnuts.co.in:Corporate,"
+                "anagha@walnuts.co.in:School,"
+                "sachin@walnuts.co.in:QShala,"
+                "raghav@walnuts.co.in:School"
+            )
+        return str(v).strip()
+
+    @field_validator("AUTH_SEED_CONSULTANT_PASSWORD", mode="before")
+    @classmethod
+    def _parse_auth_seed_consultant_pwd(cls, v):
+        if not v or not str(v).strip():
+            return "pass123"
+        return str(v).strip()
+
+    @field_validator("AUTH_ALLOWED_EMAIL_DOMAINS", mode="before")
+    @classmethod
+    def _parse_auth_allowed_domains(cls, v):
+        if not v or not str(v).strip():
+            return "walnuts.co.in"
+        return str(v).strip()
+
     @field_validator("GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
                      "BLOB_READ_WRITE_TOKEN", "AZURE_TENANT_ID", "AZURE_CLIENT_ID",
                      "AZURE_CLIENT_SECRET", "SHAREPOINT_SITE_ID", "SHAREPOINT_DRIVE_ID", "SHAREPOINT_ROOT_FOLDER",
@@ -392,6 +444,7 @@ class Settings(BaseSettings):
                      "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL", "API_KEY_SECRET",
                      "CORS_ORIGINS", "SENTRY_DSN", "GCP_PROJECT_ID", "GCP_REGION",
                      "INGESTION_JOB_NAME",
+                     "AUTH_PUBLIC_BASE_URL", "AUTH_MS_CLIENT_ID", "AUTH_MS_CLIENT_SECRET",
                      mode="before")
     @classmethod
     def parse_empty_keys(cls, v):

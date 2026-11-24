@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Ensure backend directory and project root are on sys.path in all runtimes
 import types
@@ -47,6 +48,7 @@ from backend.app.models.sharepoint_index import (  # noqa: F401
     SharePointIndexItem, SharePointIndexState, SharePointHiddenFolder,
 )
 from backend.app.models.custom_template import CustomPptTemplate  # noqa: F401
+from backend.app.models.auth import AuthTeam, AuthUser, AuthSession, AuthAudit  # noqa: F401
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -125,6 +127,17 @@ async def lifespan(app: FastAPI):
         ensure_schema_columns()
     except Exception as e:
         logger.warning(f"DB schema migration notice: {e}")
+
+    # Seed auth teams, admins, and consultant user idempotently
+    try:
+        from backend.app.services.auth.seeds import seed_auth
+        db_auth_seed = SessionLocal()
+        try:
+            seed_auth(db_auth_seed)
+        finally:
+            db_auth_seed.close()
+    except Exception as e:
+        logger.warning(f"Auth seeding notice: {e}")
 
     try:
         db = SessionLocal()
@@ -221,18 +234,22 @@ app.add_middleware(
 # Search results carry topic_paths, image arrays, transcripts -- easy to shrink, free bandwidth win.
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
-# Optional shared-secret gate. Off by default (API_KEY_SECRET unset) so this deploys with zero
-# behavior change; set API_KEY_SECRET on the host once the frontend is sending X-API-Key to start
-# requiring it. This is not user auth / multi-tenancy -- it only stops an anonymous visitor with the
-# URL from uploading decks, deleting quizzes, or burning the Gemini/R2 quota.
+# Optional shared-secret gate and auth enforcement.
+# Off by default (API_KEY_SECRET unset, AUTH_ENFORCED False) so this deploys with zero behavior change.
 _PUBLIC_PREFIXES = (
-    "/static", f"{settings.API_V1_STR}/static", "/slides",
+    "/static", f"{settings.API_V1_STR}/static", "/slides", f"{settings.API_V1_STR}/slides",
     "/docs", f"{settings.API_V1_STR}/docs",
     "/openapi.json", f"{settings.API_V1_STR}/openapi.json",
     "/redoc",
+    f"{settings.API_V1_STR}/auth/microsoft", "/auth/microsoft",
 )
-_PUBLIC_EXACT = {"/", "/api", settings.API_V1_STR,
-                 "/health", "/api/health", f"{settings.API_V1_STR}/health"}
+_PUBLIC_EXACT = {
+    "/", "/api", settings.API_V1_STR,
+    "/health", "/api/health", f"{settings.API_V1_STR}/health",
+    f"{settings.API_V1_STR}/auth/login", "/auth/login",
+    f"{settings.API_V1_STR}/auth/logout", "/auth/logout",
+    f"{settings.API_V1_STR}/auth/me", "/auth/me",
+}
 
 def _api_key_required() -> bool:
     """REQUIRE_API_KEY=1 makes the gate fail closed: with no API_KEY_SECRET configured, protected routes answer 503
@@ -243,6 +260,24 @@ def _api_key_required() -> bool:
 def _api_key_matches(provided: str, secret: str) -> bool:
     import hmac
     return hmac.compare_digest(provided.encode("utf-8"), secret.encode("utf-8"))
+
+
+def _is_allowed_origin(origin: Optional[str], host: Optional[str] = None) -> bool:
+    import re
+    if not origin:
+        return False
+    o = origin.rstrip("/")
+    if o in _cors_origins:
+        return True
+    if settings.AUTH_PUBLIC_BASE_URL and o == settings.AUTH_PUBLIC_BASE_URL.rstrip("/"):
+        return True
+    if host:
+        clean_host = host.split(":")[0]
+        if o.endswith("://" + host) or o.endswith("://" + clean_host):
+            return True
+    if _cors_origin_regex and bool(re.match(_cors_origin_regex, o)):
+        return True
+    return False
 
 
 if os.getenv("K_SERVICE") and not settings.API_KEY_SECRET:
@@ -265,16 +300,66 @@ async def require_api_key(request, call_next):
     from fastapi.responses import JSONResponse
     if request.method == "OPTIONS":
         return await call_next(request)
+
     path = request.url.path
-    if path in _PUBLIC_EXACT or path.startswith(_PUBLIC_PREFIXES):
+
+    # Extract session cookie and slide if valid
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth.sessions import (
+        SESSION_COOKIE_NAME,
+        verify_and_slide_session,
+    )
+    raw_token = request.cookies.get(SESSION_COOKIE_NAME)
+    current_user = None
+    if raw_token:
+        try:
+            db_session = SessionLocal()
+            try:
+                current_user = verify_and_slide_session(db_session, raw_token)
+            finally:
+                db_session.close()
+        except Exception as e:
+            logger.warning(f"Error validating session in middleware: {e}")
+
+    request.state.user = current_user
+
+    # Determine if request carries a valid X-API-Key
+    provided_key = request.headers.get("x-api-key", "")
+    has_valid_api_key = False
+    if settings.API_KEY_SECRET and provided_key:
+        has_valid_api_key = _api_key_matches(provided_key, settings.API_KEY_SECRET)
+
+    # CSRF check: on cookie-authenticated POST, PUT, PATCH, DELETE, verify Origin
+    # (exempt login which establishes a new session)
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and path not in (f"{settings.API_V1_STR}/auth/login", "/auth/login"):
+        if current_user and not has_valid_api_key:
+            origin = request.headers.get("origin")
+            host = request.headers.get("host")
+            if not _is_allowed_origin(origin, host):
+                return JSONResponse(status_code=403, content={"detail": "CSRF origin check failed"})
+
+    # Check public routes
+    is_public = path in _PUBLIC_EXACT or path.startswith(_PUBLIC_PREFIXES)
+    if is_public:
         return await call_next(request)
+
+    # Enforced mode
+    if settings.AUTH_ENFORCED:
+        if not current_user and not has_valid_api_key:
+            return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+        return await call_next(request)
+
+    # Soft mode (AUTH_ENFORCED is off)
+    # If API_KEY_SECRET is configured, existing shared secret gate still operates
     if not settings.API_KEY_SECRET:
         if _api_key_required():
             return JSONResponse(status_code=503, content={
                 "detail": "API key auth is required (REQUIRE_API_KEY) but API_KEY_SECRET is not configured"})
         return await call_next(request)
-    if not _api_key_matches(request.headers.get("x-api-key", ""), settings.API_KEY_SECRET):
+
+    if not has_valid_api_key and not current_user:
         return JSONResponse(status_code=401, content={"detail": "Missing or invalid X-API-Key header"})
+
     return await call_next(request)
 
 class MultiDirStaticFiles(StaticFiles):
@@ -339,6 +424,9 @@ app.include_router(qshala_tagging.router, prefix=settings.API_V1_STR)
 app.include_router(qshala_tagging.router)  # Also mount at /qshala/* directly
 app.include_router(prompt_quiz.router, prefix=settings.API_V1_STR)
 app.include_router(templates.router, prefix=settings.API_V1_STR)
+from backend.app.routers import auth as _auth_router
+app.include_router(_auth_router.router, prefix=settings.API_V1_STR)
+app.include_router(_auth_router.router)  # Also mount at /auth/* directly
 
 @app.get("/")
 @app.get("/api")
