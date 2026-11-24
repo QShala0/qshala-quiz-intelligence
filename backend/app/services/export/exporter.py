@@ -888,6 +888,35 @@ def _get_hist_q_media(q: Any) -> Dict[str, Any]:
         "image_refs": direct_img_refs,
     }
 
+def _source_notes(q: Any) -> str:
+    """The speaker notes from the question's original deck slides (question slide, then answer slide)."""
+    sources = _get_val(q, "retrieval_sources", []) or _get_val(q, "sources", [])
+    hist_id = _get_val(sources[0], "historical_question_id") if sources else None
+    target_ids = [str(i) for i in [hist_id, _get_val(q, "id")] if i]
+    if not target_ids:
+        return ""
+    db = None
+    try:
+        from backend.app.database import SessionLocal
+        from backend.app.models.question import Question
+        db = SessionLocal()
+        hq = db.query(Question).filter(Question.id.in_(target_ids)).first()
+        if not hq:
+            return ""
+        parts: List[str] = []
+        for slide in (hq.slide, hq.answer_slide):
+            text = ((slide.speaker_notes if slide else "") or "").strip()
+            if text and text not in parts:
+                parts.append(text)
+        return "\n\n".join(parts)
+    except Exception as e:
+        logger.warning(f"Error fetching original speaker notes: {e}")
+        return ""
+    finally:
+        if db is not None:
+            db.close()
+
+
 def _clean_quiz_title(raw_title: str, topic: str) -> str:
     """Sanitizes raw prompt text into a clean presentation title."""
     if not raw_title or raw_title.lower() in ("qshala tournament quiz", "custom", "untitled quiz"):
@@ -1946,28 +1975,6 @@ class QuizExporter:
                             po.font.size = Pt(22)
                             po.font.color.rgb = C_TEXT_BODY
 
-                # Style Guide Speaker Notes
-                q_notes = [f"Official Answer: {ans_val}"]
-                sources = _get_val(q, "retrieval_sources", []) or _get_val(q, "sources", [])
-                if sources:
-                    s_titles = []
-                    for s in sources:
-                        dt = _get_val(s, "document_title", "")
-                        sn = _get_val(s, "slide_number", "")
-                        if dt:
-                            s_titles.append(f"{dt} (Slide {sn})" if sn else dt)
-                    if s_titles:
-                        q_notes.append("Source Reference: " + "; ".join(s_titles))
-                if video_path:
-                    q_notes.append(f"Media Reference (Video): {video_path.name}")
-                elif resolved_q_imgs:
-                    q_notes.append(f"Media Reference (Image): {resolved_q_imgs[0].name}")
-                v_clue = _get_val(q, "visual_clues") or _get_val(q, "clue")
-                if v_clue:
-                    q_notes.append(f"Presenter Clues: {v_clue}")
-                sq.notes_slide.notes_text_frame.text = "\n".join(q_notes)
-                if has_media and not fits_same_slide and 'sq_img' in locals():
-                    sq_img.notes_slide.notes_text_frame.text = sq.notes_slide.notes_text_frame.text
             elif has_media:
                 # South Zone 2-Column Protocol: Question text left (7.80 in), Media clue right (3.90 in)
                 tb_q = sq.shapes.add_textbox(Inches(0.80), Inches(1.50), Inches(7.80), Inches(4.80))
@@ -2079,13 +2086,6 @@ class QuizExporter:
                         po.font.name = FONT_BODY
                         po.font.size = Pt(20)
                         po.font.color.rgb = C_TEXT_BODY
-
-            if not is_qshala_school:
-                # Speaker Notes (ZSV / School) - replace generic notes with question source links
-                source_notes = _format_question_source_notes(q)
-                sq.notes_slide.notes_text_frame.text = source_notes
-                if 'sq_img' in locals() and sq_img is not None:
-                    sq_img.notes_slide.notes_text_frame.text = source_notes
 
             # ---------------------------------------------------------
             # (B) ANSWER TRANSITION SLIDE (Divider)
@@ -2254,12 +2254,6 @@ class QuizExporter:
                         pa_head.font.bold = True
                         pa_head.font.color.rgb = C_TEXT_DARK
 
-                sa.notes_slide.notes_text_frame.text = (
-                    f"Presenter Talking Points:\n"
-                    f"Official Answer: {ans_val}\n"
-                    f"Award points for correct answer or verified synonym.\n"
-                    f"Trivia Context: {explanation}"
-                )
             elif has_ans_img:
                 if explanation and len(explanation) > 100:
                     # 2-Column Solution Layout
@@ -2346,10 +2340,9 @@ class QuizExporter:
                     pa_head.font.bold = True
                     pa_head.font.color.rgb = C_TEXT_DARK
 
-            if not is_qshala_school:
-                # Speaker Notes for Answer Slide (ZSV / School) - source links in notes
-                source_notes = _format_question_source_notes(q)
-                sa.notes_slide.notes_text_frame.text = source_notes
+            original_notes = _source_notes(q)
+            if original_notes:
+                sa.notes_slide.notes_text_frame.text = original_notes
 
         if divider_src is not None:
             drop_slide(prs, divider_src)   # exemplar only: each divider above is a copy of it

@@ -66,10 +66,8 @@ def test_qshala_school_pptx_export_structure():
     q1_text = " ".join([shape.text_frame.text for shape in q1_slide.shapes if shape.has_text_frame])
     assert "Question 1" in q1_text
     assert "Kaziranga" in q1_text
-    assert q1_slide.has_notes_slide
-    notes_q1 = q1_slide.notes_slide.notes_text_frame.text
-    assert "Official Answer: Kaziranga National Park" in notes_q1
-    assert "Assam_Eco_Tour.pptx" in notes_q1
+    notes_q1 = q1_slide.notes_slide.notes_text_frame.text if q1_slide.has_notes_slide else ""
+    assert notes_q1 == ""
 
     # Verify Answer Divider Slide
     ans_div_slide = prs.slides[2]
@@ -81,9 +79,9 @@ def test_qshala_school_pptx_export_structure():
     ans1_text = " ".join([shape.text_frame.text for shape in ans1_slide.shapes if shape.has_text_frame])
     assert "Kaziranga National Park" in ans1_text
     assert "UNESCO" in ans1_text
-    assert ans1_slide.has_notes_slide
-    notes_a1 = ans1_slide.notes_slide.notes_text_frame.text
-    assert "Presenter Talking Points:" in notes_a1
+    notes_a1 = ans1_slide.notes_slide.notes_text_frame.text if ans1_slide.has_notes_slide else ""
+    assert "Presenter Talking Points" not in notes_a1
+    assert "Official Answer" not in notes_a1
 
 
 def test_qshala_school_pptx_export_without_divider():
@@ -364,3 +362,45 @@ def test_qshala_school_font_size_28_and_image_in_next_slide():
                             assert r.font.size.pt == 28.0
     finally:
         shutil.rmtree(img_dir, ignore_errors=True)
+
+
+@pytest.mark.parametrize("quiz_type", ["qshala_school", "zsv"])
+def test_export_puts_original_deck_notes_on_answer_slide_only(quiz_type):
+    import uuid
+    from backend.app.database import SessionLocal
+    from backend.app.models.document import Document, Slide
+    from backend.app.models.question import Question
+
+    db = SessionLocal()
+    doc_id, qs_id, as_id, q_id = (str(uuid.uuid4()) for _ in range(4))
+    try:
+        db.add(Document(id=doc_id, filename="orig.pptx", title="orig", file_type="pptx", storage_path="orig.pptx"))
+        db.flush()
+        db.add(Slide(id=qs_id, document_id=doc_id, slide_number=1, speaker_notes="Host: ask slowly."))
+        db.add(Slide(id=as_id, document_id=doc_id, slide_number=2, speaker_notes="Fun fact: Mars is red due to iron oxide."))
+        db.flush()
+        db.add(Question(id=q_id, document_id=doc_id, slide_id=qs_id, answer_slide_id=as_id,
+                        question_text="Which planet is the Red Planet?", answer="Mars", topic="Space"))
+        db.commit()
+
+        quiz = {"id": "q_notes", "title": "Notes", "questions": [
+            {"id": q_id, "order_index": 1, "question_text": "Which planet is the Red Planet?",
+             "answer": "Mars", "is_approved": True}]}
+        prs = Presentation(io.BytesIO(QuizExporter.to_pptx(quiz, quiz_type=quiz_type, show_answer_divider=True)))
+
+        def text_of(sl):
+            return " ".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame)
+        q_slide = next(sl for sl in prs.slides if "Red Planet" in text_of(sl))
+        ans_slide = next(sl for sl in prs.slides if "Mars" in text_of(sl) and "Red Planet" not in text_of(sl))
+        q_notes = q_slide.notes_slide.notes_text_frame.text if q_slide.has_notes_slide else ""
+        assert "Mars" not in q_notes and q_notes == ""
+        a_notes = ans_slide.notes_slide.notes_text_frame.text
+        assert "Host: ask slowly." in a_notes
+        assert "Fun fact: Mars is red due to iron oxide." in a_notes
+        assert "Presenter Talking Points" not in a_notes
+    finally:
+        db.query(Question).filter(Question.id == q_id).delete()
+        db.query(Slide).filter(Slide.document_id == doc_id).delete()
+        db.query(Document).filter(Document.id == doc_id).delete()
+        db.commit()
+        db.close()
