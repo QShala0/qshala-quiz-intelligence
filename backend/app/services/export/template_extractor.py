@@ -13,6 +13,7 @@ Analyzes a sample PowerPoint deck (.pptx) and extracts its visual template chara
 
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import re
@@ -20,6 +21,7 @@ import uuid
 import zipfile
 import logging
 import shutil
+from collections import Counter
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from xml.etree import ElementTree as ET
@@ -32,7 +34,10 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 logger = logging.getLogger(__name__)
 
-CUSTOM_TEMPLATES_DIR = Path("backend/storage/custom_templates")
+from backend.app.services.export.template_store import CUSTOM_TEMPLATES_DIR  # noqa: E402  (re-exported)
+
+MAX_BG_PX = 2560          # longest side kept for extracted background art
+MAX_SCAN_SLIDES = 60      # sample decks can be 100+ slides; the template is evident in the first dozens
 
 NS_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 NS_P = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
@@ -123,33 +128,37 @@ def _find_fullscreen_picture_in_shapes(shapes, slide_width_pts: float, slide_hei
     return None
 
 
-def _get_slide_background_blob(slide, slide_width_pts: float, slide_height_pts: float) -> Optional[Tuple[bytes, str]]:
-    """
-    Finds background image across:
-    1. Direct shapes on slide
-    2. Shapes on slide's layout
-    3. Shapes on slide's master
-    4. OpenXML background blipFill
-    """
-    # 1. Slide shapes
-    pic = _find_fullscreen_picture_in_shapes(slide.shapes, slide_width_pts, slide_height_pts)
-    if pic:
-        return pic
+def _blob_sha(blob: Tuple[bytes, str]) -> str:
+    return hashlib.sha1(blob[0]).hexdigest()
 
-    # 2. Slide layout shapes (where most templates store artwork)
-    if hasattr(slide, "slide_layout") and slide.slide_layout is not None:
-        pic = _find_fullscreen_picture_in_shapes(slide.slide_layout.shapes, slide_width_pts, slide_height_pts)
+
+def _slide_cover_pictures(slide, slide_width, slide_height, threshold: float = 0.90) -> List[Tuple[bytes, str]]:
+    """Every picture ON the slide that covers (almost) the whole slide."""
+    found: List[Tuple[bytes, str]] = []
+    for s in slide.shapes:
+        try:
+            if s.shape_type == MSO_SHAPE_TYPE.PICTURE and \
+                    float(s.width) / float(slide_width) >= threshold and float(s.height) / float(slide_height) >= threshold:
+                data = _extract_picture_blob(s)
+                if data:
+                    found.append(data)
+        except Exception:
+            continue
+    return found
+
+
+def _template_art_blob(slide, slide_width, slide_height) -> Optional[Tuple[bytes, str]]:
+    """Artwork owned by the TEMPLATE (slide layout / slide master shapes or a <p:bg> picture fill). This is the
+    reliable source: it is design, not question content."""
+    layout = getattr(slide, "slide_layout", None)
+    master = getattr(layout, "slide_master", None) if layout is not None else None
+    for holder in (layout, master):
+        if holder is None:
+            continue
+        pic = _find_fullscreen_picture_in_shapes(holder.shapes, slide_width, slide_height)
         if pic:
             return pic
-
-        # 3. Slide master shapes
-        if hasattr(slide.slide_layout, "slide_master") and slide.slide_layout.slide_master is not None:
-            pic = _find_fullscreen_picture_in_shapes(slide.slide_layout.slide_master.shapes, slide_width_pts, slide_height_pts)
-            if pic:
-                return pic
-
-    # 4. XML Background element blipFill
-    for part_obj in [slide, getattr(slide, "slide_layout", None)]:
+    for part_obj in (slide, layout, master):
         if part_obj is None or not hasattr(part_obj, "_element"):
             continue
         try:
@@ -162,8 +171,53 @@ def _get_slide_background_blob(slide, slide_width_pts: float, slide_height_pts: 
                     return rel.blob, ext
         except Exception:
             pass
-
     return None
+
+
+def _get_slide_background_blob(slide, slide_width, slide_height, repeated: Optional[set] = None,
+                               allow_unique: bool = False) -> Optional[Tuple[bytes, str]]:
+    """Background art for a slide. Template-owned art (layout/master/<p:bg>) always wins. A full-slide picture sitting
+    on the slide itself only counts when it is REPEATED across slides (so it is template design) or the caller
+    explicitly allows a one-off (cover / divider slides). Otherwise a large question photo gets mistaken for the
+    background."""
+    art = _template_art_blob(slide, slide_width, slide_height)
+    if art:
+        return art
+    for blob in _slide_cover_pictures(slide, slide_width, slide_height):
+        if allow_unique or (repeated is not None and _blob_sha(blob) in repeated):
+            return blob
+    return None
+
+
+def _normalise_image(blob_bytes: bytes) -> Optional[Tuple[bytes, str]]:
+    """Make an extracted background loadable by python-pptx and the exporter: PNG or JPEG, at most MAX_BG_PX.
+    GIF/WEBP/BMP/TIFF are converted; formats PIL cannot read (EMF/WMF) return None so the role is skipped
+    instead of saving a file nothing can load."""
+    try:
+        with Image.open(io.BytesIO(blob_bytes)) as im:
+            fmt = (im.format or "").upper()
+            w, h = im.size
+            if fmt in ("PNG", "JPEG") and max(w, h) <= MAX_BG_PX:
+                return blob_bytes, ("png" if fmt == "PNG" else "jpg")
+            im.load()
+            if max(w, h) > MAX_BG_PX:
+                im.thumbnail((MAX_BG_PX, MAX_BG_PX), Image.Resampling.LANCZOS)
+            out = io.BytesIO()
+            if fmt == "JPEG":
+                im.convert("RGB").save(out, "JPEG", quality=92)
+                return out.getvalue(), "jpg"
+            has_alpha = "A" in im.getbands() or im.mode == "P"
+            im.convert("RGBA" if has_alpha else "RGB").save(out, "PNG", optimize=True)
+            return out.getvalue(), "png"
+    except Exception as e:
+        logger.warning("Background image could not be decoded (%s); skipping", e)
+        return None
+
+
+def _short_answer_slide(slide) -> bool:
+    """A divider slide: the only text is the word 'Answer' (or 'Answers')."""
+    txt = " ".join(s.text_frame.text for s in slide.shapes if s.has_text_frame).strip().lower()
+    return bool(txt) and len(txt) <= 30 and txt.startswith("answer")
 
 
 class TemplateExtractor:
@@ -344,7 +398,7 @@ class TemplateExtractor:
         }
 
     def _analyze_layouts(self) -> Dict[str, Any]:
-        """Detects layout roles and safe geometry for question boxes and media areas."""
+        """Detects layout roles from how the sample deck actually uses its layouts (not from guessing at slide text)."""
         layouts: Dict[str, Any] = {
             "cover_layout": None,
             "question_layout": None,
@@ -356,192 +410,185 @@ class TemplateExtractor:
                 "answer_box": {"left": 1.0, "top": 1.2, "width": 11.33, "height": 4.5},
             },
         }
+        slides = list(self.prs.slides)[:MAX_SCAN_SLIDES]
+        all_layouts = self._all_layouts()
 
-        # 1. Search for Title / Cover layout
-        for l in self.prs.slide_layouts:
+        # Cover: a layout named like a title slide; else whatever the first slide uses; else the first layout.
+        for l in all_layouts:
             lname = l.name.lower()
             if "title slide" in lname or "cover" in lname:
                 layouts["cover_layout"] = l.name
                 break
+        if not layouts["cover_layout"] and slides:
+            layouts["cover_layout"] = slides[0].slide_layout.name
+        if not layouts["cover_layout"] and all_layouts:
+            layouts["cover_layout"] = all_layouts[0].name
 
-        # 2. Search for Question layout & Answer Divider layout across slides
-        for i, slide in enumerate(self.prs.slides):
-            lname = slide.slide_layout.name.lower()
-            slide_txt = " ".join(s.text_frame.text.lower() for s in slide.shapes if s.has_text_frame)
+        # Divider: the layout of a slide that only says "Answer".
+        for sl in slides:
+            if _short_answer_slide(sl):
+                layouts["divider_layout"] = sl.slide_layout.name
+                break
 
-            # Check cover
-            if not layouts["cover_layout"] and ("title" in lname or i == 0):
-                layouts["cover_layout"] = slide.slide_layout.name
+        # Question: the layout the deck uses MOST for its content slides (cover and divider layouts excluded).
+        skip = {layouts["cover_layout"], layouts["divider_layout"]}
+        usage = Counter(sl.slide_layout.name for sl in slides[1:] if sl.slide_layout.name not in skip)
+        if usage:
+            layouts["question_layout"] = usage.most_common(1)[0][0]
+            media = self._first_content_picture_box(slides[1:], layouts["question_layout"])
+            if media:
+                layouts["geometry"]["media_box"] = media
 
-            # Check question slide
-            if not layouts["question_layout"]:
-                if any(k in slide_txt for k in ["question", "1.", "2.", "3.", "what ", "which ", "who "]) or "content" in lname:
-                    layouts["question_layout"] = slide.slide_layout.name
-                    # Detect safe media box
-                    for s in slide.shapes:
-                        if s.shape_type == MSO_SHAPE_TYPE.PICTURE and not _find_fullscreen_picture_in_shapes([s], self.prs.slide_width, self.prs.slide_height):
-                            layouts["geometry"]["media_box"] = {
-                                "left": round(float(s.left.inches), 2),
-                                "top": round(float(s.top.inches), 2),
-                                "width": round(float(s.width.inches), 2),
-                                "height": round(float(s.height.inches), 2),
-                            }
-                            break
-
-            # Check answer divider / section
-            if not layouts["divider_layout"]:
-                if "answer" in slide_txt or "section header" in lname or "divider" in lname:
-                    layouts["divider_layout"] = slide.slide_layout.name
-
-            # Check answer reveal
-            if not layouts["answer_layout"] and "answer" in lname:
-                layouts["answer_layout"] = slide.slide_layout.name
-
-        # Fallbacks
-        if not layouts["cover_layout"] and len(self.prs.slide_layouts) > 0:
-            layouts["cover_layout"] = self.prs.slide_layouts[0].name
+        # Fallbacks by layout name.
         if not layouts["question_layout"]:
-            for l in self.prs.slide_layouts:
-                if "content" in l.name.lower():
-                    layouts["question_layout"] = l.name
+            for key in ("title and content", "title only", "blank", "content"):
+                hit = next((l.name for l in all_layouts if key in l.name.lower()), None)
+                if hit:
+                    layouts["question_layout"] = hit
                     break
         if not layouts["divider_layout"]:
-            for l in self.prs.slide_layouts:
-                if "header" in l.name.lower() or "section" in l.name.lower():
+            for l in all_layouts:
+                lname = l.name.lower()
+                if "section" in lname or "divider" in lname or "header" in lname:
                     layouts["divider_layout"] = l.name
                     break
-
+        for l in all_layouts:
+            if "answer" in l.name.lower():
+                layouts["answer_layout"] = l.name
+                break
         return layouts
+
+    def _all_layouts(self) -> list:
+        """Layouts of EVERY slide master (prs.slide_layouts only returns the first master's)."""
+        out = []
+        for master in self.prs.slide_masters:
+            out.extend(master.slide_layouts)
+        return out
+
+    def _first_content_picture_box(self, slides, layout_name: str) -> Optional[Dict[str, float]]:
+        """Box (inches) of the first non-background picture on a slide that uses `layout_name`."""
+        for sl in slides:
+            if sl.slide_layout.name != layout_name:
+                continue
+            for s in sl.shapes:
+                try:
+                    if s.shape_type == MSO_SHAPE_TYPE.PICTURE and not _find_fullscreen_picture_in_shapes(
+                            [s], self.prs.slide_width, self.prs.slide_height):
+                        return {
+                            "left": round(float(s.left.inches), 2),
+                            "top": round(float(s.top.inches), 2),
+                            "width": round(float(s.width.inches), 2),
+                            "height": round(float(s.height.inches), 2),
+                        }
+                except Exception:
+                    continue
+        return None
 
     def _extract_backgrounds(self, dest_dir: Path, layouts_meta: Dict[str, Any]) -> Dict[str, str]:
         """
-        Extracts background images for Cover, Question, Answer Divider, and Answer Reveal.
-        Checks slide shapes, slide layout shapes, master shapes, and XML background blipFills.
+        Extracts background art for Cover, Question, Answer Divider and Answer Reveal.
+        Template-owned art (layout / master / <p:bg>) is preferred; a picture on a slide is only trusted when it is
+        repeated across slides (template design) or is the one-off cover / divider slide. Everything is saved as
+        PNG or JPEG so the exporter can always load it.
         """
         backgrounds: Dict[str, str] = {}
         sw = self.prs.slide_width
-        sh = self.prs.slide_height
+        sh_ = self.prs.slide_height
+        slides = list(self.prs.slides)[:MAX_SCAN_SLIDES]
 
+        # Which full-slide pictures recur across slides? Those are template art, not question content.
+        seen_on: Counter = Counter()
+        for sl in slides:
+            for sha in {_blob_sha(b) for b in _slide_cover_pictures(sl, sw, sh_)}:
+                seen_on[sha] += 1
+        repeated = {sha for sha, n in seen_on.items() if n >= 2}
+
+        cover_name = layouts_meta.get("cover_layout")
         cover_blob: Optional[Tuple[bytes, str]] = None
-        question_blob: Optional[Tuple[bytes, str]] = None
-        answer_divider_blob: Optional[Tuple[bytes, str]] = None
-        answer_reveal_blob: Optional[Tuple[bytes, str]] = None
+        for i, sl in enumerate(slides[:8]):
+            if i == 0 or sl.slide_layout.name == cover_name:
+                cover_blob = _get_slide_background_blob(sl, sw, sh_, repeated, allow_unique=True)
+                if cover_blob:
+                    break
+        cover_sha = _blob_sha(cover_blob) if cover_blob else None
 
-        # 1. Look for Cover background (search slides with Title/Cover layout or slide 0)
-        for i, slide in enumerate(self.prs.slides):
-            if i >= 8:
-                break
-            lname = slide.slide_layout.name.lower()
-            if "title slide" in lname or "cover" in lname or (layouts_meta.get("cover_layout") and slide.slide_layout.name == layouts_meta["cover_layout"]):
-                blob = _get_slide_background_blob(slide, sw, sh)
-                if blob:
+        divider_blob: Optional[Tuple[bytes, str]] = None
+        content_votes: Counter = Counter()
+        content_blobs: Dict[str, Tuple[bytes, str]] = {}
+        for i, sl in enumerate(slides):
+            if _short_answer_slide(sl):
+                if not divider_blob:
+                    divider_blob = _get_slide_background_blob(sl, sw, sh_, repeated, allow_unique=True)
+                continue
+            if i == 0:
+                continue
+            blob = _get_slide_background_blob(sl, sw, sh_, repeated, allow_unique=False)
+            if blob and _blob_sha(blob) != cover_sha:
+                sha = _blob_sha(blob)
+                content_votes[sha] += 1
+                content_blobs[sha] = blob
+
+        ranked = [content_blobs[sha] for sha, _ in content_votes.most_common()]
+        question_blob = ranked[0] if ranked else None
+        answer_reveal_blob = ranked[1] if len(ranked) > 1 else None
+
+        # Fall back to artwork that lives on layouts directly.
+        if not (cover_blob and question_blob and divider_blob):
+            seen = {_blob_sha(b) for b in (cover_blob, question_blob, divider_blob) if b}
+            for l in self._all_layouts():
+                blob = _find_fullscreen_picture_in_shapes(l.shapes, sw, sh_)
+                if not blob or _blob_sha(blob) in seen:
+                    continue
+                seen.add(_blob_sha(blob))
+                lname = l.name.lower()
+                if not cover_blob and ("title" in lname or "cover" in lname):
                     cover_blob = blob
-                    break
-
-        if not cover_blob and len(self.prs.slides) > 0:
-            for i, s in enumerate(self.prs.slides):
-                if i >= 10:
-                    break
-                blob = _get_slide_background_blob(s, sw, sh)
-                if blob:
-                    cover_blob = blob
-                    break
-
-        # 2. Look for Question background
-        for i, s in enumerate(self.prs.slides):
-            if i >= 10:
-                break
-            slide_txt = " ".join(sh.text_frame.text.lower() for sh in s.shapes if sh.has_text_frame)
-            lname = s.slide_layout.name.lower()
-            if any(k in slide_txt for k in ["question", "1.", "2.", "3.", "what ", "which "]) or "content" in lname:
-                blob = _get_slide_background_blob(s, sw, sh)
-                if blob and blob[0] != (cover_blob[0] if cover_blob else None):
+                elif not divider_blob and ("section" in lname or "header" in lname or "divider" in lname):
+                    divider_blob = blob
+                elif not question_blob:
                     question_blob = blob
-                    break
 
-        # 3. Look for Answer Divider background
-        for i, s in enumerate(self.prs.slides):
-            if i >= 10:
-                break
-            slide_txt = " ".join(sh.text_frame.text.lower() for sh in s.shapes if sh.has_text_frame)
-            lname = s.slide_layout.name.lower()
-            if "answer" in slide_txt or "section header" in lname or "divider" in lname:
-                blob = _get_slide_background_blob(s, sw, sh)
-                if blob:
-                    answer_divider_blob = blob
-                    break
-
-        # 4. Search slide_layouts directly if any background is still missing
-        missing_roles = [r for r, b in [("cover", cover_blob), ("question", question_blob), ("answer", answer_divider_blob)] if not b]
-        if missing_roles:
-            seen_hashes = {b[0] for b in [cover_blob, question_blob, answer_divider_blob] if b}
-            for l in self.prs.slide_layouts:
-                blob = _find_fullscreen_picture_in_shapes(l.shapes, sw, sh)
-                if blob and blob[0] not in seen_hashes:
-                    seen_hashes.add(blob[0])
-                    lname = l.name.lower()
-                    if not cover_blob and ("title" in lname or "cover" in lname):
-                        cover_blob = blob
-                    elif not answer_divider_blob and ("section" in lname or "header" in lname or "divider" in lname):
-                        answer_divider_blob = blob
-                    elif not question_blob and ("content" in lname or "question" in lname):
-                        question_blob = blob
-                    elif not question_blob:
-                        question_blob = blob
-
-        # Save extracted background images to disk
         role_map = [
             ("cover_bg", cover_blob),
             ("question_bg", question_blob or cover_blob),
-            ("answer_intro_bg", answer_divider_blob or cover_blob),
-            ("answer_bg", answer_reveal_blob or answer_divider_blob or question_blob or cover_blob),
+            ("answer_intro_bg", divider_blob or question_blob or cover_blob),
+            ("answer_bg", answer_reveal_blob or divider_blob or question_blob or cover_blob),
         ]
-
         for role_name, blob_data in role_map:
-            if blob_data:
-                blob_bytes, ext = blob_data
-                clean_ext = "png" if "png" in ext.lower() else ("jpg" if "jp" in ext.lower() else ext)
-                filename = f"{role_name}.{clean_ext}"
-                out_path = dest_dir / filename
-                with open(out_path, "wb") as f:
-                    f.write(blob_bytes)
-                backgrounds[role_name] = filename
+            if not blob_data:
+                continue
+            norm = _normalise_image(blob_data[0])
+            if not norm:
+                continue
+            blob_bytes, ext = norm
+            filename = f"{role_name}.{ext}"
+            (dest_dir / filename).write_bytes(blob_bytes)
+            backgrounds[role_name] = filename
 
-                # Save lightweight web-scaled JPEG (~80-150 KB) to eliminate browser freezing during preview
-                try:
-                    with Image.open(io.BytesIO(blob_bytes)) as im:
-                        im.thumbnail((1280, 720), Image.Resampling.LANCZOS)
-                        im_rgb = im.convert("RGB")
-                        # Save aliases for easy lookup by role name
-                        base_role = role_name.replace("_bg", "").replace("_intro", "")
-                        im_rgb.save(str(dest_dir / f"web_{base_role}.jpg"), "JPEG", quality=85)
-                        if role_name == "answer_intro_bg":
-                            im_rgb.save(str(dest_dir / "web_divider.jpg"), "JPEG", quality=85)
-                except Exception as e:
-                    logger.debug(f"Could not generate web thumbnail for {role_name}: {e}")
-
+            # Lightweight web-scaled JPEG (~80-150 KB) so the browser preview never freezes.
+            try:
+                with Image.open(io.BytesIO(blob_bytes)) as im:
+                    im.thumbnail((1280, 720), Image.Resampling.LANCZOS)
+                    im_rgb = im.convert("RGB")
+                    base_role = role_name.replace("_bg", "").replace("_intro", "")
+                    im_rgb.save(str(dest_dir / f"web_{base_role}.jpg"), "JPEG", quality=85)
+                    if role_name == "answer_intro_bg":
+                        im_rgb.save(str(dest_dir / "web_divider.jpg"), "JPEG", quality=85)
+            except Exception as e:
+                logger.debug(f"Could not generate web thumbnail for {role_name}: {e}")
         return backgrounds
 
     def _generate_clean_master(self, output_path: Path, layouts_meta: Dict[str, Any]) -> None:
         """
-        Creates a clean presentation retaining all slide masters, slide layouts,
-        embedded fonts, color schemes, and vector artwork, without user questions.
-        Preserves reference slides for cover, question, and answer.
+        A reusable master: every slide master, layout, theme, colour scheme and vector artwork, with NO slides.
+        The exporter always starts from zero slides anyway; keeping sample slides only dragged their photos, music
+        and video into the file (a 90 MB sample deck produced a 37 MB master that was re-read on every export).
         """
         clean_prs = Presentation(io.BytesIO(self.raw_bytes))
-
-        # Keep at most 3 reference template slides: Cover, Question, Answer Divider
-        while len(clean_prs.slides) > 3:
-            rId = clean_prs.slides._sldIdLst[-1].rId
+        while len(clean_prs.slides) > 0:
+            rId = clean_prs.slides._sldIdLst[0].rId
             clean_prs.part.drop_rel(rId)
-            del clean_prs.slides._sldIdLst[-1]
-
-        # Clear sample body text on preserved slides while preserving layout backgrounds and shapes
-        for slide in clean_prs.slides:
-            for shape in slide.shapes:
-                if shape.has_text_frame and shape.text_frame.text.strip():
-                    shape.text_frame.text = ""
-
+            del clean_prs.slides._sldIdLst[0]
         clean_prs.save(str(output_path))
 
     def _generate_preview(self, dest_dir: Path, preview_path: Path) -> Optional[str]:

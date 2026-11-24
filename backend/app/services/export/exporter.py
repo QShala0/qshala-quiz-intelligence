@@ -529,16 +529,34 @@ def _load_school_master():
     return Presentation(str(_SCHOOL_MASTER))
 
 
-def _layout_named(prs, name: str):
-    for layout in prs.slide_layouts:
+def _all_layouts(prs):
+    """Every slide layout in the deck, across ALL slide masters. `prs.slide_layouts` only lists the FIRST master's,
+    but real sample decks usually have several masters (layouts named like "1_Title and Content" live in the others)."""
+    out = []
+    for master in prs.slide_masters:
+        out.extend(master.slide_layouts)
+    return out
+
+
+def _find_layout(prs, name: str):
+    """Layout with exactly this name in any master, or None."""
+    for layout in _all_layouts(prs):
         if layout.name == name:
             return layout
-    raise KeyError(f"layout {name!r} not in the School master deck")
+    return None
+
+
+def _layout_named(prs, name: str):
+    layout = _find_layout(prs, name)
+    if layout is None:
+        raise KeyError(f"layout {name!r} not in the School master deck")
+    return layout
 
 
 def _layout_named_safe(prs, candidate_names: List[str]):
+    layouts = _all_layouts(prs)
     for name in candidate_names:
-        for layout in prs.slide_layouts:
+        for layout in layouts:
             if layout.name and layout.name.lower() == name.lower():
                 return layout
     return None
@@ -1101,17 +1119,32 @@ class QuizExporter:
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
         from pptx.enum.shapes import MSO_SHAPE
+        from fastapi import HTTPException
+        from backend.app.services.export import template_store
+        from backend.app.services.export.slide_fit import fit_deck_to_slide, remove_empty_placeholders
+
         custom_template = None
+        custom_dir: Optional[Path] = None
         if template_id and db:
             from backend.app.models.custom_template import CustomPptTemplate
             custom_template = db.query(CustomPptTemplate).filter(CustomPptTemplate.id == template_id).first()
+            # A template the user explicitly picked must never be silently swapped for the default deck.
+            if custom_template is None:
+                raise HTTPException(status_code=404, detail="That PowerPoint template no longer exists. Pick another template.")
+            custom_dir = template_store.ensure_local_dir(custom_template)
+            if custom_dir is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This template's files are no longer on the server (it was saved before durable storage was on). "
+                           "Upload the sample deck again to recreate it.",
+                )
 
         is_qshala_school = (quiz_type in ("qshala_school", "qshala")) or (custom_template and custom_template.category == "qshala_school")
         master_prs = None
 
-        if custom_template and custom_template.storage_path and os.path.exists(custom_template.storage_path):
+        if custom_template and custom_dir is not None:
             try:
-                prs = Presentation(custom_template.storage_path)
+                prs = Presentation(str(custom_dir / template_store.MASTER_NAME))
                 while len(prs.slides) > 0:
                     rId = prs.slides._sldIdLst[0].rId
                     prs.part.drop_rel(rId)
@@ -1122,13 +1155,16 @@ class QuizExporter:
                 q_name = layouts_info.get("question_layout")
                 div_name = layouts_info.get("divider_layout")
 
-                cover_layout = (_layout_named(prs, cov_name) if cov_name else None) or _layout_named_safe(prs, ["Title Slide", "Title", "Cover"]) or prs.slide_layouts[0]
-                blank_layout = (_layout_named(prs, q_name) if q_name else None) or _layout_named_safe(prs, ["Title and Content", "Blank", "Title Only"]) or prs.slide_layouts[-1]
-                divider_layout = (_layout_named(prs, div_name) if div_name else None) or _layout_named_safe(prs, ["Section Header", "Header", "Title Only"]) or blank_layout
+                cover_layout = (_find_layout(prs, cov_name) if cov_name else None) or _layout_named_safe(prs, ["Title Slide", "Title", "Cover"]) or _all_layouts(prs)[0]
+                blank_layout = (_find_layout(prs, q_name) if q_name else None) or _layout_named_safe(prs, ["Title and Content", "Blank", "Title Only"]) or _all_layouts(prs)[-1]
+                divider_layout = (_find_layout(prs, div_name) if div_name else None) or _layout_named_safe(prs, ["Section Header", "Header", "Title Only"]) or blank_layout
                 master_prs = prs
             except Exception as e:
-                logger.warning(f"Could not load custom master deck {custom_template.storage_path}: {e}")
-                master_prs = None
+                logger.exception(f"Could not load custom master deck for template {custom_template.id}: {e}")
+                raise HTTPException(
+                    status_code=409,
+                    detail="This template's master file could not be opened. Upload the sample deck again to recreate it.",
+                )
 
         if master_prs is None:
             if is_qshala_school:
@@ -1181,9 +1217,10 @@ class QuizExporter:
         if not qr_wa.exists():
             qr_wa = assets_base / "qr_whatsapp.jpg"
 
-        # Override with custom template extracted backgrounds if available
-        if custom_template and custom_template.storage_path:
-            custom_dir = Path(custom_template.storage_path).parent
+        # Override with custom template extracted backgrounds if available. A custom template must NOT inherit the
+        # QShala/ZVQ default artwork: start from "no background" and only use what was extracted from its own deck.
+        if custom_template and custom_dir is not None:
+            cover_bg = question_bg = answer_intro_bg = answer_bg = track_dir / "__no_background__.png"
             for cand in ["cover_bg.png", "cover_bg.jpg", "cover_bg.jpeg"]:
                 if (custom_dir / cand).exists():
                     cover_bg = custom_dir / cand
@@ -2298,6 +2335,12 @@ class QuizExporter:
             )
         elif is_qshala_school:
             _apply_causten_style(prs)
+
+        # Template cleanup: no ghost "Click to add title" boxes, and everything re-mapped onto the template's own slide
+        # size (custom decks are often 10 x 5.625 or 4:3, the layout code above works on a 13.333 x 7.5 canvas).
+        if master_prs is not None:
+            remove_empty_placeholders(prs)
+            fit_deck_to_slide(prs)
 
         buffer = io.BytesIO()
         prs.save(buffer)
