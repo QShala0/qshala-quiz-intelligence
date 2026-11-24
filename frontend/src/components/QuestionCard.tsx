@@ -26,6 +26,7 @@ import StructuredFormatBody from './formats/StructuredFormatBody';
 
 interface Props {
   question: GeneratedQuestion;
+  displayNumber?: number;
   onUpdate: (id: string, updated: Partial<GeneratedQuestion>) => Promise<void>;
   onAction: (id: string, action: 'regenerate' | 'make_easier' | 'make_harder' | 'generate_similar') => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -34,6 +35,7 @@ interface Props {
 
 export default function QuestionCard({
   question,
+  displayNumber,
   onUpdate,
   onAction,
   onDelete,
@@ -111,7 +113,7 @@ export default function QuestionCard({
       <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
         <div className="flex items-center gap-3">
           <span className="text-[14px] font-bold text-slate-900">
-            {question.order_index}.
+            {displayNumber ?? (question.order_index > 0 ? question.order_index : 1)}.
           </span>
           <span className="text-[12px] font-medium text-slate-500">
             {question.difficulty}
@@ -509,7 +511,7 @@ export default function QuestionCard({
               <div className="flex items-center gap-2">
                 <Bookmark className="h-3.5 w-3.5 text-blue-600" />
                 <span>
-                  Source: <strong className="font-semibold text-slate-800">{primarySource.document_title || 'QShala Archive'}</strong> · Slide {primarySource.slide_number || 'N/A'}
+                  Source: <strong className="font-semibold text-slate-800">{primarySource.document_title || 'QShala Archive'}</strong>{primarySource.slide_number ? ` · Slide ${primarySource.slide_number}` : ''}
                 </span>
               </div>
               {showSource ? (

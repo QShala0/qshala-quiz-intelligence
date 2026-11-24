@@ -533,10 +533,15 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
     # fields), so options, explanation and every kind of media come across, as they do for generated quizzes.
     originals = {q.id: q for q in db.query(Question).filter(Question.id.in_([b["id"] for b in ordered])).all()}
     doc_ids = {q.document_id for q in originals.values() if q.document_id}
+    slide_ids = {q.slide_id for q in originals.values() if q.slide_id}
     doc_titles = {}
+    slide_numbers = {}
     if doc_ids:
         from backend.app.models.document import Document
         doc_titles = {d.id: (d.title or d.filename) for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()}
+    if slide_ids:
+        from backend.app.models.document import Slide
+        slide_numbers = {s.id: s.slide_number for s in db.query(Slide).filter(Slide.id.in_(slide_ids)).all()}
 
     quiz = Quiz(
         title=title[:255],
@@ -549,7 +554,7 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
     db.add(quiz)
     db.flush()
 
-    for idx, b in enumerate(ordered):
+    for idx, b in enumerate(ordered, start=1):
         orig_q = originals.get(b["id"])
 
         def field(name, default=None, bank_key=None):
@@ -598,12 +603,19 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
         db.add(gq)
         db.flush()
         if orig_q is not None:
+            s_num = slide_numbers.get(orig_q.slide_id) if orig_q.slide_id else None
+            if s_num is None and getattr(orig_q, "source_slide_range", None):
+                m = re.search(r"\d+", str(orig_q.source_slide_range))
+                if m:
+                    s_num = int(m.group(0))
             db.add(RetrievalSource(
                 generated_question_id=gq.id,
                 historical_question_id=orig_q.id,
                 document_id=orig_q.document_id,
                 slide_id=orig_q.slide_id,
                 document_title=doc_titles.get(orig_q.document_id),
+                slide_number=s_num,
+                source_quote=orig_q.question_text,
                 relevance_score=1.0,
                 rationale="Picked from the vault in the Prompt Quizzer",
             ))

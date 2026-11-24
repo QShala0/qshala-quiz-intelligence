@@ -679,3 +679,46 @@ def test_speaker_notes_source_links_and_answer_removal_on_question_slide():
     assert ans_text_frames[0].paragraphs[0].alignment == PP_ALIGN.CENTER, "Answer text must be center aligned"
 
 
+
+
+def test_optimize_picture_source_shrinks_large_images(tmp_path):
+    """Oversized images (>1600px) are downscaled and compressed to keep PPTX exports under Cloud Run limits."""
+    from PIL import Image
+    from backend.app.services.export.exporter import _optimize_picture_source
+
+    big_png = tmp_path / "huge.png"
+    img = Image.new("RGB", (3200, 2400), color=(40, 120, 200))
+    img.save(big_png, format="PNG")
+    orig_size = big_png.stat().st_size
+
+    with Image.open(big_png) as opened:
+        result = _optimize_picture_source(big_png, opened)
+
+    assert isinstance(result, io.BytesIO)
+    optimized_bytes = result.getvalue()
+    assert len(optimized_bytes) < orig_size
+    with Image.open(io.BytesIO(optimized_bytes)) as opt_img:
+        assert max(opt_img.size) == 1600
+
+
+def test_large_pptx_export_uses_r2_download_url(monkeypatch):
+    """Exports exceeding Cloud Run's safe payload threshold upload to R2 and return a JSON download_url."""
+    import json
+    from unittest.mock import MagicMock
+    from fastapi.responses import JSONResponse
+    from backend.app.routers import quizzes as quizzes_router
+
+    fake_r2 = MagicMock()
+    fake_r2.is_configured = True
+    fake_r2.upload_bytes.return_value = "https://pub-test.r2.dev/exports/q1/abc_test.pptx"
+
+    monkeypatch.setattr(quizzes_router, "CLOUD_RUN_SAFE_EXPORT_BYTES", 100)
+    monkeypatch.setattr("backend.app.services.storage.r2_storage.get_media_storage", lambda: fake_r2)
+
+    resp = quizzes_router._pptx_export_response(b"x" * 250, "qshala_quiz_q1.pptx", "q1")
+    assert isinstance(resp, JSONResponse)
+    payload = json.loads(resp.body.decode("utf-8"))
+    assert payload["download_url"] == "https://pub-test.r2.dev/exports/q1/abc_test.pptx"
+    assert payload["filename"] == "qshala_quiz_q1.pptx"
+    assert payload["size_bytes"] == 250
+    fake_r2.upload_bytes.assert_called_once()

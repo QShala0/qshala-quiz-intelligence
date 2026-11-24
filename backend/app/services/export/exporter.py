@@ -291,19 +291,56 @@ def _resolve_media_path(rel_url: Optional[str], download_dir: Optional[Path] = N
 
     return None
 
+_MAX_EMBED_IMAGE_DIM = 1600
+_OPTIMIZE_IMAGE_MIN_BYTES = 512 * 1024
+
+
+def _optimize_picture_source(img_path: Path, pil_img: Image.Image) -> Union[str, io.BytesIO]:
+    """Return a compressed BytesIO stream when an image is oversized, otherwise the original path."""
+    try:
+        orig_size = img_path.stat().st_size
+    except OSError:
+        return str(img_path)
+    img_w, img_h = pil_img.size
+    if max(img_w, img_h) <= _MAX_EMBED_IMAGE_DIM and orig_size <= _OPTIMIZE_IMAGE_MIN_BYTES:
+        return str(img_path)
+    try:
+        work = pil_img.copy()
+        if max(img_w, img_h) > _MAX_EMBED_IMAGE_DIM:
+            resampling = getattr(Image, "Resampling", Image).LANCZOS
+            work.thumbnail((_MAX_EMBED_IMAGE_DIM, _MAX_EMBED_IMAGE_DIM), resampling)
+        has_alpha = work.mode in ("RGBA", "LA") or (
+            work.mode == "P" and "transparency" in work.info
+        )
+        buf = io.BytesIO()
+        if has_alpha:
+            work.save(buf, format="PNG", optimize=True)
+        else:
+            if work.mode != "RGB":
+                work = work.convert("RGB")
+            work.save(buf, format="JPEG", quality=85, optimize=True)
+        if buf.tell() < orig_size:
+            buf.seek(0)
+            return buf
+    except Exception as opt_err:
+        logger.debug(f"Image optimization skipped for {img_path}: {opt_err}")
+    return str(img_path)
+
+
 def _add_scaled_picture(slide, img_path: Path, max_left, max_top, max_w, max_h):
     """Adds an image keeping exact aspect ratio without distortion or borders."""
     try:
         with Image.open(img_path) as pil_img:
             img_w, img_h = pil_img.size
-        if img_w <= 0 or img_h <= 0:
-            return None
+            if img_w <= 0 or img_h <= 0:
+                return None
+            img_source = _optimize_picture_source(img_path, pil_img)
         scale = min(float(max_w) / img_w, float(max_h) / img_h)
         scaled_w = int(img_w * scale)
         scaled_h = int(img_h * scale)
         final_left = int(max_left + (max_w - scaled_w) / 2)
         final_top = int(max_top + (max_h - scaled_h) / 2)
-        return slide.shapes.add_picture(str(img_path), final_left, final_top, width=scaled_w, height=scaled_h)
+        return slide.shapes.add_picture(img_source, final_left, final_top, width=scaled_w, height=scaled_h)
     except Exception as img_err:
         logger.warning(f"Error adding picture {img_path} to slide: {img_err}")
         return None
@@ -470,6 +507,98 @@ def _format_question_source_notes(q: Any) -> str:
     if not lines:
         return "Source: QShala Knowledge Vault"
     return "\n\n".join(lines)
+
+
+def _strip_answer_from_notes(notes: str) -> str:
+    """Remove any 'Official Answer:' lines so answers never leak onto Question slide notes."""
+    if not notes:
+        return ""
+    cleaned = re.sub(r"(?im)^Official Answer:.*$", "", notes)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
+def _get_original_slide_notes(q: Any) -> Tuple[str, str]:
+    """Look up the original PowerPoint speaker notes from the ingested Slide(s) for this question.
+    Returns (question_slide_notes, answer_slide_notes)."""
+    raw_sources = _get_val(q, "retrieval_sources", []) or _get_val(q, "sources", []) or []
+    q_slide_ids = []
+    a_slide_ids = []
+    hq_ids = []
+    doc_slide_pairs = []
+
+    for s in raw_sources:
+        sid = _get_val(s, "slide_id")
+        if sid:
+            q_slide_ids.append(str(sid))
+        hqid = _get_val(s, "historical_question_id")
+        if hqid:
+            hq_ids.append(str(hqid))
+        did = _get_val(s, "document_id")
+        snum = _get_val(s, "slide_number")
+        if did and snum and not sid:
+            try:
+                doc_slide_pairs.append((str(did), int(snum)))
+            except (TypeError, ValueError):
+                pass
+
+    for attr in ("slide_id",):
+        val = _get_val(q, attr)
+        if val:
+            q_slide_ids.append(str(val))
+    ans_sid = _get_val(q, "answer_slide_id")
+    if ans_sid:
+        a_slide_ids.append(str(ans_sid))
+    hq_direct = _get_val(q, "historical_question_id") or _get_val(q, "duplicate_of_id")
+    if hq_direct:
+        hq_ids.append(str(hq_direct))
+
+    if not q_slide_ids and not a_slide_ids and not hq_ids and not doc_slide_pairs:
+        return "", ""
+
+    q_notes_list: List[str] = []
+    a_notes_list: List[str] = []
+    try:
+        from backend.app.database import SessionLocal
+        from backend.app.models.document import Slide
+        from backend.app.models.question import Question
+        with SessionLocal() as db:
+            if hq_ids:
+                hqs = db.query(Question).filter(Question.id.in_(list(set(hq_ids)))).all()
+                for h in hqs:
+                    if h.slide_id:
+                        q_slide_ids.append(str(h.slide_id))
+                    if h.answer_slide_id:
+                        a_slide_ids.append(str(h.answer_slide_id))
+
+            all_sids = list(dict.fromkeys(q_slide_ids + a_slide_ids))
+            slide_map: Dict[str, str] = {}
+            if all_sids:
+                slides = db.query(Slide).filter(Slide.id.in_(all_sids)).all()
+                for sl in slides:
+                    if sl.speaker_notes and sl.speaker_notes.strip():
+                        slide_map[str(sl.id)] = sl.speaker_notes.strip()
+
+            for sid in dict.fromkeys(q_slide_ids):
+                if sid in slide_map and slide_map[sid] not in q_notes_list:
+                    q_notes_list.append(slide_map[sid])
+
+            if not q_notes_list and doc_slide_pairs:
+                for did, snum in doc_slide_pairs:
+                    sl = db.query(Slide).filter(Slide.document_id == did, Slide.slide_number == snum).first()
+                    if sl and sl.speaker_notes and sl.speaker_notes.strip():
+                        if sl.speaker_notes.strip() not in q_notes_list:
+                            q_notes_list.append(sl.speaker_notes.strip())
+
+            for sid in dict.fromkeys(a_slide_ids):
+                if sid in slide_map and slide_map[sid] not in a_notes_list and slide_map[sid] not in q_notes_list:
+                    a_notes_list.append(slide_map[sid])
+    except Exception as e:
+        logger.debug(f"_get_original_slide_notes DB lookup error: {e}")
+
+    q_notes = _strip_answer_from_notes("\n\n".join(q_notes_list))
+    a_notes = "\n\n".join(a_notes_list).strip()
+    return q_notes, a_notes
 
 
 def _text_fits_at_28pt(text: str, options: list, w_in: float, h_in: float) -> bool:
@@ -1548,6 +1677,7 @@ class QuizExporter:
             fp_q = _get_val(q, "format_payload")
             if format_slides.export_format_of(fp_q):
                 opts_q = _get_val(q, "options", None)
+                before_fmt = len(prs.slides)
                 if format_slides.add_format_question(
                     prs, blank_layout, payload=fp_q,
                     question_text=(_get_val(q, "question_text") or _get_val(q, "question", "") or "").strip(),
@@ -1559,6 +1689,24 @@ class QuizExporter:
                     question_bg=question_bg if (is_qshala_school and master_prs is None and question_bg.exists()) else None,
                     answer_layout=divider_layout,
                 ):
+                    orig_q_notes, orig_a_notes = _get_original_slide_notes(q)
+                    fmt_src_notes = _format_question_source_notes(q)
+                    if orig_q_notes and len(prs.slides) > before_fmt:
+                        first_s = prs.slides[before_fmt]
+                        existing_blob = first_s.notes_slide.notes_text_frame.text or ""
+                        first_s.notes_slide.notes_text_frame.text = f"Original Notes:\n{orig_q_notes}" + ("\n\n" + existing_blob if existing_blob else "")
+                    if len(prs.slides) > before_fmt + 1:
+                        last_s = prs.slides[-1]
+                        a_parts = []
+                        v_clue_fmt = _get_val(q, "visual_clues") or _get_val(q, "clue")
+                        if v_clue_fmt:
+                            a_parts.append(f"Presenter Clues: {v_clue_fmt}")
+                        if orig_a_notes:
+                            a_parts.append(f"Original Answer Slide Notes:\n{orig_a_notes}")
+                        if fmt_src_notes:
+                            a_parts.append(fmt_src_notes)
+                        if a_parts:
+                            last_s.notes_slide.notes_text_frame.text = "\n\n".join(a_parts)
                     continue
             is_starred = (idx % 5 == 0)
             star_tag = " *" if is_starred else ""
@@ -2057,23 +2205,13 @@ class QuizExporter:
                         po.font.size = Pt(20)
                         po.font.color.rgb = C_TEXT_BODY
 
-            # Speaker Notes for Question Slide: Presenter Clues, Media Refs, and Source Links.
-            # CRITICAL: Official Answer must NEVER be included on the Question slide notes!
-            source_notes = _format_question_source_notes(q)
-            q_notes_parts = []
-            v_clue = _get_val(q, "visual_clues") or _get_val(q, "clue")
-            if v_clue:
-                q_notes_parts.append(f"Presenter Clues: {v_clue}")
-            if video_path:
-                q_notes_parts.append(f"Media Reference (Video): {video_path.name}")
-            elif resolved_q_imgs:
-                q_notes_parts.append(f"Media Reference (Image): {resolved_q_imgs[0].name}")
-            if is_starred:
-                q_notes_parts.append("★ Important: Star tie-breaker question!")
-            if source_notes:
-                q_notes_parts.append(source_notes)
-
-            sq.notes_slide.notes_text_frame.text = "\n\n".join(q_notes_parts)
+            # Speaker Notes for Question Slide: only original question-slide notes (if any).
+            # Presenter Clues, Media Refs, Source Links, and Answer must NEVER be on the Question slide notes!
+            orig_q_notes, orig_a_notes = _get_original_slide_notes(q)
+            if orig_q_notes:
+                sq.notes_slide.notes_text_frame.text = _strip_answer_from_notes(f"Original Notes:\n{orig_q_notes}")
+            else:
+                sq.notes_slide.notes_text_frame.text = ""
             if 'sq_img' in locals() and sq_img is not None:
                 sq_img.notes_slide.notes_text_frame.text = sq.notes_slide.notes_text_frame.text
 
@@ -2322,11 +2460,22 @@ class QuizExporter:
                     pa_head.font.bold = True
                     pa_head.font.color.rgb = C_TEXT_DARK
 
-            # Speaker Notes for Answer Slide: Context and Source Links (clean, no old boilerplate)
+            # Speaker Notes for Answer Slide: Context, Original Answer Slide Notes, Presenter Clues, Media Refs, and Source Links
             source_notes = _format_question_source_notes(q)
             a_notes_parts = []
             if explanation:
                 a_notes_parts.append(f"Context: {explanation}")
+            if orig_a_notes:
+                a_notes_parts.append(f"Original Answer Slide Notes:\n{orig_a_notes}")
+            v_clue = _get_val(q, "visual_clues") or _get_val(q, "clue")
+            if v_clue:
+                a_notes_parts.append(f"Presenter Clues: {v_clue}")
+            if video_path:
+                a_notes_parts.append(f"Media Reference (Video): {video_path.name}")
+            elif resolved_q_imgs:
+                a_notes_parts.append(f"Media Reference (Image): {resolved_q_imgs[0].name}")
+            if is_starred:
+                a_notes_parts.append("★ Important: Star tie-breaker question!")
             if source_notes:
                 a_notes_parts.append(source_notes)
 
