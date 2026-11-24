@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
 from backend.app.main import app
 from backend.app.database import SessionLocal
 from backend.app.models.quiz import Quiz, GeneratedQuestion
@@ -666,5 +667,15 @@ def test_speaker_notes_source_links_and_answer_removal_on_question_slide():
     assert "Context: Used as a navigational compass by Pacific waypoint voyagers." in a_notes
     assert "Source: Polynesian Wayfinding & Astronomy.pptx (Slide 7)" in a_notes
     assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Wayfinding_Pacific.pptx" in a_notes
+
+    # 4. Answer slide must NOT have "Answer {idx}" header badge (separator slide is enough)
+    for sh in a_slide.shapes:
+        if sh.has_text_frame:
+            assert "Answer 1" not in sh.text_frame.text, "Answer slide must not have redundant 'Answer 1' header badge"
+
+    # 5. Answer text on answer slide must be center aligned
+    ans_text_frames = [sh.text_frame for sh in a_slide.shapes if sh.has_text_frame and "Southern Cross" in sh.text_frame.text]
+    assert len(ans_text_frames) == 1
+    assert ans_text_frames[0].paragraphs[0].alignment == PP_ALIGN.CENTER, "Answer text must be center aligned"
 
 

@@ -2170,17 +2170,7 @@ class QuizExporter:
             has_ans_img = bool(ans_img_path)
 
             if is_qshala_school:
-                # QShala School Answer Reveal Layout
-                tb_ahead = sa.shapes.add_textbox(Inches(1.00), Inches(0.70), Inches(11.333), Inches(0.75))
-                tb_ahead.name = "QNum"
-                pah = tb_ahead.text_frame.paragraphs[0]
-                pah.alignment = PP_ALIGN.CENTER
-                pah.text = f"Answer {idx}"
-                pah.font.name = FONT_HEAD
-                pah.font.size = Pt(36)
-                pah.font.bold = True
-                pah.font.color.rgb = C_TEXT_DARK
-
+                # QShala School Answer Reveal Layout (answer separator slide is enough; no redundant "Answer {idx}" header)
                 if has_ans_img:
                     _a_aspect = _image_aspect(ans_img_path)
                     mode_a, (tl, tt, tw, th), (ml, mt, mw, mh) = _plan_media(_a_aspect, len(ans_val) + len(explanation))
@@ -2212,7 +2202,7 @@ class QuizExporter:
                     _add_scaled_picture(sa, ans_img_path, Inches(ml), Inches(mt), Inches(mw), Inches(mh))
                 else:
                     if explanation:
-                        tb_a = sa.shapes.add_textbox(Inches(1.20), Inches(1.75), Inches(10.933), Inches(1.30))
+                        tb_a = sa.shapes.add_textbox(Inches(1.20), Inches(1.80), Inches(10.933), Inches(1.40))
                         tf_a = tb_a.text_frame
                         tf_a.word_wrap = True
                         pa_head = tf_a.paragraphs[0]
@@ -2223,7 +2213,7 @@ class QuizExporter:
                         pa_head.font.bold = True
                         pa_head.font.color.rgb = C_TEXT_DARK
 
-                        tb_exp = sa.shapes.add_textbox(Inches(1.50), Inches(3.20), Inches(10.333), Inches(3.30))
+                        tb_exp = sa.shapes.add_textbox(Inches(1.50), Inches(3.35), Inches(10.333), Inches(3.20))
                         tf_exp = tb_exp.text_frame
                         tf_exp.word_wrap = True
                         pexp = tf_exp.paragraphs[0]
@@ -2233,9 +2223,10 @@ class QuizExporter:
                         pexp.font.size = Pt(24) if len(explanation) < 180 else Pt(20)
                         pexp.font.color.rgb = C_TEXT_BODY
                     else:
-                        tb_a = sa.shapes.add_textbox(Inches(1.20), Inches(2.50), Inches(10.933), Inches(2.40))
+                        tb_a = sa.shapes.add_textbox(Inches(1.20), Inches(2.20), Inches(10.933), Inches(3.00))
                         tf_a = tb_a.text_frame
                         tf_a.word_wrap = True
+                        tf_a.vertical_anchor = MSO_ANCHOR.MIDDLE
                         pa_head = tf_a.paragraphs[0]
                         pa_head.alignment = PP_ALIGN.CENTER
                         pa_head.text = ans_val
@@ -2251,6 +2242,7 @@ class QuizExporter:
                     tf_a.word_wrap = True
 
                     pa_head = tf_a.paragraphs[0]
+                    pa_head.alignment = PP_ALIGN.CENTER
                     pa_head.text = ans_val
                     pa_head.font.name = FONT_HEAD
                     pa_head.font.size = Pt(34) if len(ans_val) < 40 else (Pt(28) if len(ans_val) < 80 else Pt(22))
@@ -2258,6 +2250,7 @@ class QuizExporter:
                     pa_head.font.color.rgb = C_TEXT_DARK
 
                     pa_exp = tf_a.add_paragraph()
+                    pa_exp.alignment = PP_ALIGN.CENTER
                     pa_exp.space_before = Pt(16)
                     pa_exp.text = explanation
                     pa_exp.font.name = FONT_BODY

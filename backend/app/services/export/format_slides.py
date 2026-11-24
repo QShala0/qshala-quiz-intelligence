@@ -233,7 +233,7 @@ def _reveal_slides(prs, blank, d: Dict[str, Any], P: Dict[str, Any], resolve: Ca
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 1.0, 0.6, 11.3, 1.0, d["answer"], size=34, bold=True, color="059669", name="Title 1")
+    _text(sa, 1.0, 0.6, 11.3, 1.0, d["answer"], size=34, bold=True, color="059669", align="center", name="Title 1")
     _picture(sa, full, 3.2, 1.7, 6.9, 4.8, name="Full Image")
 
 
