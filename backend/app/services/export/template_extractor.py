@@ -580,15 +580,32 @@ class TemplateExtractor:
 
     def _generate_clean_master(self, output_path: Path, layouts_meta: Dict[str, Any]) -> None:
         """
-        A reusable master: every slide master, layout, theme, colour scheme and vector artwork, with NO slides.
-        The exporter always starts from zero slides anyway; keeping sample slides only dragged their photos, music
-        and video into the file (a 90 MB sample deck produced a 37 MB master that was re-read on every export).
+        A reusable master: every slide master, layout, theme, colour scheme and vector artwork, plus ONLY the two real
+        slides the exporter reuses as they are: the title slide (cover) and the "Answer" divider. Every other sample
+        slide is dropped, because keeping them dragged their photos, music and video into the file (a 90 MB sample
+        deck produced a 37 MB master that was re-read on every export).
+
+        The kept slides' positions are recorded in layouts_meta as cover_slide_index / divider_slide_index (positions
+        in the saved master, or None). A template saved before this existed has neither key and exports from layouts.
         """
         clean_prs = Presentation(io.BytesIO(self.raw_bytes))
-        while len(clean_prs.slides) > 0:
-            rId = clean_prs.slides._sldIdLst[0].rId
-            clean_prs.part.drop_rel(rId)
-            del clean_prs.slides._sldIdLst[0]
+        slides = list(clean_prs.slides)
+
+        divider_i = next((i for i, sl in enumerate(slides) if i > 0 and _short_answer_slide(sl)), None)
+        cover_i = 0 if slides and not _short_answer_slide(slides[0]) and len(slides[0].shapes) > 0 else None
+        keep = [i for i in (cover_i, divider_i) if i is not None]
+
+        for i in range(len(slides) - 1, -1, -1):
+            if i in keep:
+                continue
+            for sld_id in list(clean_prs.slides._sldIdLst):
+                if clean_prs.part.related_part(sld_id.rId) is slides[i].part:
+                    clean_prs.part.drop_rel(sld_id.rId)
+                    clean_prs.slides._sldIdLst.remove(sld_id)
+                    break
+
+        layouts_meta["cover_slide_index"] = keep.index(cover_i) if cover_i is not None else None
+        layouts_meta["divider_slide_index"] = keep.index(divider_i) if divider_i is not None else None
         clean_prs.save(str(output_path))
 
     def _generate_preview(self, dest_dir: Path, preview_path: Path) -> Optional[str]:

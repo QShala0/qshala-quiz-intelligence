@@ -172,12 +172,14 @@ def test_unknown_template_id_is_a_404_not_a_default_deck():
 
 # ---------------------------------------------------------------- extraction quality
 
-def test_master_has_no_sample_slides_and_stays_small(tmp_path):
+def test_master_keeps_only_cover_and_divider_and_stays_small(tmp_path):
     big_photo = _png((10, 20, 30), size=(2400, 1350))
     deck = _deck(odd_photo=big_photo)
     data = TemplateExtractor(deck).extract("t", output_dir=tmp_path / "m")
     master = Presentation(data["storage_path"])
-    assert len(master.slides) == 0
+    # Only the real cover (and an "Answer" divider if the deck has one) are kept; every other sample slide is dropped.
+    assert len(master.slides) <= 2
+    assert data["layout_metadata"]["layouts"]["cover_slide_index"] == 0
     assert len(list(master.slide_layouts)) >= 1
     assert data["file_size_bytes"] < len(deck)  # sample content is not carried along
 
