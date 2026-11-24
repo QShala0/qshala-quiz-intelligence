@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict, computed_field
+from pydantic import BaseModel, Field, ConfigDict, computed_field, field_validator
 
 class QuizGenerateRequest(BaseModel):
-    topic: str = Field(..., example="Australian History")
+    topic: str = Field(..., min_length=1, max_length=100, example="Australian History")
     subtopic: Optional[str] = None
     quiz_format: Optional[str] = Field(default="TOURNAMENT_PRELIMS", example="TOURNAMENT_PRELIMS")  # TOURNAMENT_PRELIMS, STAGE_FINALS, CLASSROOM_WARMUP, THEMATIC_SPECIAL, GENERAL_CHAMPIONSHIP
     audience_type: Optional[str] = Field(default=None, example="general")
@@ -20,9 +20,17 @@ class QuizGenerateRequest(BaseModel):
     generation_mode: str = Field(default="NEW", example="NEW")  # NEW, REMIX, HISTORICAL, SIMILAR
     tags: Optional[List[str]] = Field(default=None, description="Focus concept tags")
     tag_match_mode: str = Field(default="ANY", description="ANY or ALL")
-    personality: Optional[str] = Field(default=None, description="Optional host persona")
+    personality: Optional[str] = Field(default=None, max_length=50, description="Optional host persona")
     style: str = Field(default="QSHALA_HISTORICAL")
-    raw_prompt: Optional[str] = None
+    raw_prompt: Optional[str] = Field(default=None, max_length=4000)
+
+    @field_validator("topic")
+    @classmethod
+    def _topic_not_blank(cls, v: str) -> str:
+        v = (v or "").replace(chr(0), "").strip()
+        if not v:
+            raise ValueError("Topic cannot be empty")
+        return v
 
 class RetrievalSourceResponse(BaseModel):
     id: str
@@ -74,6 +82,42 @@ class GeneratedQuestionResponse(BaseModel):
         """The format the question was read as (from its payload), else the older question_type."""
         p = self.format_payload
         return (p.get("type") if isinstance(p, dict) else None) or self.question_type
+
+    @computed_field
+    @property
+    def occurrence_count(self) -> Optional[int]:
+        if isinstance(self.validation_details, dict):
+            prov = self.validation_details.get("provenance")
+            if isinstance(prov, dict):
+                return prov.get("occurrence_count")
+        return None
+
+    @computed_field
+    @property
+    def is_varsity(self) -> Optional[bool]:
+        if isinstance(self.validation_details, dict):
+            prov = self.validation_details.get("provenance")
+            if isinstance(prov, dict):
+                return prov.get("is_varsity")
+        return None
+
+    @computed_field
+    @property
+    def round_stage(self) -> Optional[str]:
+        if isinstance(self.validation_details, dict):
+            prov = self.validation_details.get("provenance")
+            if isinstance(prov, dict):
+                return prov.get("round_stage")
+        return None
+
+    @computed_field
+    @property
+    def star_marked(self) -> Optional[bool]:
+        if isinstance(self.validation_details, dict):
+            prov = self.validation_details.get("provenance")
+            if isinstance(prov, dict):
+                return prov.get("star_marked")
+        return None
 
 class GeneratedQuestionUpdate(BaseModel):
     question_text: Optional[str] = None

@@ -10,6 +10,7 @@ import SourceMultiPicker, { summarizeSelectedSources } from '../../components/So
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
 import QT, { PawIcon } from '../../components/ui/QT';
+import QTAnim from '../../components/ui/QTAnim';
 import YarnPlayCat from '../../components/mascot/YarnPlayCat';
 import VoiceInputButton from '../../components/VoiceInputButton';
 import { buildVocabulary } from '../../lib/voiceVocabulary';
@@ -118,13 +119,37 @@ const FALLBACK_STARTERS = [
 
 // (format counts: see components/FormatCounts.tsx)
 async function apiFetch<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Request failed (${res.status})`);
-  return res.json();
+  let res: Response;
+  try {
+    res = await fetch(`${getApiBase()}${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      // A stuck AI call must not leave the screen spinning forever.
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (e) {
+    if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      throw new Error('This is taking longer than expected. Please try again in a moment.');
+    }
+    throw new Error('Could not reach the server. Check your connection and try again.');
+  }
+  if (!res.ok) {
+    const j = await res.json().catch(() => null);
+    const d = j && typeof j === 'object' ? (j as { detail?: unknown }).detail : undefined;
+    throw new Error(
+      typeof d === 'string' && d
+        ? d
+        : Array.isArray(d)
+        ? 'Some of the details you entered are not valid. Please check and try again.'
+        : `Something went wrong (${res.status}). Please try again.`,
+    );
+  }
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new Error('The server sent an unexpected response. Please try again.');
+  }
 }
 
 export default function QuizzerHome() {
@@ -305,6 +330,7 @@ export default function QuizzerHome() {
 
 
   async function swap(id: string) {
+    if (loading) return;
     try {
       const nq = await apiFetch<DraftQ>('/prompt-quiz/swap', {
         prompt: lastPrompt,
@@ -357,7 +383,7 @@ export default function QuizzerHome() {
 
   async function save() {
     const selectedIds = qs.filter((q) => checked.has(q.id)).map((q) => q.id);
-    if (selectedIds.length === 0) return;
+    if (selectedIds.length === 0 || saving) return;
     setSaving(true);
     try {
       const r = await apiFetch<{ quiz_id: string }>('/prompt-quiz/save', {
@@ -492,14 +518,18 @@ export default function QuizzerHome() {
           </h1>
           {draft && (
             <div className="shrink-0 transition-transform duration-300">
-              <QT
-                pose={showCelebration ? 'professor' : 'round'}
-                height={48}
-                motion={showCelebration ? 'bob' : 'breathe'}
-                interactive={true}
-                speechBubble={showCelebration ? 'Your quiz is calibrated and ready, scholar!' : 'Quiz generated successfully!'}
-                alt="Professor QT celebrating your quiz"
-              />
+              {showCelebration ? (
+                <QTAnim anim="celebrate" fallbackPose="professor" height={64} alt="QT celebrating your new quiz" />
+              ) : (
+                <QT
+                  pose="round"
+                  height={48}
+                  motion="breathe"
+                  interactive={true}
+                  speechBubble="Quiz ready! Tweak it or take it for a spin."
+                  alt="QT, pleased with your quiz"
+                />
+              )}
             </div>
           )}
         </div>
@@ -590,14 +620,7 @@ export default function QuizzerHome() {
         {loading && (
           <div className="mt-8 flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
             <div className="relative mb-2">
-              <QT
-                pose="chase-blue"
-                height={58}
-                motion="pounce"
-                interactive={true}
-                speechBubble="Chasing trivia gems across your sources..."
-                alt="QT pouncing after the blue trivia ball"
-              />
+              <QTAnim anim="magnify" fallbackPose="chase-blue" height={72} alt="QT hunting through your sources for questions" />
             </div>
             {/* Stage paw-prints 1..6 */}
             <div className="flex items-center gap-2.5 mb-2.5">
@@ -908,7 +931,7 @@ export default function QuizzerHome() {
                       </div>
                     )}
 
-                    {/* Format-aware questions (List It, Image Reveal, Connect, Stepped Clue, Arrange, MCQ) show their own view */}
+                    {/* Format-aware questions (List It, Image Reveal, Connect, 3 Clue, Arrange, MCQ) show their own view */}
                     {hasStructuredView(q.format_payload) ? (
                       <div className="space-y-1.5">
                         <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
@@ -973,11 +996,11 @@ export default function QuizzerHome() {
                         )}
                       </div>
                     ) : q.question_format === 'STEPPED_CLUE' && q.format_payload ? (
-                      /* Specialized Stepped Clue Rendering */
+                      /* Specialized 3 Clue Rendering */
                       <div className="space-y-2.5">
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 text-amber-900 text-[11px] font-bold px-2 py-0.5 uppercase tracking-wide">
-                            Portfolio Builder • 3 Stepped Clues
+                            Portfolio Builder • 3 Clues
                           </span>
                           <span className="text-[11px] text-slate-400">All on buzzer · 1 attempt per clue</span>
                         </div>

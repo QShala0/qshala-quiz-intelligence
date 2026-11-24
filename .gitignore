@@ -78,5 +78,9 @@ frontend/public/static/slides/memtest-*/
 # The School export is built on this master deck (artwork lives in its slide master); it must ship.
 !backend/app/services/export/templates/qshala_school_master.pptx
 
+# Local archives & downloads
+*.zip
+OneDrive_*/
+
 # graphify knowledge-graph output (local, regenerate with: graphify update <dir>)
 graphify-out/

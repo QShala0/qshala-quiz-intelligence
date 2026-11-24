@@ -15,7 +15,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import StatsOverview from '../components/StatsOverview';
-import { QT } from '../components/ui';
+import { QT, QTAnim } from '../components/ui';
 import { api } from '../lib/api';
 import { DashboardStats } from '../lib/types';
 
@@ -189,15 +189,8 @@ export default function DashboardPage() {
                 ))
               ) : (
                 <div className="p-8 text-center flex flex-col items-center">
-                  <QT
-                    pose="box-yellow"
-                    height={48}
-                    motion="bob"
-                    interactive={true}
-                    speechBubble="If it fits, I sits! Make a quiz to fill this space."
-                    alt="QT in a yellow box"
-                  />
-                  <p className="text-[13px] text-slate-500 font-normal mt-2">No quizzes generated yet.</p>
+                  <QTAnim anim="lets-get-started" fallbackPose="box-yellow" height={84} alt="QT ready to start your first quiz quest" />
+                  <p className="text-[13px] text-slate-500 font-normal mt-2">No quizzes yet. Your first quest starts with one prompt.</p>
                   <Link
                     href="/generate"
                     className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-semibold text-blue-600 hover:underline"

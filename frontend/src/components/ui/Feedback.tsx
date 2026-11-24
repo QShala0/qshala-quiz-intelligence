@@ -9,6 +9,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import QT, { type QTPose, PawIcon } from './QT';
+import QTAnim from './QTAnim';
 import Modal from './Modal';
 import Button from './Button';
 import Confetti from './Confetti';
@@ -19,6 +20,8 @@ interface ToastItem {
   kind: ToastKind;
   message: string;
   celebrate?: boolean;
+  /** Batch notices / announcements: shows the megaphone QT. */
+  announce?: boolean;
 }
 
 interface ConfirmOptions {
@@ -34,7 +37,7 @@ interface Api {
   toast: {
     success: (message: string, opts?: { celebrate?: boolean }) => void;
     error: (message: string) => void;
-    info: (message: string) => void;
+    info: (message: string, opts?: { announce?: boolean }) => void;
   };
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
 }
@@ -55,9 +58,9 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   const push = useCallback(
-    (kind: ToastKind, message: string, celebrate = false) => {
+    (kind: ToastKind, message: string, celebrate = false, announce = false) => {
       const id = nextId.current++;
-      setToasts((t) => [...t.slice(-3), { id, kind, message, celebrate }]);
+      setToasts((t) => [...t.slice(-3), { id, kind, message, celebrate, announce }]);
       // errors linger a bit longer so they can be read
       window.setTimeout(() => dismiss(id), kind === 'error' ? 7000 : 4000);
     },
@@ -69,7 +72,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       toast: {
         success: (m, o) => push('success', m, o?.celebrate),
         error: (m) => push('error', m),
-        info: (m) => push('info', m),
+        info: (m, o) => push('info', m, false, o?.announce),
       },
       confirm: (opts) => new Promise<boolean>((resolve) => setDialog({ ...opts, resolve })),
     }),
@@ -98,7 +101,11 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             className="pointer-events-auto relative flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-md shadow-slate-200/50 animate-toast-in"
           >
             {t.celebrate && <Confetti />}
-            {t.kind === 'success' ? (
+            {t.celebrate ? (
+              <QTAnim anim="celebrate" fallbackPose="professor" height={40} />
+            ) : t.announce ? (
+              <QTAnim anim="megaphone" fallbackPose="happy" height={40} />
+            ) : t.kind === 'success' ? (
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-100/70 text-amber-600 shrink-0">
                 <PawIcon className="h-4 w-4 fill-amber-500" />
               </span>

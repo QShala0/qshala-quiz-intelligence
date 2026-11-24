@@ -29,8 +29,8 @@ def _lc(v: Any) -> str:
 
 
 # ------------------------------------------------------------------ hard filters
-_FORMAT_ALIASES = {"CONNECT_4": "CONNECT", "THREE_CLUE": "STEPPED_CLUE", "QA": "STANDARD_QA", "SLIDE_QA": "STANDARD_QA",
-                   "MULTIPLE_CHOICE": "MCQ"}
+_FORMAT_ALIASES = {"CONNECT_4": "CONNECT", "THREE_CLUE": "STEPPED_CLUE", "3_CLUE": "STEPPED_CLUE", "3CLUE": "STEPPED_CLUE",
+                   "QA": "STANDARD_QA", "SLIDE_QA": "STANDARD_QA", "MULTIPLE_CHOICE": "MCQ"}
 
 
 def canon_format(f: Optional[str]) -> str:

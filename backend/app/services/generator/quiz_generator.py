@@ -158,7 +158,7 @@ class QuizGenerator:
         # Reserve spares and example slides never go into a generated quiz
         retrieved_items = [it for it in retrieved_items if (getattr(it["question"], "slot", None) or "LIVE") == "LIVE"]
 
-        context_data = ContextBuilder.build_prompt_context(retrieved_items)
+        context_data = ContextBuilder.build_prompt_context(retrieved_items, max_items=req.question_count * 2)
         evidence_context = context_data["evidence_context"]
         source_mapping = context_data["source_mapping"]
         style_examples = context_data["style_examples"]
@@ -336,6 +336,11 @@ Please return a JSON object with this exact structure:
             except Exception as e:
                 logger.exception(f"Error calling LLM for quiz generation: {e}")
                 from backend.app.services.ai.local_provider import LocalLLMProvider
+                if not isinstance(self.llm, LocalLLMProvider):
+                    # A real model failed: never hand office users mock questions without saying so.
+                    raise RuntimeError(
+                        "The AI service is busy or unavailable right now. Please try again in a minute."
+                    ) from e
                 fallback_llm = LocalLLMProvider()
                 mock_res = await fallback_llm.generate_json(user_prompt)
                 for item in mock_res.get("questions", []):

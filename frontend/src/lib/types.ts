@@ -382,6 +382,11 @@ export interface GeneratedQuestion {
   validation_details?: ValidationDetails;
   duplicate_score: number;
   is_approved: boolean;
+  occurrence_count?: number;
+  is_varsity?: boolean;
+  round_stage?: string;
+  star_marked?: boolean;
+  source_year?: number;
   created_at: string;
   retrieval_sources: RetrievalSource[];
 }

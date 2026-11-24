@@ -8,6 +8,7 @@ import tempfile
 import shutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Union
+from backend.app.services.export.slide_clone import drop_slide, duplicate_slide, fill_text, find_title_and_subtitle
 from PIL import Image
 
 logger = logging.getLogger(__name__)
@@ -346,9 +347,14 @@ def _question_paragraphs(text: str, max_paras: int = 4) -> list:
     """Break a question into readable paragraphs on sentence boundaries, so a long question reads as
     separate lines instead of one dense block (e.g. the context sentences and the final 'Which brand
     is this?' each get their own paragraph). Short questions are returned as a single paragraph."""
-    text = re.sub(r'\s+', ' ', (text or '').strip())
-    if not text:
+    raw = (text or '').strip()
+    if not raw:
         return ['']
+    if '\n\n' in raw or '\r\n\r\n' in raw:
+        explicit = [re.sub(r'\s+', ' ', p).strip() for p in re.split(r'(?:\r?\n){2,}', raw) if p.strip()]
+        if len(explicit) > 1:
+            return explicit[:max_paras]
+    text = re.sub(r'\s+', ' ', raw)
     parts = [s.strip() for s in _SENTENCE_SPLIT.split(text) if s.strip()]
     if len(parts) <= 1:
         return [text]
@@ -361,6 +367,109 @@ def _question_paragraphs(text: str, max_paras: int = 4) -> list:
     per = max(1, math.ceil(len(head) / (max_paras - 1)))
     grouped = [' '.join(head[i:i + per]) for i in range(0, len(head), per)]
     return grouped + [tail]
+
+
+def _format_question_source_notes(q: Any) -> str:
+    """Extract and format question source links and references for PPT notes."""
+    lines = []
+    raw_sources = _get_val(q, "retrieval_sources", []) or _get_val(q, "sources", []) or []
+    if not raw_sources:
+        prov = _get_val(q, "provenance") or {}
+        if isinstance(prov, dict) and (prov.get("document_title") or prov.get("document_id")):
+            raw_sources = [prov]
+
+    if not raw_sources:
+        dt = _get_val(q, "document_title") or _get_val(q, "source_presentation")
+        doc_id = _get_val(q, "document_id")
+        sn = _get_val(q, "source_slide_range")
+        if dt or doc_id:
+            raw_sources = [{"document_title": dt, "slide_number": sn, "document_id": doc_id}]
+
+    # Resolve web URLs from database if available
+    doc_urls = {}
+    doc_titles = {}
+    doc_ids_to_fetch = set()
+    for s in raw_sources:
+        did = _get_val(s, "document_id")
+        if did:
+            doc_ids_to_fetch.add(str(did))
+    q_doc_id = _get_val(q, "document_id")
+    if q_doc_id:
+        doc_ids_to_fetch.add(str(q_doc_id))
+
+    if doc_ids_to_fetch:
+        try:
+            from backend.app.database import SessionLocal
+            from backend.app.models.document import Document
+            from backend.app.models.sharepoint import SharePointFile
+            with SessionLocal() as db:
+                docs = db.query(Document).filter(Document.id.in_(list(doc_ids_to_fetch))).all()
+                sp_ids = [d.sharepoint_file_id for d in docs if d.sharepoint_file_id]
+                sp_urls = {}
+                if sp_ids:
+                    sp_files = db.query(SharePointFile).filter(SharePointFile.id.in_(sp_ids)).all()
+                    for spf in sp_files:
+                        if spf.web_url:
+                            sp_urls[spf.id] = spf.web_url
+                for d in docs:
+                    if d.title:
+                        doc_titles[str(d.id)] = d.title
+                    u = sp_urls.get(d.sharepoint_file_id) or d.blob_url
+                    if u:
+                        doc_urls[d.id] = u
+                        if d.title:
+                            doc_urls[d.title] = u
+        except Exception as e:
+            logger.debug(f"_format_question_source_notes DB lookup error: {e}")
+
+    seen = set()
+    for s in raw_sources:
+        doc_id = _get_val(s, "document_id")
+        doc_title = (_get_val(s, "document_title") or doc_titles.get(str(doc_id)) or "").strip()
+        slide_num = _get_val(s, "slide_number")
+        url = (
+            _get_val(s, "web_url")
+            or _get_val(s, "source_url")
+            or _get_val(s, "url")
+            or _get_val(s, "link")
+            or doc_urls.get(str(doc_id))
+            or doc_urls.get(doc_title)
+        )
+
+        slide_str = f"Slide {slide_num}" if slide_num else ""
+        if slide_str and str(slide_num).lower().startswith("slide"):
+            slide_str = str(slide_num)
+
+        ref_parts = []
+        if doc_title:
+            ref_parts.append(doc_title)
+        if slide_str:
+            ref_parts.append(f"({slide_str})")
+
+        ref_text = " ".join(ref_parts) if ref_parts else (str(doc_id) if doc_id else "")
+        if not ref_text and not url:
+            continue
+
+        key = (ref_text, url)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        if ref_text and url:
+            lines.append(f"Source: {ref_text}\nLink: {url}")
+        elif url:
+            lines.append(f"Source Link: {url}")
+        else:
+            lines.append(f"Source: {ref_text}")
+
+    for u_field in ["fact_check_url", "source_url", "reference_link", "web_url"]:
+        direct_url = _get_val(q, u_field)
+        if direct_url and str(direct_url).strip() and str(direct_url).strip() not in "".join(lines):
+            lines.append(f"Reference Link: {str(direct_url).strip()}")
+
+    if not lines:
+        return "Source: QShala Knowledge Vault"
+    return "\n\n".join(lines)
 
 
 def _text_fits_at_28pt(text: str, options: list, w_in: float, h_in: float) -> bool:
@@ -425,16 +534,34 @@ def _load_school_master():
     return Presentation(str(_SCHOOL_MASTER))
 
 
-def _layout_named(prs, name: str):
-    for layout in prs.slide_layouts:
+def _all_layouts(prs):
+    """Every slide layout in the deck, across ALL slide masters. `prs.slide_layouts` only lists the FIRST master's,
+    but real sample decks usually have several masters (layouts named like "1_Title and Content" live in the others)."""
+    out = []
+    for master in prs.slide_masters:
+        out.extend(master.slide_layouts)
+    return out
+
+
+def _find_layout(prs, name: str):
+    """Layout with exactly this name in any master, or None."""
+    for layout in _all_layouts(prs):
         if layout.name == name:
             return layout
-    raise KeyError(f"layout {name!r} not in the School master deck")
+    return None
+
+
+def _layout_named(prs, name: str):
+    layout = _find_layout(prs, name)
+    if layout is None:
+        raise KeyError(f"layout {name!r} not in the School master deck")
+    return layout
 
 
 def _layout_named_safe(prs, candidate_names: List[str]):
+    layouts = _all_layouts(prs)
     for name in candidate_names:
-        for layout in prs.slide_layouts:
+        for layout in layouts:
             if layout.name and layout.name.lower() == name.lower():
                 return layout
     return None
@@ -625,9 +752,18 @@ def _apply_causten_style(prs) -> None:
         _walk(slide.shapes)
 
 
-def _apply_custom_style(prs, font_regular: str, font_bold: str) -> None:
-    """Make every run explicit with custom template fonts across Latin, East-Asian, and complex scripts."""
-    def _style_para(par, bold_face: bool):
+def _apply_custom_style(
+    prs,
+    font_regular: str,
+    font_bold: str,
+    title_size_pt: Optional[float] = None,
+    header_size_pt: Optional[float] = None,
+    body_size_pt: Optional[float] = None,
+    skip_slide_ids: Optional[set] = None,
+) -> None:
+    """Make every run explicit with custom template fonts and typography sizes across Latin, East-Asian, and complex scripts."""
+    from pptx.util import Pt
+    def _style_para(par, bold_face: bool, is_cover_title: bool = False, is_header_shape: bool = False):
         d = par.font
         size, color = d.size, None
         try:
@@ -636,25 +772,37 @@ def _apply_custom_style(prs, font_regular: str, font_bold: str) -> None:
         except Exception:
             color = None
         italic = getattr(d, 'italic', None)
+        par_bold = getattr(d, 'bold', None)
         runs = list(par.runs)
         if not runs:
             return
-        target_font = font_bold if bold_face else font_regular
         for r in runs:
             f = r.font
+            # Preserve existing bolding from builders (e.g. question prompt or answer title) or heading shape
+            should_be_bold = bold_face or (par_bold is True) or (f.bold is True)
+            target_font = font_bold if should_be_bold else font_regular
             _set_run_font(r, target_font)
-            f.bold = True if bold_face else False
+            f.bold = True if should_be_bold else False
             if italic is not None and f.italic is None:
                 f.italic = italic
             if f.size is None and size is not None:
                 f.size = size
+            # If custom template specifies custom font sizing:
+            if is_cover_title and title_size_pt and 28.0 <= title_size_pt <= 60.0:
+                f.size = Pt(title_size_pt)
+            elif is_header_shape and header_size_pt and 20.0 <= header_size_pt <= 48.0:
+                f.size = Pt(header_size_pt)
+            elif not should_be_bold and body_size_pt and 14.0 <= body_size_pt <= 32.0 and not is_header_shape and not is_cover_title:
+                cur_pt = f.size.pt if f.size else (size.pt if size else None)
+                if cur_pt and 16.0 <= cur_pt <= 30.0:
+                    f.size = Pt(body_size_pt)
             if color is not None:
                 try:
                     if f.color is None or getattr(f.color, "type", None) is None:
                         f.color.rgb = color
                 except Exception:
                     pass
-        d.name = target_font
+        d.name = font_bold if bold_face else font_regular
 
     def _walk(shapes):
         for sh in shapes:
@@ -662,16 +810,27 @@ def _apply_custom_style(prs, font_regular: str, font_bold: str) -> None:
                 _walk(sh.shapes)
                 continue
             if sh.has_text_frame:
-                bold_face = sh.name in _BOLD_SHAPE_NAMES or _is_title_placeholder(sh)
+                is_cover_title = (sh.name == "CoverTitle") or _is_title_placeholder(sh)
+                is_header_shape = sh.name in _BOLD_SHAPE_NAMES or _is_title_placeholder(sh)
+                bold_face = is_header_shape
                 for pi, par in enumerate(sh.text_frame.paragraphs):
-                    _style_para(par, bold_face and (sh.name != "CoverTitle" or pi == 0))
+                    is_title_p = is_cover_title and pi == 0
+                    is_header_p = bold_face and (sh.name != "CoverTitle" or pi == 0)
+                    _style_para(
+                        par,
+                        bold_face=is_header_p,
+                        is_cover_title=is_title_p,
+                        is_header_shape=is_header_shape,
+                    )
             if getattr(sh, "has_table", False) and sh.has_table:
                 for row in sh.table.rows:
                     for cell in row.cells:
                         for par in cell.text_frame.paragraphs:
-                            _style_para(par, False)
+                            _style_para(par, bold_face=False)
 
     for slide in prs.slides:
+        if skip_slide_ids and slide.slide_id in skip_slide_ids:
+            continue   # the template's own cover / divider keep their designed fonts
         _walk(slide.shapes)
 
 
@@ -947,6 +1106,10 @@ class QuizExporter:
 
         if quiz_type in ("qshala_school", "qshala", "qshala-school"):
             quiz_type = "qshala_school"
+        elif quiz_type in ("zvq_corporate", "zsv_corporate", "corporate", "corp"):
+            quiz_type = "corporate"
+        elif quiz_type in ("zvq", "zvq_school", "zvq-school", "zsv", "zsv_school", "school"):
+            quiz_type = "school"
 
         media_tmp_dir = Path(tempfile.mkdtemp(prefix="qshala_export_media_"))
         logger.info(f"Export media temp dir: {media_tmp_dir}")
@@ -993,34 +1156,58 @@ class QuizExporter:
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
         from pptx.enum.shapes import MSO_SHAPE
+        from fastapi import HTTPException
+        from backend.app.services.export import template_store
+        from backend.app.services.export.slide_fit import fit_deck_to_slide, remove_empty_placeholders
+
         custom_template = None
+        custom_dir: Optional[Path] = None
         if template_id and db:
             from backend.app.models.custom_template import CustomPptTemplate
             custom_template = db.query(CustomPptTemplate).filter(CustomPptTemplate.id == template_id).first()
+            # A template the user explicitly picked must never be silently swapped for the default deck.
+            if custom_template is None:
+                raise HTTPException(status_code=404, detail="That PowerPoint template no longer exists. Pick another template.")
+            custom_dir = template_store.ensure_local_dir(custom_template)
+            if custom_dir is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This template's files are no longer on the server (it was saved before durable storage was on). "
+                           "Upload the sample deck again to recreate it.",
+                )
 
         is_qshala_school = (quiz_type in ("qshala_school", "qshala")) or (custom_template and custom_template.category == "qshala_school")
         master_prs = None
+        cover_src = divider_src = None
+        retained_ids: set = set()   # slides taken from the template as they are: never restyled, rescaled or rebuilt
 
-        if custom_template and custom_template.storage_path and os.path.exists(custom_template.storage_path):
+        if custom_template and custom_dir is not None:
             try:
-                prs = Presentation(custom_template.storage_path)
-                while len(prs.slides) > 0:
-                    rId = prs.slides._sldIdLst[0].rId
-                    prs.part.drop_rel(rId)
-                    del prs.slides._sldIdLst[0]
-
+                prs = Presentation(str(custom_dir / template_store.MASTER_NAME))
                 layouts_info = (custom_template.layout_metadata or {}).get("layouts", {})
+                # The template's real title slide and Answer divider are kept in the master and reused as they are
+                # (see TemplateExtractor._generate_clean_master). Any other slide in an old master is dropped.
+                n_kept = len(prs.slides)
+                ci, di = layouts_info.get("cover_slide_index"), layouts_info.get("divider_slide_index")
+                cover_src = prs.slides[ci] if isinstance(ci, int) and 0 <= ci < n_kept else None
+                divider_src = prs.slides[di] if isinstance(di, int) and 0 <= di < n_kept else None
+                for sl in list(prs.slides):
+                    if sl is not cover_src and sl is not divider_src:
+                        drop_slide(prs, sl)
                 cov_name = layouts_info.get("cover_layout")
                 q_name = layouts_info.get("question_layout")
                 div_name = layouts_info.get("divider_layout")
 
-                cover_layout = (_layout_named(prs, cov_name) if cov_name else None) or _layout_named_safe(prs, ["Title Slide", "Title", "Cover"]) or prs.slide_layouts[0]
-                blank_layout = (_layout_named(prs, q_name) if q_name else None) or _layout_named_safe(prs, ["Title and Content", "Blank", "Title Only"]) or prs.slide_layouts[-1]
-                divider_layout = (_layout_named(prs, div_name) if div_name else None) or _layout_named_safe(prs, ["Section Header", "Header", "Title Only"]) or blank_layout
+                cover_layout = (_find_layout(prs, cov_name) if cov_name else None) or _layout_named_safe(prs, ["Title Slide", "Title", "Cover"]) or _all_layouts(prs)[0]
+                blank_layout = (_find_layout(prs, q_name) if q_name else None) or _layout_named_safe(prs, ["Title and Content", "Blank", "Title Only"]) or _all_layouts(prs)[-1]
+                divider_layout = (_find_layout(prs, div_name) if div_name else None) or _layout_named_safe(prs, ["Section Header", "Header", "Title Only"]) or blank_layout
                 master_prs = prs
             except Exception as e:
-                logger.warning(f"Could not load custom master deck {custom_template.storage_path}: {e}")
-                master_prs = None
+                logger.exception(f"Could not load custom master deck for template {custom_template.id}: {e}")
+                raise HTTPException(
+                    status_code=409,
+                    detail="This template's master file could not be opened. Upload the sample deck again to recreate it.",
+                )
 
         if master_prs is None:
             if is_qshala_school:
@@ -1073,9 +1260,10 @@ class QuizExporter:
         if not qr_wa.exists():
             qr_wa = assets_base / "qr_whatsapp.jpg"
 
-        # Override with custom template extracted backgrounds if available
-        if custom_template and custom_template.storage_path:
-            custom_dir = Path(custom_template.storage_path).parent
+        # Override with custom template extracted backgrounds if available. A custom template must NOT inherit the
+        # QShala/ZVQ default artwork: start from "no background" and only use what was extracted from its own deck.
+        if custom_template and custom_dir is not None:
+            cover_bg = question_bg = answer_intro_bg = answer_bg = track_dir / "__no_background__.png"
             for cand in ["cover_bg.png", "cover_bg.jpg", "cover_bg.jpeg"]:
                 if (custom_dir / cand).exists():
                     cover_bg = custom_dir / cand
@@ -1099,8 +1287,10 @@ class QuizExporter:
         # Typography & Color Standards (Inter for ZSV, Causten Round for QShala School)
         # -------------------------------------------------------------
         if custom_template:
-            FONT_HEAD = custom_template.header_font or "Causten Round Bold"
-            FONT_BODY = custom_template.body_font or "Causten Round Regular"
+            default_head = "Causten Round Bold" if is_qshala_school else "Inter"
+            default_body = "Causten Round Regular" if is_qshala_school else "Inter"
+            FONT_HEAD = custom_template.header_font or default_head
+            FONT_BODY = custom_template.body_font or default_body
         elif is_qshala_school:
             # Causten Round family only: standard weight for body text, Bold for headings.
             FONT_HEAD = CAUSTEN_REGULAR   # bold headings are decided per shape in _apply_causten_style
@@ -1151,7 +1341,17 @@ class QuizExporter:
         # -------------------------------------------------------------
         # 1. Cover Slide
         # -------------------------------------------------------------
-        if master_prs is not None:
+        if master_prs is not None and cover_src is not None:
+            # The template's own title slide, text replaced in place (logos, art and formatting untouched).
+            s_title = cover_src
+            retained_ids.add(s_title.slide_id)
+            t_shape, sub_shape = find_title_and_subtitle(s_title)
+            if t_shape is not None:
+                fill_text(t_shape, final_title)
+            sub_text = (custom_subtitle or "").strip()   # not the default campus line: the template's own tagline stays
+            if sub_shape is not None and sub_text:
+                fill_text(sub_shape, sub_text)
+        elif master_prs is not None:
             s_title = _school_cover(prs, cover_layout, final_title, (custom_subtitle or campus_edition or "").strip(), Pt)
             if not _has_visual_background(s_title) and not is_minimalist and cover_bg.exists():
                 pic_c = s_title.shapes.add_picture(str(cover_bg), 0, 0, prs.slide_width, prs.slide_height)
@@ -1182,7 +1382,7 @@ class QuizExporter:
                 p_qc1.font.bold = True
                 p_qc1.font.color.rgb = C_TEXT_DARK
 
-                sub_display = (custom_subtitle or campus_edition or "").strip()
+                sub_display = (custom_subtitle if custom_template else (custom_subtitle or campus_edition or "")).strip()
                 if sub_display:
                     sub_lines = [ln.strip() for ln in sub_display.splitlines() if ln.strip()]
                     for k, ln in enumerate(sub_lines):
@@ -1241,26 +1441,38 @@ class QuizExporter:
 
                 # NO redundant text below Line 2 (no duplicate bottom title, no round subtitle)
             else:
-                # Corporate Cover Layout
-                tb_corp = s_title.shapes.add_textbox(Inches(1.50), Inches(2.80), Inches(10.333), Inches(2.20))
+                # Corporate Cover Layout:
+                # Template background has Zerodha Varsity Quiz pre-printed top-left (y=1.8" - 3.5")
+                # and a blue dotted divider rule at y=4.0". Bottom-left has 'Corporate edition' at y=5.73".
+                # Right side has the puzzle hero illustration (x >= 6.2").
+                # The dynamic title box is cleanly LEFT-ALIGNED in the open left zone (x=0.88", y=4.15", w=5.40", h=1.45"),
+                # perfectly flush with the artwork typography and free of collisions.
+                tb_corp = s_title.shapes.add_textbox(Inches(0.88), Inches(4.15), Inches(5.40), Inches(1.45))
                 tf_c = tb_corp.text_frame
                 tf_c.word_wrap = True
 
                 p_c1 = tf_c.paragraphs[0]
-                p_c1.alignment = PP_ALIGN.CENTER
+                p_c1.alignment = PP_ALIGN.LEFT
                 p_c1.text = final_title
                 p_c1.font.name = FONT_HEAD
-                p_c1.font.size = Pt(40)
+                p_c1.font.size = Pt(28) if len(final_title) <= 30 else (Pt(24) if len(final_title) <= 48 else Pt(20))
                 p_c1.font.bold = True
                 p_c1.font.color.rgb = C_TEXT_DARK
 
-                if campus_edition:
+                sub_raw = (custom_subtitle or campus_edition or "").strip()
+                if sub_raw:
+                    if not sub_raw.startswith("—") and not sub_raw.startswith("-"):
+                        sub_display = f"— {sub_raw} —"
+                    else:
+                        sub_display = sub_raw
                     p_c2 = tf_c.add_paragraph()
-                    p_c2.alignment = PP_ALIGN.CENTER
-                    p_c2.space_before = Pt(12)
-                    p_c2.text = campus_edition.strip()
+                    p_c2.alignment = PP_ALIGN.LEFT
+                    p_c2.space_before = Pt(8)
+                    p_c2.text = sub_display
                     p_c2.font.name = FONT_HEAD
-                    p_c2.font.size = Pt(24)
+                    p_c2.font.size = Pt(18) if len(sub_display) <= 32 else Pt(15)
+                    p_c2.font.bold = False
+                    p_c2.font.italic = True
                     p_c2.font.color.rgb = C_ACCENT_ORANGE
         else:
             # Minimalist fallback title slide
@@ -1289,7 +1501,7 @@ class QuizExporter:
         # -------------------------------------------------------------
         # 2. Social Media & QR Slides (School Quiz)
         # -------------------------------------------------------------
-        if quiz_type == "school" and include_social_slides and not is_minimalist:
+        if quiz_type == "school" and include_social_slides and not is_minimalist and not custom_template:
             # Slide 2: Social Media Guidelines
             s_soc = prs.slides.add_slide(blank_layout)
             if question_bg.exists():
@@ -1466,6 +1678,7 @@ class QuizExporter:
                 len(raw_exp.strip()) < 3
             )
             explanation = "" if is_dup_explanation else raw_exp
+            sq_img = None
 
             # ---------------------------------------------------------
             # (A) QUESTION SLIDE (uses question_bg: PPT.png with peach border)
@@ -1768,12 +1981,18 @@ class QuizExporter:
                 tf_q = tb_q.text_frame
                 tf_q.word_wrap = True
 
+                q_font_size = Pt(28) if len(q_text) < 160 else (Pt(24) if len(q_text) < 240 else Pt(20))
                 pq_main = tf_q.paragraphs[0]
-                pq_main.text = q_text
-                pq_main.font.name = FONT_HEAD
-                pq_main.font.size = Pt(28) if len(q_text) < 160 else (Pt(24) if len(q_text) < 240 else Pt(20))
-                pq_main.font.bold = True
-                pq_main.font.color.rgb = C_TEXT_DARK
+                q_paras = _question_paragraphs(q_text)
+                for pi, para in enumerate(q_paras):
+                    p = pq_main if pi == 0 else tf_q.add_paragraph()
+                    if pi > 0:
+                        p.space_before = Pt(8)
+                    p.text = para
+                    p.font.name = FONT_HEAD
+                    p.font.size = q_font_size
+                    p.font.bold = True
+                    p.font.color.rgb = C_TEXT_DARK
 
                 if options:
                     for opt_idx, opt in enumerate(options):
@@ -1845,12 +2064,18 @@ class QuizExporter:
                 tf_q = tb_q.text_frame
                 tf_q.word_wrap = True
 
+                q_font_size = Pt(32) if len(q_text) < 160 else (Pt(26) if len(q_text) < 260 else Pt(22))
                 pq_main = tf_q.paragraphs[0]
-                pq_main.text = q_text
-                pq_main.font.name = FONT_HEAD
-                pq_main.font.size = Pt(32) if len(q_text) < 160 else (Pt(26) if len(q_text) < 260 else Pt(22))
-                pq_main.font.bold = True
-                pq_main.font.color.rgb = C_TEXT_DARK
+                q_paras = _question_paragraphs(q_text)
+                for pi, para in enumerate(q_paras):
+                    p = pq_main if pi == 0 else tf_q.add_paragraph()
+                    if pi > 0:
+                        p.space_before = Pt(8)
+                    p.text = para
+                    p.font.name = FONT_HEAD
+                    p.font.size = q_font_size
+                    p.font.bold = True
+                    p.font.color.rgb = C_TEXT_DARK
 
                 if options:
                     for opt_idx, opt in enumerate(options):
@@ -1867,7 +2092,10 @@ class QuizExporter:
             # ---------------------------------------------------------
             render_divider = (show_answer_divider is not False)
             if render_divider:
-                if master_prs is not None:
+                if master_prs is not None and divider_src is not None:
+                    s_ai = duplicate_slide(prs, divider_src)   # the template's own Answer slide, as designed
+                    retained_ids.add(s_ai.slide_id)
+                elif master_prs is not None:
                     s_ai = prs.slides.add_slide(divider_layout)
                     ttl_ai = s_ai.shapes.title if hasattr(s_ai.shapes, "title") else None
                     if ttl_ai is not None:
@@ -2116,10 +2344,27 @@ class QuizExporter:
             if original_notes:
                 sa.notes_slide.notes_text_frame.text = original_notes
 
+        if divider_src is not None:
+            drop_slide(prs, divider_src)   # exemplar only: each divider above is a copy of it
+
         if custom_template:
-            _apply_custom_style(prs, custom_template.body_font or FONT_BODY, custom_template.header_font or FONT_HEAD)
+            _apply_custom_style(
+                prs,
+                custom_template.body_font or FONT_BODY,
+                custom_template.header_font or FONT_HEAD,
+                title_size_pt=custom_template.title_size_pt,
+                header_size_pt=custom_template.header_size_pt,
+                body_size_pt=custom_template.body_size_pt,
+                skip_slide_ids=retained_ids,
+            )
         elif is_qshala_school:
             _apply_causten_style(prs)
+
+        # Template cleanup: no ghost "Click to add title" boxes, and everything re-mapped onto the template's own slide
+        # size (custom decks are often 10 x 5.625 or 4:3, the layout code above works on a 13.333 x 7.5 canvas).
+        if master_prs is not None:
+            remove_empty_placeholders(prs)
+            fit_deck_to_slide(prs, skip_slide_ids=retained_ids)
 
         buffer = io.BytesIO()
         prs.save(buffer)

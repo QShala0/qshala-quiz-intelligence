@@ -1,4 +1,6 @@
 import io
+import uuid
+from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from pptx import Presentation
@@ -157,9 +159,23 @@ def test_pptx_export_corporate_quiz():
     assert len(prs.slides) == 4
 
     # Slide 1: Cover
-    s0_texts = [p.text for s in prs.slides[0].shapes if s.has_text_frame for p in s.text_frame.paragraphs]
+    s0 = prs.slides[0]
+    s0_texts = [p.text for s in s0.shapes if s.has_text_frame for p in s.text_frame.paragraphs]
     assert any("Varsity Corporate Finance Challenge" in t for t in s0_texts)
     assert any("Executive Track 2026" in t for t in s0_texts)
+
+    # Verify corporate cover layout formatting, left-alignment, and positioning
+    from pptx.enum.text import PP_ALIGN
+    corp_tb = next(s for s in s0.shapes if s.has_text_frame and "Varsity Corporate Finance Challenge" in s.text_frame.text)
+    assert corp_tb.left.inches == pytest.approx(0.88, 0.05)
+    assert corp_tb.top.inches == pytest.approx(4.15, 0.05)
+    assert corp_tb.width.inches == pytest.approx(5.40, 0.05)
+    p_title = corp_tb.text_frame.paragraphs[0]
+    assert p_title.alignment == PP_ALIGN.LEFT
+    assert p_title.font.bold is True
+    p_sub = corp_tb.text_frame.paragraphs[1]
+    assert p_sub.alignment == PP_ALIGN.LEFT
+    assert "Executive Track 2026" in p_sub.text
 
     # Slide 2: Question
     s1_texts = [p.text for s in prs.slides[1].shapes if s.has_text_frame for p in s.text_frame.paragraphs]
@@ -374,3 +390,210 @@ def test_pptx_export_with_video_ref_and_kwargs():
     assert len(pptx_bytes) > 1000
     prs = Presentation(io.BytesIO(pptx_bytes))
     assert len(prs.slides) >= 3
+
+
+def test_zvq_school_quiz_paragraphs_and_source_link_notes():
+    """
+    Verify ZVQ School Quiz PPT export:
+    1. Question text is broken into readable paragraphs on sentence boundaries.
+    2. Question slides carry no notes; answer slides carry only the source deck's original notes.
+    3. Accepts quiz_type='zvq' as an alias for school export.
+    """
+    q_multiline = (
+        "In the 1970s, the Indian Central Excise Department classified cosmetics as luxury goods, which carried a very high tax. "
+        "However, ayurvedic medicines had a much lower tax rate. "
+        "The excise department argued that this company's brand was used for skin improvement. "
+        "To protect their profit margins they released an ad jingle, which went on to be an evergreen classic. "
+        "Which brand?"
+    )
+    sample_quiz = {
+        "id": "quiz-zvq-source-test",
+        "title": "Zerodha Varsity School Quiz",
+        "topic": "Business Trivia",
+        "questions": [
+            {
+                "id": "q-zvq-1",
+                "question_text": q_multiline,
+                "answer": "Vicco",
+                "explanation": "Vicco Vajradanti and Vicco Turmeric skin cream.",
+                "retrieval_sources": [
+                    {
+                        "document_title": "Potpourri Aug to Dec ZVQ College Reserve.pptx",
+                        "slide_number": 14,
+                        "web_url": "https://qshala.sharepoint.com/:p:/s/Quizzes/Potpourri_ZVQ.pptx",
+                    }
+                ],
+                "is_approved": True,
+            }
+        ]
+    }
+
+    pptx_bytes = QuizExporter.to_pptx(
+        sample_quiz,
+        quiz_type="zvq",
+        include_social_slides=False,
+        show_answer_divider=True,
+    )
+    assert len(pptx_bytes) > 1000
+    prs = Presentation(io.BytesIO(pptx_bytes))
+
+    # Slide 1: Cover, Slide 2: Question, Slide 3: Transition, Slide 4: Answer Reveal
+    assert len(prs.slides) == 4
+
+    # 1. Question Slide: Check readable paragraph breaks
+    q_slide = prs.slides[1]
+    q_text_frames = [s.text_frame for s in q_slide.shapes if s.has_text_frame and "Excise Department" in s.text_frame.text]
+    assert len(q_text_frames) == 1
+    tf = q_text_frames[0]
+    # Should have multiple paragraphs instead of one dense text block
+    paras = tf.paragraphs
+    assert len(paras) >= 3, f"Expected multiple readable paragraphs, got {len(paras)}"
+    # Verify paragraph spacing
+    assert paras[1].space_before is not None and paras[1].space_before.pt >= 6
+
+    # 2. Question Slide Notes: none at all (the answer must never sit in question notes)
+    q_notes = q_slide.notes_slide.notes_text_frame.text if q_slide.has_notes_slide else ""
+    assert q_notes == ""
+
+    # 3. Answer Slide Notes: only the source deck's original notes, never generated boilerplate
+    a_slide = prs.slides[3]
+    a_notes = a_slide.notes_slide.notes_text_frame.text if a_slide.has_notes_slide else ""
+    assert "Official Answer:" not in a_notes
+    assert "Presenter Talking Points:" not in a_notes
+    assert "Award +10 points" not in a_notes
+    assert "Source:" not in a_notes
+
+
+def test_zvq_and_zsv_quiz_type_endpoint_variants():
+    """Verify that export endpoints accept all ZVQ and ZSV subtype variants without 422 validation errors."""
+    client = TestClient(app)
+    db = SessionLocal()
+    quiz = Quiz(
+        id=str(uuid.uuid4()),
+        title="Varsity Markets Prelims",
+        topic="Finance",
+        difficulty="Balanced",
+    )
+    db.add(quiz)
+    gq = GeneratedQuestion(
+        id=str(uuid.uuid4()),
+        quiz_id=quiz.id,
+        question_text="What is a depository participant (DP)?",
+        answer="An agent of the depository (e.g. NSDL or CDSL)",
+        is_approved=True,
+    )
+    db.add(gq)
+    db.commit()
+
+    try:
+        variants = ["zvq", "zvq_school", "zvq-school", "zsv", "zsv_school", "zvq_corporate", "zsv_corporate", "school", "corporate"]
+        for v in variants:
+            res_get = client.get(f"/api/v1/quizzes/{quiz.id}/export?format=pptx&quiz_type={v}")
+            assert res_get.status_code == 200, f"GET with quiz_type={v} failed with {res_get.status_code}: {res_get.text}"
+            assert len(res_get.content) > 1000
+
+        payload = {
+            "title": "Zerodha Varsity Economics",
+            "topic": "Economics",
+            "questions": [
+                {
+                    "question_text": "What is the repo rate?",
+                    "answer": "The rate at which the central bank lends money to commercial banks.",
+                    "is_approved": True,
+                }
+            ],
+        }
+        for v in ["zvq_school", "zvq-school", "zsv", "zvq_corporate"]:
+            res_post = client.post(f"/api/v1/quizzes/export?format=pptx&quiz_type={v}", json=payload)
+            assert res_post.status_code == 200, f"POST with quiz_type={v} failed with {res_post.status_code}: {res_post.text}"
+            assert len(res_post.content) > 1000
+    finally:
+        db.query(GeneratedQuestion).filter(GeneratedQuestion.quiz_id == quiz.id).delete()
+        db.query(Quiz).filter(Quiz.id == quiz.id).delete()
+        db.commit()
+        db.close()
+
+
+def test_custom_template_formatting_font_sizes_and_bold_retention():
+    """Verify custom template typography formatting: bold retention on questions/answers and font sizes."""
+    from backend.app.models.custom_template import CustomPptTemplate
+
+    db = SessionLocal()
+    created_tpl_id = None
+    tpl = db.query(CustomPptTemplate).filter(CustomPptTemplate.category == "zvq").first()
+    if not tpl:
+        tpl = db.query(CustomPptTemplate).first()
+    if not tpl:
+        sample_path = Path("backend/sample_decks/Australian_History_Quiz_2022.pptx")
+        if sample_path.exists():
+            with open(sample_path, "rb") as f:
+                resp = client.post(
+                    "/api/v1/templates/extract",
+                    files={"file": ("sample.pptx", f, "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+                    data={"name": "Test ZVQ Custom Theme", "category": "zvq"},
+                )
+            assert resp.status_code == 200
+            created_tpl_id = resp.json()["id"]
+            tpl = db.query(CustomPptTemplate).filter(CustomPptTemplate.id == created_tpl_id).first()
+    assert tpl is not None, "A custom template could not be loaded or extracted for testing"
+
+    try:
+        quiz_payload = {
+            "title": "Championship Grand Finale",
+            "topic": "General Knowledge",
+            "questions": [
+                {
+                    "id": "q1",
+                    "question_text": "What prestigious prize is awarded annually in literature, peace, physics, and medicine?",
+                    "answer": "The Nobel Prize",
+                    "explanation": "Established by the 1895 will of Alfred Nobel.",
+                    "options": ["Nobel Prize", "Pulitzer Prize", "Booker Prize", "Fields Medal"],
+                    "retrieval_sources": [{"document_title": "World Honors Deck", "slide_number": 5}],
+                    "is_approved": True,
+                },
+                {
+                    "id": "q2",
+                    "question_text": "Which element has the atomic number 1 and is the most abundant chemical substance in the universe?",
+                    "answer": "Hydrogen",
+                    "explanation": "Hydrogen constitutes roughly 75% of all baryonic mass.",
+                    "options": ["Hydrogen", "Helium", "Oxygen", "Carbon"],
+                    "retrieval_sources": [{"document_title": "Chemistry Prelims", "slide_number": 8}],
+                    "is_approved": True,
+                },
+            ],
+        }
+
+        pptx_bytes = QuizExporter.to_pptx(
+            quiz_payload,
+            quiz_type="school",
+            template_id=tpl.id,
+            db=db,
+        )
+        assert len(pptx_bytes) > 1000
+        prs = Presentation(io.BytesIO(pptx_bytes))
+
+        # Verify that the custom template font scheme was applied across slides
+        found_question_bold = False
+        found_answer_bold = False
+        for slide in prs.slides:
+            for sh in slide.shapes:
+                if not sh.has_text_frame:
+                    continue
+                for par in sh.text_frame.paragraphs:
+                    for r in par.runs:
+                        # Question prompt run should retain bold = True
+                        if "prestigious prize" in r.text:
+                            assert r.font.bold is True, "Question prompt run must retain bold=True under custom template"
+                            found_question_bold = True
+                        # Answer title run should retain bold = True
+                        if "Nobel Prize" in r.text and par.text.strip() == "The Nobel Prize":
+                            assert r.font.bold is True, "Answer title run must retain bold=True under custom template"
+                            found_answer_bold = True
+
+        assert found_question_bold, "Question prompt was not found or verified"
+        assert found_answer_bold, "Answer title was not found or verified"
+    finally:
+        if created_tpl_id:
+            client.delete(f"/api/v1/templates/{created_tpl_id}")
+        db.close()
+

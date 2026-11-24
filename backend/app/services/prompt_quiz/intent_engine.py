@@ -177,7 +177,8 @@ INTENT_SCHEMA: Dict[str, Any] = {
 def _build_system_prompt(taxonomy: Dict[str, List[str]]) -> str:
     tax_summary = []
     for l1, l2s in sorted(taxonomy.items()):
-        tax_summary.append(f"  - {l1}: {', '.join(l2s[:6])}")
+        cleaned_l2s = [re.sub(r"\s*\([^)]*\)", "", l2).strip() for l2 in l2s if l2]
+        tax_summary.append(f"  - {l1}: {', '.join(cleaned_l2s[:6])}")
     tax_str = "\n".join(tax_summary)
 
     return (
@@ -275,6 +276,7 @@ def deconstruct_prompt(
             "response_schema": INTENT_SCHEMA,
             "temperature": 0.1,
             "maxOutputTokens": 800,
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -287,6 +289,11 @@ def deconstruct_prompt(
             return None
 
         data = res.json()
+        try:
+            from backend.app.services.costs.quiz_tracking import track_quiz_llm_call
+            track_quiz_llm_call("quiz_intent", model, usage_metadata=data.get("usageMetadata"))
+        except Exception:
+            pass
         cands = data.get("candidates") or []
         if not cands:
             return None
@@ -576,6 +583,8 @@ def deconstruct_prompt(
 
         if corpus_series:
             filters["corpus_series"] = corpus_series
+            if corpus_series == "ZVQ":
+                filters["is_varsity"] = True
         if repeat_filter != "all":
             filters["repeat_filter"] = repeat_filter
         if sort_by != "relevance":
@@ -651,5 +660,10 @@ def deconstruct_prompt(
 
     except Exception as e:
         logger.warning(f"Intent engine attempt failed: {e}")
+        try:
+            from backend.app.services.costs.quiz_tracking import track_quiz_llm_call
+            track_quiz_llm_call("quiz_intent", model, is_timeout=True, note=f"fallback:{type(e).__name__}")
+        except Exception:
+            pass
 
     return None

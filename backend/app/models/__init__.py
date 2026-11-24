@@ -10,6 +10,8 @@ from backend.app.models.upload_session import UploadSession
 from backend.app.models.qshala_tag import QshalaQuestionMetadata, QshalaTag, QshalaTagChange
 from backend.app.models.question_meta import DeckMetadata, QuestionTopicPath, QuestionRepeat, QuestionEditHistory
 from backend.app.models.custom_template import CustomPptTemplate
+from backend.app.models.cost import CostEvent, CostRateCard, CostFxRate, CostRefreshRun
+from backend.app.models.auth import AuthTeam, AuthUser, AuthSession, AuthAudit
 
 __all__ = [
     "Document",
@@ -36,4 +38,12 @@ __all__ = [
     "QuestionRepeat",
     "QuestionEditHistory",
     "CustomPptTemplate",
+    "CostEvent",
+    "CostRateCard",
+    "CostFxRate",
+    "CostRefreshRun",
+    "AuthTeam",
+    "AuthUser",
+    "AuthSession",
+    "AuthAudit",
 ]

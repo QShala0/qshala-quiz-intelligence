@@ -285,7 +285,7 @@ class Index:
             styles = filters.get("question_style")
             if styles and self.style[idx] not in styles:
                 return False
-            if filters.get("is_varsity"):
+            if filters.get("is_varsity") or filters.get("corpus_series") == "ZVQ":
                 if not item.get("is_varsity"):
                     from backend.app.services.ingestion.deck_metadata import is_varsity_name
                     doc_blob = f"{item.get('document_title', '')} {item.get('document_filename', '')}"

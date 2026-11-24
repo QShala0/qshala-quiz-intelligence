@@ -388,7 +388,10 @@ def test_export_puts_original_deck_notes_on_answer_slide_only(quiz_type):
              "answer": "Mars", "is_approved": True}]}
         prs = Presentation(io.BytesIO(QuizExporter.to_pptx(quiz, quiz_type=quiz_type, show_answer_divider=True)))
 
-        q_slide, ans_slide = prs.slides[1], prs.slides[3]
+        def text_of(sl):
+            return " ".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame)
+        q_slide = next(sl for sl in prs.slides if "Red Planet" in text_of(sl))
+        ans_slide = next(sl for sl in prs.slides if "Mars" in text_of(sl) and "Red Planet" not in text_of(sl))
         q_notes = q_slide.notes_slide.notes_text_frame.text if q_slide.has_notes_slide else ""
         assert "Mars" not in q_notes and q_notes == ""
         a_notes = ans_slide.notes_slide.notes_text_frame.text

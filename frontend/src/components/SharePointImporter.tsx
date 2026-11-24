@@ -153,7 +153,11 @@ export default function SharePointImporter() {
   // Admin Mode & Access Control States
   const [adminToken, setAdminToken] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('sp_admin_token');
+      try {
+        return sessionStorage.getItem('sp_admin_token');
+      } catch {
+        return null;
+      }
     }
     return null;
   });
@@ -241,7 +245,7 @@ export default function SharePointImporter() {
     } catch (e) {
       if (e instanceof Error && (e.message.includes('401') || e.message.includes('expired'))) {
         setAdminToken(null);
-        if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token');
+        try { if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token'); } catch {}
         setShowAdminManager(false);
         setShowPasswordModal(true);
         setPasswordError('Admin session expired. Please enter the password again.');
@@ -277,7 +281,7 @@ export default function SharePointImporter() {
     try {
       const res = await api.spAdminVerify(passwordInput);
       setAdminToken(res.token);
-      if (typeof window !== 'undefined') sessionStorage.setItem('sp_admin_token', res.token);
+      try { if (typeof window !== 'undefined') sessionStorage.setItem('sp_admin_token', res.token); } catch {}
       setShowPasswordModal(false);
       setPasswordInput('');
       setShowAdminManager(true);
@@ -291,7 +295,7 @@ export default function SharePointImporter() {
 
   function handleLogoutAdmin() {
     setAdminToken(null);
-    if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token');
+    try { if (typeof window !== 'undefined') sessionStorage.removeItem('sp_admin_token'); } catch {}
     setShowAdminManager(false);
   }
 
@@ -435,7 +439,7 @@ export default function SharePointImporter() {
         next.delete(p.id);
       } else {
         if (cur.size >= 25) {
-          toast.info('25 of N selected, import the rest in the next batch');
+          toast.info('25 of N selected, send the rest in the next batch', { announce: true });
           return cur;
         }
         next.set(p.id, p);
@@ -457,7 +461,7 @@ export default function SharePointImporter() {
       return next;
     });
     if (matching.length > 25) {
-      toast.info(`25 of ${matching.length} selected, import the rest in the next batch`);
+      toast.info(`25 of ${matching.length} selected, send the rest in the next batch`, { announce: true });
     }
     setPlan(null);
   }
@@ -473,7 +477,7 @@ export default function SharePointImporter() {
       return next;
     });
     if (filteredFiles.length > 25) {
-      toast.info(`25 of ${filteredFiles.length} selected, import the rest in the next batch`);
+      toast.info(`25 of ${filteredFiles.length} selected, send the rest in the next batch`, { announce: true });
     }
     setPlan(null);
   }
@@ -587,7 +591,7 @@ export default function SharePointImporter() {
     setRunning(true);
     const capped = items.slice(0, 25);
     if (items.length > 25) {
-      toast.info(`25 of ${items.length} selected, import the rest in the next batch`);
+      toast.info(`25 of ${items.length} selected, send the rest in the next batch`, { announce: true });
     }
     try {
       const staged = await api.spImport(selectionBody(capped));
@@ -1268,7 +1272,7 @@ export default function SharePointImporter() {
 
             {plan.batch_capped && (
               <p className="text-[12.5px] text-amber-800 bg-amber-50 border border-amber-200 p-2.5 rounded-lg">
-                {plan.message || `25 of ${plan.to_import + (plan.leftover ?? 0)} selected, import the rest in the next batch`}
+                {plan.message || `25 of ${plan.to_import + (plan.leftover ?? 0)} selected, send the rest in the next batch`}
               </p>
             )}
 

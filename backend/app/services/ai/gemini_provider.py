@@ -73,7 +73,7 @@ _USAGE_TOTALS: Dict[str, Dict[str, int]] = {}
 _USAGE_LOCK = threading.Lock()
 
 
-def record_usage(label: str, usage: Dict[str, int]) -> None:
+def record_usage(label: str, usage: Dict[str, int], model: Optional[str] = None) -> None:
     with _USAGE_LOCK:
         t = _USAGE_TOTALS.setdefault(label, {"calls": 0, "in": 0, "out": 0, "think": 0, "cached": 0})
         t["calls"] += 1
@@ -81,6 +81,44 @@ def record_usage(label: str, usage: Dict[str, int]) -> None:
         t["out"] += int(usage.get("out", 0) or 0)
         t["think"] += int(usage.get("think", 0) or 0)
         t["cached"] = t.get("cached", 0) + int(usage.get("cached", 0) or 0)
+
+    # Wire to Cost Ledger and active CostScope (Cost Tracker Phase 2)
+    try:
+        from backend.app.services.costs.ledger import get_current_cost_scope, record_unattributed_call
+        scope = get_current_cost_scope()
+        op_map = {
+            "vision": "ingest_vision",
+            "tagging": "ingest_tagging",
+            "embedding": "ingest_embedding",
+            "multimodal": "ingest_vision",
+        }
+        op = op_map.get(label, f"ingest_{label}")
+        m = model or "gemini-3.5-flash-lite"
+        if scope is not None:
+            scope.add_gemini_usage(
+                operation=op,
+                model=m,
+                tokens_in=int(usage.get("in", 0) or 0),
+                tokens_out=int(usage.get("out", 0) or 0),
+                thinking_tokens=int(usage.get("think", 0) or 0),
+                cached_tokens=int(usage.get("cached", 0) or 0),
+                calls=1,
+            )
+        else:
+            record_unattributed_call(
+                category="gemini",
+                operation=op,
+                model=m,
+                units={
+                    "tokens_in": int(usage.get("in", 0) or 0),
+                    "tokens_out": int(usage.get("out", 0) or 0),
+                    "thinking_tokens": int(usage.get("think", 0) or 0),
+                    "cached_tokens": int(usage.get("cached", 0) or 0),
+                    "calls": 1,
+                },
+            )
+    except Exception as e:
+        logger.debug("Could not record usage in cost ledger: %s", e)
 
 
 def usage_snapshot(reset: bool = False) -> Dict[str, Dict[str, int]]:
@@ -244,11 +282,19 @@ class GeminiLLMProvider(LLMProvider):
             raise ValueError("GEMINI_API_KEY is not configured")
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        gen_cfg: Dict[str, Any] = {
+            "response_mime_type": "application/json",
+            "maxOutputTokens": 1024,
+            "temperature": 0.0,
+        }
+        if any(tag in self.model for tag in ("3.1", "3.5", "3.6", "3.8", "4-")):
+            gen_cfg["thinking_config"] = {"thinking_level": "MINIMAL"}
+        else:
+            gen_cfg["thinking_config"] = {"thinking_budget": 0}
+
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "response_mime_type": "application/json"
-            }
+            "generationConfig": gen_cfg,
         }
         if system_instruction:
             payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
@@ -257,9 +303,15 @@ class GeminiLLMProvider(LLMProvider):
         async with _shared_client(60.0) as client:
             resp = await _post_with_retry(client, url, payload, self.api_key, retry_transport=False)
             if resp.is_error:
-                logger.error(f"[GeminiLLMProvider] API error ({resp.status_code}): {resp.text}")
+                if "thinking" in resp.text.lower() and "thinking_config" in gen_cfg:
+                    gen_cfg.pop("thinking_config", None)
+                    resp = await _post_with_retry(client, url, payload, self.api_key, retry_transport=False)
+                if resp.is_error:
+                    logger.error(f"[GeminiLLMProvider] API error ({resp.status_code}): {resp.text}")
             resp.raise_for_status()
             data = resp.json()
+            usage = _usage_from_response(data)
+            record_usage("generate_other", usage, model=self.model)
             text = self._extract_text(data)
             logger.info(f"[GeminiLLMProvider] Received response from model '{self.model}': {text}")
             clean_text = text.strip()
@@ -336,7 +388,7 @@ class GeminiLLMProvider(LLMProvider):
         parsed = json.loads(clean.strip())
 
         usage = _usage_from_response(data)
-        record_usage("tagging", usage)
+        record_usage("tagging", usage, model=chosen_model)
         return parsed, usage
 
     async def generate_multimodal_ex(
@@ -391,7 +443,7 @@ class GeminiLLMProvider(LLMProvider):
             resp.raise_for_status()
             data = resp.json()
         usage = _usage_from_response(data)
-        record_usage(usage_label, usage)
+        record_usage(usage_label, usage, model=self.model)
         return self._extract_text(data), usage
 
     async def generate_multimodal(
@@ -529,6 +581,9 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
                     logger.error(f"[GeminiEmbeddingProvider] API error ({resp.status_code}): {resp.text}")
                 resp.raise_for_status()
                 data = resp.json()
+                um = data.get("usageMetadata") or {}
+                tokens = um.get("promptTokenCount") or max(1, len(text) // 4)
+                record_usage("embedding", {"in": tokens, "calls": 1}, model=self.model)
                 values = self._coerce_dim(data["embedding"]["values"], text)
                 return self._normalize(values)
         except Exception as e:
@@ -585,29 +640,34 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
                         logger.warning(f"[GeminiEmbeddingProvider] batchEmbedContents error ({resp.status_code}), falling back to serial")
                         for t in chunk:
                             results.append(await self._embed_one_or_none(t))
-                    elif len(data := resp.json().get("embeddings", [])) != len(chunk):
-                        # batchEmbedContents returned a different count than requested -- can't
-                        # safely zip results back to texts by position, so re-fetch this whole
-                        # chunk serially rather than risk silently mismatching embeddings to texts.
-                        logger.warning(
-                            "[GeminiEmbeddingProvider] batchEmbedContents returned %d embeddings "
-                            "for %d texts, falling back to serial for this chunk", len(data), len(chunk),
-                        )
-                        for t in chunk:
-                            results.append(await self._embed_one_or_none(t))
                     else:
-                        for t, e in zip(chunk, data):
-                            try:
-                                values = self._coerce_dim(e["values"], t)
-                                results.append(self._normalize(values))
-                            except (ValueError, KeyError, TypeError):
-                                # Too short to coerce (see _coerce_dim) -- fall back to a single
-                                # get_embedding() call for just this text.
-                                logger.warning(
-                                    "[GeminiEmbeddingProvider] batch item too short to coerce, "
-                                    "refetching serially (text=%r)", t[:80],
-                                )
+                        data_obj = resp.json()
+                        um = data_obj.get("usageMetadata") or {}
+                        chunk_tokens = um.get("promptTokenCount") or sum(max(1, len(t) // 4) for t in chunk)
+                        record_usage("embedding", {"in": chunk_tokens, "calls": len(chunk)}, model=self.model)
+                        if len(data := data_obj.get("embeddings", [])) != len(chunk):
+                            # batchEmbedContents returned a different count than requested -- can't
+                            # safely zip results back to texts by position, so re-fetch this whole
+                            # chunk serially rather than risk silently mismatching embeddings to texts.
+                            logger.warning(
+                                "[GeminiEmbeddingProvider] batchEmbedContents returned %d embeddings "
+                                "for %d texts, falling back to serial for this chunk", len(data), len(chunk),
+                            )
+                            for t in chunk:
                                 results.append(await self._embed_one_or_none(t))
+                        else:
+                            for t, e in zip(chunk, data):
+                                try:
+                                    values = self._coerce_dim(e["values"], t)
+                                    results.append(self._normalize(values))
+                                except (ValueError, KeyError, TypeError):
+                                    # Too short to coerce (see _coerce_dim) -- fall back to a single
+                                    # get_embedding() call for just this text.
+                                    logger.warning(
+                                        "[GeminiEmbeddingProvider] batch item too short to coerce, "
+                                        "refetching serially (text=%r)", t[:80],
+                                    )
+                                    results.append(await self._embed_one_or_none(t))
             except Exception as batch_err:
                 logger.warning(f"[GeminiEmbeddingProvider] batchEmbedContents failed ({type(batch_err).__name__}), falling back to serial")
                 # results may already hold part of this chunk if the failure came part-way through it

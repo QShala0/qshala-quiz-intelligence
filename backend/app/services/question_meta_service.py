@@ -66,8 +66,8 @@ FORMAT_LABELS: Dict[str, str] = {
     "QA": "Question and Answer (Direct)",
     "CONNECT_4": "Connect 4",
     "CONNECT": "Connect 4",
-    "STEPPED_CLUE": "Stepped Clue (Portfolio Builder)",
-    "THREE_CLUE": "Stepped Clue (Portfolio Builder)",
+    "STEPPED_CLUE": "3 Clue",
+    "THREE_CLUE": "3 Clue",
     "ARRANGE_ORDER": "Arrange the Order (Ticker Tangle)",
     "BUZZER": "Buzzer (Closing Bell / Rapid Fire)",
     "VISUAL_CLUE": "Visual Clue",
@@ -389,14 +389,14 @@ def update_question_metadata(db: Session, question_id: str, changes: Dict[str, A
                 q.question_type = canonical_fmt
                 short_tag = (
                     "Connect 4" if canonical_fmt == "CONNECT_4"
-                    else "Stepped Clue" if canonical_fmt == "STEPPED_CLUE"
+                    else "3 Clue" if canonical_fmt == "STEPPED_CLUE"
                     else "Arrange Order" if canonical_fmt == "ARRANGE_ORDER"
                     else "Buzzer" if canonical_fmt == "BUZZER"
                     else "Direct QA" if canonical_fmt in ("QA", "STANDARD_QA")
                     else FORMAT_LABELS.get(canonical_fmt, canonical_fmt)
                 )
                 fmt_tag_names = set(FORMAT_LABELS.values()) | set(FORMAT_LABELS.keys()) | {
-                    "Connect 4", "Connect", "Stepped Clue", "Portfolio Builder",
+                    "Connect 4", "Connect", "Stepped Clue", "3 Clue", "Portfolio Builder",
                     "Arrange Order", "Ticker Tangle", "Buzzer", "Closing Bell",
                     "Standard QA", "Direct QA", "QA"
                 }

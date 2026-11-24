@@ -35,6 +35,7 @@ Read `graphify-out/GRAPH_REPORT.md` before exploring code (run `graphify update 
 - **Cloud Run Environment Variables & Secrets**: Every deployed service in `asia-southeast1` MUST have:
   - Core: `DATABASE_URL` (Neon secret), `GEMINI_API_KEY` (secret), `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_PUBLIC_BASE_URL`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
   - SharePoint / Azure AD: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` (mounted from Secret Manager `azure-client-secret:latest`), `SHAREPOINT_SITE_ID`, `SHAREPOINT_ROOT_FOLDER="Quizzes"`, `SHAREPOINT_DRIVE_ID`, `SHAREPOINT_MAX_FILE_MB="1024"`. If migrating or creating services, verify with `/health` checks.
+  - Auth (PR 1-4): `AUTH_ENFORCED` (default off in repo, soft mode), `AUTH_INITIAL_ADMINS` (comma list email:Team), `AUTH_SEED_CONSULTANT_PASSWORD` (default pass123), `AUTH_ALLOWED_EMAIL_DOMAINS` (default walnuts.co.in), `AUTH_PUBLIC_BASE_URL`, `AUTH_MS_CLIENT_ID`, `AUTH_MS_CLIENT_SECRET`. Turn `AUTH_ENFORCED=on` on Cloud Run only after PR 4 verification. All data stays shared between everyone; login identifies people and blocks outsiders. Cookie `qs_session` carries raw 32-byte token (7d sliding, 30d absolute ceiling). Mutating cookie requests enforce CSRF Origin check (exempt with valid `X-API-Key`). Only Microsoft accounts can be admin. Last active admin protected from demote/block/delete. Seed runs idempotently on startup.
 
 ## Commands
 - Backend tests: `python -m pytest backend/tests/<file> -q` (run the relevant files, the full suite is slow).

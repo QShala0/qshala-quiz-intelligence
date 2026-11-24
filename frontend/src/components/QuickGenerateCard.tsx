@@ -213,6 +213,7 @@ export default function QuickGenerateCard() {
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     if (!topic.trim() && selectedTags.length === 0) {
       setError('Please select or enter a quiz topic or select at least one concept tag');
       return;

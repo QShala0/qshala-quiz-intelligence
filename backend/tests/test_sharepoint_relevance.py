@@ -487,3 +487,185 @@ def test_endpoint_not_imported_classification_and_filters(db):
     data_after_unhide = res_after_unhide.json()
     assert data_after_unhide["buckets"]["likely"] == 1
     assert len(data_after_unhide["files"]) == 1
+
+
+def test_relevance_cbse_tightened_rules(monkeypatch):
+    # 1. a .pptx in QShala School Program/CBSE Books/Grade 7 is excluded
+    bucket_cbse_books = relevance.classify_file(
+        name="Chapter_4_Notes.pptx",
+        ext=".pptx",
+        size=50000,
+        folder_path="QShala School Program/CBSE Books/Grade 7",
+    )
+    assert bucket_cbse_books == relevance.BUCKET_EXCLUDED
+
+    # 2. a .pptx in Quizzes/School Quizzes/Kalaanjali CBSE Lit Fest Quiz 2026/Prelims is not excluded (it is likely)
+    bucket_lit_fest = relevance.classify_file(
+        name="Prelims.pptx",
+        ext=".pptx",
+        size=50000,
+        folder_path="Quizzes/School Quizzes/Kalaanjali CBSE Lit Fest Quiz 2026/Prelims",
+    )
+    assert bucket_lit_fest == relevance.BUCKET_LIKELY
+
+    # 3. Grade 6 _CBSE_S7 Light, Shadows and Reflections.pptx in Discover - Curriculum/CBSE/Klorofeel is excluded
+    bucket_disc_cbse = relevance.classify_file(
+        name="Grade 6 _CBSE_S7 Light, Shadows and Reflections.pptx",
+        ext=".pptx",
+        size=50000,
+        folder_path="Discover - Curriculum/CBSE/Klorofeel",
+    )
+    assert bucket_disc_cbse == relevance.BUCKET_EXCLUDED
+
+    # 4. a file named CBSE Class 10 Quiz Prelims.pptx is not excluded (it is likely)
+    bucket_cbse_quiz = relevance.classify_file(
+        name="CBSE Class 10 Quiz Prelims.pptx",
+        ext=".pptx",
+        size=50000,
+        folder_path="Quizzes/General",
+    )
+    assert bucket_cbse_quiz == relevance.BUCKET_LIKELY
+
+    # 5. the env var still adds an exclude word anywhere in the path
+    monkeypatch.setenv("SHAREPOINT_EXCLUDE_WORDS", "envjunkword")
+    bucket_env = relevance.classify_file(
+        name="Normal_Quiz_Finals.pptx",
+        ext=".pptx",
+        size=50000,
+        folder_path="Quizzes/envjunkword/Events",
+    )
+    assert bucket_env == relevance.BUCKET_EXCLUDED
+
+
+def test_endpoint_not_imported_modified_filter(db):
+    prefix = db._test_prefix
+    drive_id = f"{prefix}-drive-mod"
+    db._test_drive_ids.append(drive_id)
+
+    f_root = SharePointIndexItem(
+        id=f"{prefix}-mod-f-root",
+        drive_id=drive_id,
+        parent_id=None,
+        name="Quizzes",
+        is_folder=True,
+    )
+    db.add(f_root)
+    db._test_index_ids.append(f_root.id)
+
+    now = datetime.now(timezone.utc)
+
+    # 1. 5 days ago (in 30d, in 90d, in 1y)
+    item_30d = SharePointIndexItem(
+        id=f"{prefix}-item-30d",
+        drive_id=drive_id,
+        parent_id=f_root.id,
+        name=f"{prefix}_Recent_Finals_Quiz.pptx",
+        is_folder=False,
+        size=50000,
+        ext=".pptx",
+        modified=now - timedelta(days=5),
+    )
+    # 2. 60 days ago (not in 30d, in 90d, in 1y)
+    item_90d = SharePointIndexItem(
+        id=f"{prefix}-item-90d",
+        drive_id=drive_id,
+        parent_id=f_root.id,
+        name=f"{prefix}_Quarter_Finals_Quiz.pptx",
+        is_folder=False,
+        size=50000,
+        ext=".pptx",
+        modified=now - timedelta(days=60),
+    )
+    # 3. 200 days ago (not in 30d, not in 90d, in 1y)
+    item_1y = SharePointIndexItem(
+        id=f"{prefix}-item-1y",
+        drive_id=drive_id,
+        parent_id=f_root.id,
+        name=f"{prefix}_Year_Finals_Quiz.pptx",
+        is_folder=False,
+        size=50000,
+        ext=".pptx",
+        modified=now - timedelta(days=200),
+    )
+    # 4. 500 days ago (more than 365 days ago -> older)
+    item_older = SharePointIndexItem(
+        id=f"{prefix}-item-older",
+        drive_id=drive_id,
+        parent_id=f_root.id,
+        name=f"{prefix}_Ancient_Finals_Quiz.pptx",
+        is_folder=False,
+        size=50000,
+        ext=".pptx",
+        modified=now - timedelta(days=500),
+    )
+    # 5. Undated (None) -> appears only in all
+    item_undated = SharePointIndexItem(
+        id=f"{prefix}-item-undated",
+        drive_id=drive_id,
+        parent_id=f_root.id,
+        name=f"{prefix}_Undated_Finals_Quiz.pptx",
+        is_folder=False,
+        size=50000,
+        ext=".pptx",
+        modified=None,
+    )
+
+    items = [item_30d, item_90d, item_1y, item_older, item_undated]
+    for it in items:
+        db.add(it)
+        db._test_index_ids.append(it.id)
+
+    state = SharePointIndexState(
+        drive_id=drive_id,
+        status="IDLE",
+        items_indexed=len(items) + 1,
+        last_full_at=now,
+    )
+    db.add(state)
+    db.commit()
+
+    # Test 30d: only item_30d
+    res_30d = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&modified=30d&view=all")
+    assert res_30d.status_code == 200
+    data_30d = res_30d.json()
+    assert len(data_30d["files"]) == 1
+    assert data_30d["files"][0]["id"] == item_30d.id
+    assert data_30d["buckets"]["likely"] == 1
+
+    # Test 90d: item_30d and item_90d
+    res_90d = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&modified=90d&view=all")
+    assert res_90d.status_code == 200
+    data_90d = res_90d.json()
+    assert len(data_90d["files"]) == 2
+    ids_90d = [f["id"] for f in data_90d["files"]]
+    assert item_30d.id in ids_90d
+    assert item_90d.id in ids_90d
+    assert data_90d["buckets"]["likely"] == 2
+
+    # Test 1y: item_30d, item_90d, item_1y
+    res_1y = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&modified=1y&view=all")
+    assert res_1y.status_code == 200
+    data_1y = res_1y.json()
+    assert len(data_1y["files"]) == 3
+    ids_1y = [f["id"] for f in data_1y["files"]]
+    assert item_30d.id in ids_1y
+    assert item_90d.id in ids_1y
+    assert item_1y.id in ids_1y
+    assert data_1y["buckets"]["likely"] == 3
+
+    # Test older: only item_older
+    res_older = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&modified=older&view=all")
+    assert res_older.status_code == 200
+    data_older = res_older.json()
+    assert len(data_older["files"]) == 1
+    assert data_older["files"][0]["id"] == item_older.id
+    assert data_older["buckets"]["likely"] == 1
+
+    # Test all: all 5 items, including undated
+    res_all = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&modified=all&view=all")
+    assert res_all.status_code == 200
+    data_all = res_all.json()
+    assert len(data_all["files"]) == 5
+    ids_all = [f["id"] for f in data_all["files"]]
+    assert item_undated.id in ids_all
+    assert data_all["buckets"]["likely"] == 5
