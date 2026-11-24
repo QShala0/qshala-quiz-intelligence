@@ -14,20 +14,19 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // eslint-disable-next-line no-console
     console.error('[GlobalErrorBoundary]', error);
   }, [error]);
 
   return (
     <html lang="en">
-      <body className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-8 text-center font-sans">
-        <h2 className="text-xl font-semibold text-slate-900">Something went wrong</h2>
-        <p className="mt-2 max-w-md text-sm text-slate-500">
+      <body className="flex min-h-screen flex-col items-center justify-center bg-[#FFF6E1] p-8 text-center text-[#000000] font-sans">
+        <h2 className="text-2xl font-black">Something went wrong</h2>
+        <p className="mt-2 max-w-md text-sm text-[#000000]/70">
           The app hit an unexpected error. Refreshing usually fixes it.
         </p>
         <button
           onClick={() => reset()}
-          className="mt-6 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="mt-6 rounded-xl bg-[#FDB913] px-5 py-2.5 text-sm font-bold text-[#000000] shadow-sm hover:brightness-105 active:scale-[0.99] transition-all cursor-pointer"
         >
           Try again
         </button>

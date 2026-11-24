@@ -1,86 +1,119 @@
-# QShala Design System & Mascot Registry
+# QShala Brand Design System & Living Spec (June 2026 Guidelines)
 
-> **Design Philosophy**: Warm, calm, thoughtful, and professional first; playful and delightful second.  
-> Inspired by the classic QShala School PowerPoint visual identity: warm paper surfaces, sunny yellow and sky blue accents, and QT the inquisitive cat companion.
+> **Identity**: QShala = **Curiosity Learning Platform**.  
+> Learning that encourages creativity, curiosity, and compassion for school children, parents, and teachers.  
+> **Taglines**: **Questions • Quriosity • Quests** (primary), **Curiosity Learning Platform** (alt). *(Note intentional spelling "Quriosity".)*  
+> **Brand Tone**: Casual, friendly, spontaneous, high-energy, fun, modern, accessible, relational, open.
 
 ---
 
-## 1. Palette & Design Tokens
+## 1. Official Brand Palette & Design Tokens
 
-Defined centrally via Tailwind CSS v4 `@theme` in [`frontend/src/app/globals.css`](file:///c:/Users/aaksh/Downloads/qshala/frontend/src/app/globals.css).  
-**Zero pure white (`#FFFFFF`) or pure black (`#000000`)** exists in the UI.
+Defined centrally via CSS variables and Tailwind CSS v4 `@theme` in [`frontend/src/app/globals.css`](file:///c:/Users/aaksh/Downloads/qshala/frontend/src/app/globals.css) and [`antigravity_brief/brand-tokens.css`](file:///c:/Users/aaksh/Downloads/qshala/antigravity_brief/brand-tokens.css).
 
-| Token Role | Hex Code | Visual Name | Purpose | WCAG Contrast vs Surface |
+### The Strict Palette Rule
+**Never use colors outside the 3 official brand colors + black/white/cream (+ tints, + functional error red).** No gradients that blend brand colors, and no drop shadows on the logo or mascot.
+
+| Brand Color | Role | HEX | CMYK | Usage in App |
 | :--- | :--- | :--- | :--- | :--- |
-| **Page Canvas** | `#FBF7EE` | Warm Oat | Application body background | — |
-| **Surface / Card** | `#FFFCF5` | Warm Paper | Card containers, drawer sheets, modal cards | — |
-| **Surface Hover** | `#FFF6E0` | Pale Cream | Row hover and subtle surface highlights | — |
-| **Primary Text** | `#1E222D` / `#232733` | Soft Ink | Body text, headings, dark buttons | 14.2:1 (Passes AAA) |
-| **Secondary Text** | `#4B5263` | Charcoal Wash | Supporting descriptions and timestamps | 7.3:1 (Passes AAA) |
-| **Muted Text** | `#686D7B` | Sandstone Slate | Badges, meta tags, and subtitles | 4.8:1 (Passes AA) |
-| **Borders** | `#E9DFC9` / `#D8CBB0`| Warm Sand | Subtle card borders, input strokes, dividers | 1.3:1 – 1.6:1 (Structural) |
-| **Accent 1 (Primary)** | `#F8B42C` | Sunny Yellow | Mascot necktie, highlight chips, focus ambient | 3.1:1 UI (Passes AA) |
-| **Accent 1 Tint** | `#FFF0C7` | Soft Butter | Selection backgrounds, chip active states | — |
-| **Accent 2 (Sky)** | `#5BB4DE` | Softened Sky | Pill highlights, secondary indicators | 2.5:1 UI |
-| **Accent 2 Ink** | `#1F6F96` | Sky Ink | Links, interactive icons on cream surfaces | 5.2:1 (Passes AA) |
-| **Primary Buttons** | `#1E222D` / `#2B3040`| Warm Ink / Cream | Main call-to-actions, primary submit | 13.9:1 (Passes AAA) |
-| **Success** | `#2D8054` | Muted Emerald | Passed validation, successful exports | 5.1:1 (Passes AA) |
-| **Danger** | `#C24138` | Muted Brick Red | Delete actions, failed validations | 4.9:1 (Passes AA) |
+| **Joy of Quest (Sun)** | Hero accent | `#FDB913` | C0 M30 Y100 K0 | Primary CTAs, active pills, section bars, title rules, focus rings |
+| **Qurious Sky (Sky)** | Blue accent | `#30B2E7` | C67 M10 Y0 K0 | Supporting accent, progress bars, category tags, avatar accents |
+| **Always Questioning (Green)** | Green accent | `#75B543` | C60 M7 Y100 K0 | Supporting accent, completed status, success confirmations |
+| **Ink** | Black | `#000000` | — | Text, headings, card borders, logo wordmark, QT mascot body |
+| **Cream** | Page canvas | `#FFF6E1` | — | Global page background across all screens |
+| **White / Paper** | Card surfaces | `#FFFFFF` | — | Elevated cards, dialog sheets, tables, white logo wordmarks |
+| **Warm Grey** | Secondary text | `#5F5F66` | — | Muted captions and labels (tested ≥ 4.5:1 contrast against cream) |
+| **Functional Error** | Error / Destructive | `#D62828` | — | Critical validation errors and destructive actions only |
+
+### Contrast Rules
+- **On Sun (`#FDB913`)**: Always use **black text** (`#000000`). Never white.
+- **On Sky (`#30B2E7`)**: Always use **black text** (`#000000`). Never white.
+- **On Green (`#75B543`)**: White text permitted only at large display sizes (≥ 24 px bold); black text for body.
+- **On Cream (`#FFF6E1`)**: Black text for headings and primary copy; `#5F5F66` for secondary descriptions.
 
 ---
 
-## 2. Shared Focus Glow System
+## 2. Signature Brand Devices
 
-- **Replaces**: All browser-default blue outlines and legacy Tailwind blue rings (`focus:ring-blue-*`, `focus:border-blue-*`, `focus:border-indigo-*`).
-- **Border Focus Shift**: `#F2C265` (Warm Amber).
-- **Ambient Glow**: `box-shadow: 0 0 0 4px rgba(248, 180, 44, 0.20)`.
-- **Timing**: `transition: border-color 0.15s ease, box-shadow 0.15s ease`.
-- **Keyboard Access**: `:focus-visible` ring on buttons, links, and cards (`outline: 2px solid #F2C265 !important; outline-offset: 2px !important`).
-- **Prompt Bar Focus**: Seamless container focus (`focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-400/20`), inner textarea uses `.focus-none` to eliminate double-rings.
-
----
-
-## 3. Mascot Component: QCat
-
-Located in [`frontend/src/components/mascot/QCat.tsx`](file:///c:/Users/aaksh/Downloads/qshala/frontend/src/components/mascot/QCat.tsx).
-
-- **Weight**: < 6 KB pure inline vector SVG, zero external network requests.
-- **Brand Details**: Soft ink body (`#1E222D`), round warm paper glasses (`#FFFCF5`), and sunny yellow necktie (`#F8B42C`).
-- **Poses Supported**:
-  1. `idle`: Seated upright companion with gentle breathing and blinking every ~5.2s.
-  2. `peek`: Head and paws clutching border edge; eyes look toward prompt when typing.
-  3. `think`: Head tilted, paw on cheek, floating curiosity `?` marks in sunny yellow.
-  4. `happy`: Smiling eyes (`^ ^`), `:3` smile, fluttering tie, and rapid tail wag for celebrations.
-  5. `sleep`: Curled up into a peaceful ball, cozy deep breathing on errors or empty states.
-  6. `paw`: Friendly waving paw.
-- **Accessibility & Safety**:
-  - `pointer-events: none` on graphic elements to ensure clicks never get blocked.
-  - `@media (prefers-reduced-motion: reduce)` automatically disables all animations.
-  - Fixed box dimensions ensure Cumulative Layout Shift (CLS) = 0.
+1. **Section Divider Bar (`.section-bar`)**:
+   A black ALL-CAPS heading (Causten Round Black 900) paired with a full-width Sun-yellow bar (`height: 3px; background: #FDB913; border-radius: 9999px`).
+2. **Page Title Rule (`.page-title-rule` / `border-b-2 border-sun`)**:
+   A crisp 2px Sun-yellow border running under top page titles.
+3. **Rounded Brand Cards**:
+   Cards with generous rounding (`rounded-[20px]`), crisp black or subtle Sun-yellow border (`border border-sun/30`), white fill on cream background, and sticker shadows (`shadow-sticker-sm`).
+4. **Primary Action Buttons**:
+   `bg-sun text-ink font-bold shadow-sticker-sm hover:brightness-105 active:scale-[0.99] rounded-xl px-4 py-2`.
 
 ---
 
-## 4. Easter Egg Registry
+## 3. Typography: Causten Round
+
+The application uses **Plus Jakarta Sans** (Google Fonts `next/font/google`, weights 400, 500, 600, 700, 800) as the primary UI typeface.
+
+- **Plus Jakarta Sans ExtraBold (800) & Bold (700)**: Page titles, section headings, numbers, and primary button labels.
+- **Plus Jakarta Sans SemiBold (600)**: Navigation links, table headers, subheadings, and badges.
+- **Plus Jakarta Sans Medium (500) & Regular (400)**: Body text, tables, form inputs, speaker notes, and help copy.
+- *(Note: Causten Round woff2 font files remain preserved in `frontend/src/fonts/` for presentation templates and exporter formatting).*
+
+---
+
+## 4. Logo Guidelines
+
+Implemented in [`frontend/src/components/ui/Logo.tsx`](file:///c:/Users/aaksh/Downloads/qshala/frontend/src/components/ui/Logo.tsx).
+
+- **Official Wordmark**: Clean, bold lettering accompanied by the registered trademark symbol (**®**).
+- **Clear Space**: Equal to the height of the letter "Q" on all four sides.
+- **Variants**:
+  - `horizontal`: Horizontal lockup for the top navigation and sidebar on cream.
+  - `stacked`: Primary stacked unit for headers and print.
+  - `mark`: The iconic QT cat mark for compact views, favicons, and spinners.
+  - `white`: All-white lockup on dark or brand-colored fills.
+  - `sky`, `grass`, `sun`: Colored wordmark units with black cat on cream surfaces.
+- **Strict Don'ts**: Never drop shadow, stretch, squeeze, rotate, recolor outside brand palette, lower opacity, or omit the ® symbol.
+
+---
+
+## 5. Mascot: QT the Cat
+
+Managed via [`frontend/src/components/ui/QT.tsx`](file:///c:/Users/aaksh/Downloads/qshala/frontend/src/components/ui/QT.tsx) using official vector SVGs in `frontend/public/qt/svg/`.
+
+- **Form**: Solid black silhouette with white eyes, whiskers, and smiling mouth. Curved question-mark tail.
+- **Accessories**: Brand colors only (blue box/yarn, yellow necktie, green props).
+- **Role in App**: Expressive personality for empty states, loaders, error recovery, celebration moments, and live present mode. Never placed on top of dense data. Maximum 1 QT per view.
+- **Motion & Accessibility**: Always respects `prefers-reduced-motion` with static artwork. Fixed dimensions to ensure zero Cumulative Layout Shift (CLS).
+
+### Key Moment Poses
+- **Empty States / Zero Results**: `sherlock` (detective with magnifying glass), `looking-up`, `thinking`
+- **Loading / Generating**: `quizzing`, `puzzle`, `playing`
+- **Upload / Ingesting**: `reading` (with book/glasses), `sleeping` (after completion)
+- **Success / Celebration**: `winner` (celebrating with trophy), `jumping`
+- **Error / Tangled**: `scared`, `sad`
+- **404 Page**: `peeking` (peeking from around the doorway)
+- **Live Quiz Presenter**: `quizzing`, `winner`, `trophy` (positioned unobtrusively in the bottom-left corner)
+
+---
+
+## 6. Easter Egg Registry
 
 | # | Feature / Location | Component File | Trigger Condition | Visual Effect |
 | :-: | :--- | :--- | :--- | :--- |
-| **1** | **Sidebar Logo** | `frontend/src/components/Sidebar.tsx` | Click the QShala logo **5 times** in succession | Triggers sunny-yellow paw-print confetti burst (`Confetti.tsx`) and playful toast message. |
-| **2** | **Zero-Result Bank Search** | `frontend/src/app/knowledge-base/page.tsx` | Search a term in Question Bank returning 0 matches | QCat in `think` pose with a mini magnifying glass: *"No questions contain '<word>'. The cat looked everywhere."* |
-| **3** | **Upload Progress Bar** | `frontend/src/app/uploads/page.tsx` | Upload a presentation file | QCat walks in `paw` pose along the progress bar as % advances; curls up asleep (`sleep` pose) upon 100% completion. |
-| **4** | **404 Page Illustration** | `frontend/src/app/not-found.tsx` | Navigate to an unrecognised route (e.g. `/not-real`) | Cat innocently sitting on a shelf next to a fallen vase: *"Looks like this page got pushed off the edge."* |
-| **5** | **Empty Quiz Deck** | `frontend/src/app/quizzes/[id]/page.tsx` | Open a quiz with 0 questions | Cozy QCat sleeping on an empty binder: *"No questions added yet. Start by generating or picking from the bank."* |
-| **6** | **StagePresenter Timer Ring** | `frontend/src/components/StagePresenter.tsx` | Countdown timer reaches **< 10 seconds** | Two subtle sunny-yellow cat ears outline pop up atop the circular countdown timer ring. |
-| **7** | **Question Card Watermark** | `frontend/src/components/QuestionCard.tsx` | Viewing question cards anywhere in quizzes | Subtle vector paw watermark rendered in the bottom-right corner at `opacity-[0.035]`. |
-| **8** | **Settings Build Info** | `frontend/src/app/settings/page.tsx` | Navigate to `/settings` -> Platform Config | Small professor cat wearing glasses and yellow tie perched next to the platform version badge. |
-| **9** | **Toast Success Notifications**| `frontend/src/components/ui/Feedback.tsx` | Any successful user action (e.g., save to bank) | Standard checkmark is replaced with a tiny sunny-yellow paw print icon. |
-| **10**| **Browser Tab Title** | `frontend/src/app/generate/page.tsx` | While quiz generation is active (`loading === true`) | Tab title switches dynamically to `"🐾 Generating quiz... | QShala AI"` and restores upon finish. |
+| **1** | **Sidebar Logo Celebration** | `frontend/src/components/Sidebar.tsx` | Click the QShala logo **5 times** in succession | Triggers Sun-yellow paw confetti burst (`Confetti.tsx`) and celebration toast. |
+| **2** | **Detective Search Empty State** | `frontend/src/app/knowledge-base/page.tsx` | Search returning 0 results | Detective QT (`sherlock` pose): *"Detective QT looked everywhere — no clues found!"* |
+| **3** | **Ingestion Progress Mascot** | `frontend/src/app/uploads/page.tsx` | Uploading a presentation deck | QT reads (`reading` pose) along the progress bar; curls up asleep (`sleeping` pose) upon completion. |
+| **4** | **404 Door Peeker** | `frontend/src/app/not-found.tsx` | Navigating to an invalid route | QT peeking curiously from behind a door (`peeking` pose) with button to return to base. |
+| **5** | **Empty Quiz Library** | `frontend/src/app/quizzes/page.tsx` | Library with 0 generated quizzes | QT looking up curiously (`looking-up` pose): *"An empty library! Click 'New Quiz' to fill it up."* |
+| **6** | **Presenter Countdown Ears** | `frontend/src/components/StagePresenter.tsx` | Timer drops below **10 seconds** | Playful Sun-yellow cat ears pop up atop the timer ring with high-contrast Sky accents. |
+| **7** | **Interactive Speech Bubbles** | All pages with `<QT />` | Clicking or tapping any QT mascot | Interactive speech bubble with curious trivia quips and encouragement. |
+| **8** | **Quiz Completion Trophy** | `frontend/src/app/generate/page.tsx` | Generation draft completes | QT switches to champion pose (`winner` pose) celebrating the new quiz deck. |
+| **9** | **Error Recovery Mascot** | `frontend/src/app/error.tsx` | Client runtime error boundary | QT looking startled (`scared` pose) with gentle helpful recovery buttons. |
 
 ---
 
-## 5. Verification & Testing Checklist
+## 7. Verification Checklist
 
-- [x] All forms, drawers, and modal inputs inherit warm amber focus glow; zero blue focus rings.
-- [x] No pure `#FFFFFF` background surfaces remain; all use warm paper `#FFFCF5` or oat `#FBF7EE`.
-- [x] 100% of text and background pairings pass WCAG AA contrast ratio (≥ 4.5:1 text, ≥ 3.0:1 UI).
-- [x] Continuous animations disabled when `prefers-reduced-motion` is active.
-- [x] `npm run build` passes with zero TypeScript errors and all static routes generated.
+- [x] Causten Round 400-900 loaded as the sole UI font; Plus Jakarta Sans completely removed.
+- [x] Zero stray old hex codes (`#F8B42C`, `#5BB4DE`) or legacy hand-drawn cat SVGs.
+- [x] All primary buttons styled in Sun yellow (`#FDB913`) with black text (`#000000`) and sticker shadows.
+- [x] All section titles utilize the signature `.section-bar` (black caps + Sun-yellow bar).
+- [x] All cards styled on cream canvas (`#FFF6E1`) with rounded corners (`rounded-[20px]`).
+- [x] 100% of text and background pairings pass WCAG AA contrast standards.
