@@ -177,7 +177,7 @@ def delete_question(question_id: str, db: Session = Depends(get_db)):
 def export_quiz(
     quiz_id: str,
     format: str = Query("json", pattern="^(json|csv|pptx)$"),
-    quiz_type: str = Query("school", pattern="^(school|corporate|minimalist|qshala_school|qshala|zvq)$"),
+    quiz_type: str = Query("school", pattern="^(school|corporate|minimalist|qshala_school|qshala|zvq|zvq_school|zvq-school|zsv|zsv_school|zvq_corporate|zsv_corporate)$"),
     campus_edition: Optional[str] = Query("Bangalore Campus Edition", max_length=255),
     prize_money: Optional[str] = Query("3.5 lakh", max_length=100),
     custom_title: Optional[str] = Query(None, max_length=255),
@@ -214,6 +214,10 @@ def export_quiz(
             effective_quiz_type = "minimalist"
         elif theme and theme in ("qshala_school", "qshala", "qshala-school"):
             effective_quiz_type = "qshala_school"
+        elif effective_quiz_type in ("zvq_corporate", "zsv_corporate"):
+            effective_quiz_type = "corporate"
+        elif effective_quiz_type in ("zvq", "zvq_school", "zvq-school", "zsv", "zsv_school"):
+            effective_quiz_type = "school"
         pptx_bytes = _safe_to_pptx(
             quiz,
             quiz_type=effective_quiz_type,
@@ -236,7 +240,7 @@ def export_quiz(
 def export_quiz_payload(
     payload: Dict[str, Any] = Body(...),
     format: str = Query("pptx", pattern="^(json|csv|pptx)$"),
-    quiz_type: str = Query("school", pattern="^(school|corporate|minimalist|qshala_school|qshala|zvq)$"),
+    quiz_type: str = Query("school", pattern="^(school|corporate|minimalist|qshala_school|qshala|zvq|zvq_school|zvq-school|zsv|zsv_school|zvq_corporate|zsv_corporate)$"),
     campus_edition: Optional[str] = Query("Bangalore Campus Edition", max_length=255),
     prize_money: Optional[str] = Query("3.5 lakh", max_length=100),
     custom_title: Optional[str] = Query(None, max_length=255),
@@ -273,6 +277,10 @@ def export_quiz_payload(
             effective_quiz_type = "minimalist"
         elif theme and theme in ("qshala_school", "qshala", "qshala-school"):
             effective_quiz_type = "qshala_school"
+        elif effective_quiz_type in ("zvq_corporate", "zsv_corporate"):
+            effective_quiz_type = "corporate"
+        elif effective_quiz_type in ("zvq", "zvq_school", "zvq-school", "zsv", "zsv_school"):
+            effective_quiz_type = "school"
         pptx_bytes = _safe_to_pptx(
             payload,
             quiz_type=effective_quiz_type,

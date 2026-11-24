@@ -1,4 +1,6 @@
 import io
+import uuid
+from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from pptx import Presentation
@@ -465,3 +467,138 @@ def test_zvq_school_quiz_paragraphs_and_source_link_notes():
     assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Potpourri_ZVQ.pptx" in a_notes
     assert "Presenter Talking Points:" not in a_notes
     assert "Award +10 points" not in a_notes
+
+
+def test_zvq_and_zsv_quiz_type_endpoint_variants():
+    """Verify that export endpoints accept all ZVQ and ZSV subtype variants without 422 validation errors."""
+    client = TestClient(app)
+    db = SessionLocal()
+    quiz = Quiz(
+        id=str(uuid.uuid4()),
+        title="Varsity Markets Prelims",
+        topic="Finance",
+        difficulty="Balanced",
+    )
+    db.add(quiz)
+    gq = GeneratedQuestion(
+        id=str(uuid.uuid4()),
+        quiz_id=quiz.id,
+        question_text="What is a depository participant (DP)?",
+        answer="An agent of the depository (e.g. NSDL or CDSL)",
+        is_approved=True,
+    )
+    db.add(gq)
+    db.commit()
+
+    try:
+        variants = ["zvq", "zvq_school", "zvq-school", "zsv", "zsv_school", "zvq_corporate", "zsv_corporate", "school", "corporate"]
+        for v in variants:
+            res_get = client.get(f"/api/v1/quizzes/{quiz.id}/export?format=pptx&quiz_type={v}")
+            assert res_get.status_code == 200, f"GET with quiz_type={v} failed with {res_get.status_code}: {res_get.text}"
+            assert len(res_get.content) > 1000
+
+        payload = {
+            "title": "Zerodha Varsity Economics",
+            "topic": "Economics",
+            "questions": [
+                {
+                    "question_text": "What is the repo rate?",
+                    "answer": "The rate at which the central bank lends money to commercial banks.",
+                    "is_approved": True,
+                }
+            ],
+        }
+        for v in ["zvq_school", "zvq-school", "zsv", "zvq_corporate"]:
+            res_post = client.post(f"/api/v1/quizzes/export?format=pptx&quiz_type={v}", json=payload)
+            assert res_post.status_code == 200, f"POST with quiz_type={v} failed with {res_post.status_code}: {res_post.text}"
+            assert len(res_post.content) > 1000
+    finally:
+        db.query(GeneratedQuestion).filter(GeneratedQuestion.quiz_id == quiz.id).delete()
+        db.query(Quiz).filter(Quiz.id == quiz.id).delete()
+        db.commit()
+        db.close()
+
+
+def test_custom_template_formatting_font_sizes_and_bold_retention():
+    """Verify custom template typography formatting: bold retention on questions/answers and font sizes."""
+    from backend.app.models.custom_template import CustomPptTemplate
+
+    db = SessionLocal()
+    created_tpl_id = None
+    tpl = db.query(CustomPptTemplate).filter(CustomPptTemplate.category == "zvq").first()
+    if not tpl:
+        tpl = db.query(CustomPptTemplate).first()
+    if not tpl:
+        sample_path = Path("backend/sample_decks/Australian_History_Quiz_2022.pptx")
+        if sample_path.exists():
+            with open(sample_path, "rb") as f:
+                resp = client.post(
+                    "/api/v1/templates/extract",
+                    files={"file": ("sample.pptx", f, "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+                    data={"name": "Test ZVQ Custom Theme", "category": "zvq"},
+                )
+            assert resp.status_code == 200
+            created_tpl_id = resp.json()["id"]
+            tpl = db.query(CustomPptTemplate).filter(CustomPptTemplate.id == created_tpl_id).first()
+    assert tpl is not None, "A custom template could not be loaded or extracted for testing"
+
+    try:
+        quiz_payload = {
+            "title": "Championship Grand Finale",
+            "topic": "General Knowledge",
+            "questions": [
+                {
+                    "id": "q1",
+                    "question_text": "What prestigious prize is awarded annually in literature, peace, physics, and medicine?",
+                    "answer": "The Nobel Prize",
+                    "explanation": "Established by the 1895 will of Alfred Nobel.",
+                    "options": ["Nobel Prize", "Pulitzer Prize", "Booker Prize", "Fields Medal"],
+                    "retrieval_sources": [{"document_title": "World Honors Deck", "slide_number": 5}],
+                    "is_approved": True,
+                },
+                {
+                    "id": "q2",
+                    "question_text": "Which element has the atomic number 1 and is the most abundant chemical substance in the universe?",
+                    "answer": "Hydrogen",
+                    "explanation": "Hydrogen constitutes roughly 75% of all baryonic mass.",
+                    "options": ["Hydrogen", "Helium", "Oxygen", "Carbon"],
+                    "retrieval_sources": [{"document_title": "Chemistry Prelims", "slide_number": 8}],
+                    "is_approved": True,
+                },
+            ],
+        }
+
+        pptx_bytes = QuizExporter.to_pptx(
+            quiz_payload,
+            quiz_type="school",
+            template_id=tpl.id,
+            db=db,
+        )
+        assert len(pptx_bytes) > 1000
+        prs = Presentation(io.BytesIO(pptx_bytes))
+
+        # Verify that the custom template font scheme was applied across slides
+        found_question_bold = False
+        found_answer_bold = False
+        for slide in prs.slides:
+            for sh in slide.shapes:
+                if not sh.has_text_frame:
+                    continue
+                for par in sh.text_frame.paragraphs:
+                    for r in par.runs:
+                        # Question prompt run should retain bold = True
+                        if "prestigious prize" in r.text:
+                            assert r.font.bold is True, "Question prompt run must retain bold=True under custom template"
+                            found_question_bold = True
+                        # Answer title run should retain bold = True
+                        if "Nobel Prize" in r.text and par.text.strip() == "The Nobel Prize":
+                            assert r.font.bold is True, "Answer title run must retain bold=True under custom template"
+                            found_answer_bold = True
+
+        assert found_question_bold, "Question prompt was not found or verified"
+        assert found_answer_bold, "Answer title was not found or verified"
+    finally:
+        if created_tpl_id:
+            client.delete(f"/api/v1/templates/{created_tpl_id}")
+        db.close()
+

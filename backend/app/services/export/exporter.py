@@ -729,9 +729,17 @@ def _apply_causten_style(prs) -> None:
         _walk(slide.shapes)
 
 
-def _apply_custom_style(prs, font_regular: str, font_bold: str) -> None:
-    """Make every run explicit with custom template fonts across Latin, East-Asian, and complex scripts."""
-    def _style_para(par, bold_face: bool):
+def _apply_custom_style(
+    prs,
+    font_regular: str,
+    font_bold: str,
+    title_size_pt: Optional[float] = None,
+    header_size_pt: Optional[float] = None,
+    body_size_pt: Optional[float] = None,
+) -> None:
+    """Make every run explicit with custom template fonts and typography sizes across Latin, East-Asian, and complex scripts."""
+    from pptx.util import Pt
+    def _style_para(par, bold_face: bool, is_cover_title: bool = False, is_header_shape: bool = False):
         d = par.font
         size, color = d.size, None
         try:
@@ -740,25 +748,37 @@ def _apply_custom_style(prs, font_regular: str, font_bold: str) -> None:
         except Exception:
             color = None
         italic = getattr(d, 'italic', None)
+        par_bold = getattr(d, 'bold', None)
         runs = list(par.runs)
         if not runs:
             return
-        target_font = font_bold if bold_face else font_regular
         for r in runs:
             f = r.font
+            # Preserve existing bolding from builders (e.g. question prompt or answer title) or heading shape
+            should_be_bold = bold_face or (par_bold is True) or (f.bold is True)
+            target_font = font_bold if should_be_bold else font_regular
             _set_run_font(r, target_font)
-            f.bold = True if bold_face else False
+            f.bold = True if should_be_bold else False
             if italic is not None and f.italic is None:
                 f.italic = italic
             if f.size is None and size is not None:
                 f.size = size
+            # If custom template specifies custom font sizing:
+            if is_cover_title and title_size_pt and 28.0 <= title_size_pt <= 60.0:
+                f.size = Pt(title_size_pt)
+            elif is_header_shape and header_size_pt and 20.0 <= header_size_pt <= 48.0:
+                f.size = Pt(header_size_pt)
+            elif not should_be_bold and body_size_pt and 14.0 <= body_size_pt <= 32.0 and not is_header_shape and not is_cover_title:
+                cur_pt = f.size.pt if f.size else (size.pt if size else None)
+                if cur_pt and 16.0 <= cur_pt <= 30.0:
+                    f.size = Pt(body_size_pt)
             if color is not None:
                 try:
                     if f.color is None or getattr(f.color, "type", None) is None:
                         f.color.rgb = color
                 except Exception:
                     pass
-        d.name = target_font
+        d.name = font_bold if bold_face else font_regular
 
     def _walk(shapes):
         for sh in shapes:
@@ -766,14 +786,23 @@ def _apply_custom_style(prs, font_regular: str, font_bold: str) -> None:
                 _walk(sh.shapes)
                 continue
             if sh.has_text_frame:
-                bold_face = sh.name in _BOLD_SHAPE_NAMES or _is_title_placeholder(sh)
+                is_cover_title = (sh.name == "CoverTitle") or _is_title_placeholder(sh)
+                is_header_shape = sh.name in _BOLD_SHAPE_NAMES or _is_title_placeholder(sh)
+                bold_face = is_header_shape
                 for pi, par in enumerate(sh.text_frame.paragraphs):
-                    _style_para(par, bold_face and (sh.name != "CoverTitle" or pi == 0))
+                    is_title_p = is_cover_title and pi == 0
+                    is_header_p = bold_face and (sh.name != "CoverTitle" or pi == 0)
+                    _style_para(
+                        par,
+                        bold_face=is_header_p,
+                        is_cover_title=is_title_p,
+                        is_header_shape=is_header_shape,
+                    )
             if getattr(sh, "has_table", False) and sh.has_table:
                 for row in sh.table.rows:
                     for cell in row.cells:
                         for par in cell.text_frame.paragraphs:
-                            _style_para(par, False)
+                            _style_para(par, bold_face=False)
 
     for slide in prs.slides:
         _walk(slide.shapes)
@@ -1022,7 +1051,9 @@ class QuizExporter:
 
         if quiz_type in ("qshala_school", "qshala", "qshala-school"):
             quiz_type = "qshala_school"
-        elif quiz_type in ("zvq", "zvq_school", "zvq-school", "zsv"):
+        elif quiz_type in ("zvq_corporate", "zsv_corporate", "corporate", "corp"):
+            quiz_type = "corporate"
+        elif quiz_type in ("zvq", "zvq_school", "zvq-school", "zsv", "zsv_school", "school"):
             quiz_type = "school"
 
         media_tmp_dir = Path(tempfile.mkdtemp(prefix="qshala_export_media_"))
@@ -1176,8 +1207,10 @@ class QuizExporter:
         # Typography & Color Standards (Inter for ZSV, Causten Round for QShala School)
         # -------------------------------------------------------------
         if custom_template:
-            FONT_HEAD = custom_template.header_font or "Causten Round Bold"
-            FONT_BODY = custom_template.body_font or "Causten Round Regular"
+            default_head = "Causten Round Bold" if is_qshala_school else "Inter"
+            default_body = "Causten Round Regular" if is_qshala_school else "Inter"
+            FONT_HEAD = custom_template.header_font or default_head
+            FONT_BODY = custom_template.body_font or default_body
         elif is_qshala_school:
             # Causten Round family only: standard weight for body text, Bold for headings.
             FONT_HEAD = CAUSTEN_REGULAR   # bold headings are decided per shape in _apply_causten_style
@@ -1555,6 +1588,7 @@ class QuizExporter:
                 len(raw_exp.strip()) < 3
             )
             explanation = "" if is_dup_explanation else raw_exp
+            sq_img = None
 
             # ---------------------------------------------------------
             # (A) QUESTION SLIDE (uses question_bg: PPT.png with peach border)
@@ -2254,7 +2288,14 @@ class QuizExporter:
                 sa.notes_slide.notes_text_frame.text = source_notes
 
         if custom_template:
-            _apply_custom_style(prs, custom_template.body_font or FONT_BODY, custom_template.header_font or FONT_HEAD)
+            _apply_custom_style(
+                prs,
+                custom_template.body_font or FONT_BODY,
+                custom_template.header_font or FONT_HEAD,
+                title_size_pt=custom_template.title_size_pt,
+                header_size_pt=custom_template.header_size_pt,
+                body_size_pt=custom_template.body_size_pt,
+            )
         elif is_qshala_school:
             _apply_causten_style(prs)
 
