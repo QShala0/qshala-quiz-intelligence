@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   Check,
@@ -38,7 +39,6 @@ import {
   SpBrowse,
   SpConfig,
   SpDrive,
-  SpImportStatus,
   SpItemStatus,
   SpPlan,
   SpSelection,
@@ -121,7 +121,8 @@ function HighlightText({ text, query }: { text: string; query: string }) {
 type Picked = { id: string; kind: 'file' | 'folder'; name: string };
 type Crumb = { id: string | null; name: string };
 
-export default function SharePointImporter() {
+export default function SharePointImporter({ onTransferComplete }: { onTransferComplete?: () => void } = {}) {
+  const router = useRouter();
   const toast = useToast();
   const [cfg, setCfg] = useState<SpConfig | null>(null);
   const [drives, setDrives] = useState<SpDrive[]>([]);
@@ -148,7 +149,6 @@ export default function SharePointImporter() {
   const [planning, setPlanning] = useState(false);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ total: number; remaining: number } | null>(null);
-  const [result, setResult] = useState<SpImportStatus | null>(null);
   const [waiting, setWaiting] = useState(0);
   const cancelRef = useRef(false);
 
@@ -550,7 +550,6 @@ export default function SharePointImporter() {
   async function preview(items: Picked[]) {
     setPlanning(true);
     setError('');
-    setResult(null);
     try {
       setPlan(await api.spPlan(selectionBody(items)));
     } catch (e) {
@@ -574,21 +573,35 @@ export default function SharePointImporter() {
         if (step.queued + step.skipped_duplicate + step.failed === 0) break;
       }
       const status = await api.spImportStatus(batchId);
-      setResult(status);
       setWaiting(status.remaining);
       setPlan(null);
       setPicked(new Map());
+      if (status.failed.length > 0) {
+        setError(status.failed.map((f) => `${f.name}: ${f.error}`).join('; '));
+        toast.error(`${status.failed.length} file(s) failed to transfer.`);
+      }
+      if (status.remaining === 0 && ((status.counts?.QUEUED ?? 0) > 0 || (status.failed.length === 0 && status.skipped_duplicates.length === 0))) {
+        if (onTransferComplete) {
+          onTransferComplete();
+        } else {
+          router.push('/uploads');
+        }
+        return;
+      }
+      if (status.skipped_duplicates.length > 0 && (status.counts?.QUEUED ?? 0) === 0) {
+        toast.info(`Skipped ${status.skipped_duplicates.length} duplicate file(s) already in platform.`);
+      }
       void open(driveId, crumbs);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Import failed');
       api.spImportStatus(batchId).then((s) => setWaiting(s.remaining)).catch(() => {});
     } finally {
       setRunning(false);
+      setProgress(null);
     }
   }
 
   async function runImport(items: Picked[]) {
-    setResult(null);
     setError('');
     setRunning(true);
     const capped = items.slice(0, 25);
@@ -1377,46 +1390,6 @@ export default function SharePointImporter() {
                 }}
               />
             </div>
-          </div>
-        )}
-
-        {/* Import Results Card */}
-        {result && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-[13px] space-y-2 animate-fadeIn">
-            <div className="flex items-center gap-2 font-bold text-emerald-800 text-[14px]">
-              <Check className="h-4 w-4 text-emerald-600" />
-              <span>Import Handed Off to Pipeline</span>
-            </div>
-            <p className="text-slate-700">
-              Decks are now securely stored in R2 and queued for the background worker job. Slides are being parsed,
-              images extracted, and questions tagged.
-            </p>
-            <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              {Object.entries(result.counts).map(([k, n]) => (
-                <span
-                  key={k}
-                  className="rounded-md bg-white border border-emerald-200 px-2 py-0.5 text-[11.5px] font-semibold text-emerald-800"
-                >
-                  {k.toLowerCase().replace('_', ' ')}: {n}
-                </span>
-              ))}
-            </div>
-
-            {result.remaining > 0 && (
-              <p className="text-amber-800 text-[12px] pt-1">
-                {result.remaining} file(s) are still waiting (paused). Click &ldquo;Resume&rdquo; above when ready.
-              </p>
-            )}
-            {result.skipped_duplicates.map((s) => (
-              <p key={s.id} className="text-slate-500 text-[12px]">
-                Skipped {s.name}: {s.message}
-              </p>
-            ))}
-            {result.failed.map((f) => (
-              <p key={f.id} className="text-red-700 text-[12px]">
-                Failed {f.name}: {f.error}
-              </p>
-            ))}
           </div>
         )}
 

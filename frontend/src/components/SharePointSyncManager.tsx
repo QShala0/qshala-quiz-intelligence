@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Cloud,
   RefreshCw,
@@ -50,9 +51,11 @@ function formatTimeAgo(isoString?: string | null): string {
 
 interface SharePointSyncManagerProps {
   showImporter?: boolean;
+  onTransferComplete?: () => void;
 }
 
-export default function SharePointSyncManager({ showImporter = true }: SharePointSyncManagerProps) {
+export default function SharePointSyncManager({ showImporter = true, onTransferComplete }: SharePointSyncManagerProps) {
+  const router = useRouter();
   const toast = useToast();
 
   // SharePoint & Jobs state
@@ -257,16 +260,28 @@ export default function SharePointSyncManager({ showImporter = true }: SharePoin
       });
 
       let remaining = staged.selected;
+      let queuedCount = 0;
       setDrawerImportProgress({ total: staged.selected, remaining });
 
       while (remaining > 0) {
         const step = await api.spTransferNext(staged.batch_id, 25);
         remaining = step.remaining;
+        queuedCount += step.queued;
         setDrawerImportProgress({ total: staged.selected, remaining });
         if (step.queued + step.skipped_duplicate + step.failed === 0) break;
       }
 
       toast.success(`Import complete! Transferred ${staged.selected} files.`);
+      setDrawerOpen(false);
+      setSelectedIds(new Set());
+      if (queuedCount > 0 || remaining === 0) {
+        if (onTransferComplete) {
+          onTransferComplete();
+          return;
+        }
+        router.push('/uploads');
+        return;
+      }
       await Promise.all([
         fetchNotImported(0, false),
         loadSharePointData(),
@@ -489,7 +504,7 @@ export default function SharePointSyncManager({ showImporter = true }: SharePoin
       </div>
 
       {/* SharePoint Folder Tree Importer */}
-      {showImporter && <SharePointImporter />}
+      {showImporter && <SharePointImporter onTransferComplete={onTransferComplete} />}
 
       {/* Ingestion Jobs Queue Table */}
       <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden space-y-0">

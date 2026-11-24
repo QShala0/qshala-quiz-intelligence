@@ -387,6 +387,51 @@ export default function UploadPage() {
     }
   };
 
+  const handleSharePointTransferComplete = async () => {
+    setUploadSource('local');
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('tab') || url.hash) {
+        url.searchParams.delete('tab');
+        url.hash = '';
+        window.history.replaceState({}, '', url.pathname + url.search);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    try {
+      const docs = await api.listDocuments();
+      setDocuments(docs);
+      const active = docs.filter(isActive).slice(0, 10);
+      if (active.length > 0) {
+        const entries = await Promise.all(
+          active.map(async (d) => {
+            try {
+              const st = await api.getIngestionStatus(d.id);
+              return [d.id, st] as const;
+            } catch {
+              return null;
+            }
+          })
+        );
+        const validEntries = entries.filter((e): e is [string, IngestionStatus] => e !== null);
+        setActiveStatuses(Object.fromEntries(validEntries));
+        setProgressById(
+          Object.fromEntries(
+            validEntries.map(([id, st]) => [
+              id,
+              {
+                pct: Math.max(0, Math.min(100, Math.round(st.progress_percentage || 0))),
+                step: st.current_step || '',
+              },
+            ])
+          )
+        );
+      }
+    } catch {
+      /* Polling will pick up the newly queued decks shortly */
+    }
+  };
+
   const handleSelectedFiles = (files: File[]) => {
     const validFiles = files.filter((f) => {
       const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
@@ -1177,7 +1222,7 @@ export default function UploadPage() {
         </>
       ) : (
         <div className="space-y-6 animate-in fade-in transition-all">
-          <SharePointSyncManager showImporter={true} />
+          <SharePointSyncManager showImporter={true} onTransferComplete={handleSharePointTransferComplete} />
         </div>
       )}
 
