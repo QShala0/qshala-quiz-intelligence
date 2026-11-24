@@ -384,6 +384,7 @@ export const api = {
     includePdf?: boolean;
     folder?: string;
     q?: string;
+    modified?: '30d' | '90d' | '1y' | 'older' | 'all';
   } | string, limit = 200, offset = 0) => {
     let driveId: string | undefined;
     let l = limit;
@@ -392,6 +393,7 @@ export const api = {
     let includePdf: boolean | undefined;
     let folder: string | undefined;
     let qStr: string | undefined;
+    let modified: string | undefined;
 
     if (typeof params === 'object' && params !== null) {
       driveId = params.driveId;
@@ -401,6 +403,7 @@ export const api = {
       includePdf = params.includePdf;
       folder = params.folder;
       qStr = params.q;
+      modified = params.modified;
     } else {
       driveId = params;
     }
@@ -413,6 +416,7 @@ export const api = {
     if (includePdf) q.set('include_pdf', '1');
     if (folder) q.set('folder', folder);
     if (qStr) q.set('q', qStr);
+    if (modified) q.set('modified', modified);
     const qs = q.toString();
     return spJson<SpNotImportedResponse>(`/not-imported${qs ? `?${qs}` : ''}`);
   },

@@ -262,6 +262,35 @@ def get_index_status(db: Session, drive_id: Optional[str] = None) -> Dict[str, A
     }
 
 
+def is_matching_modified_filter(file_modified: Optional[datetime], mod_filter: Optional[str], now: datetime) -> bool:
+    """Filter by last modified date:
+    - 30d: in the last 30 days
+    - 90d: last 90 days
+    - 1y: last 365 days
+    - older: more than 365 days ago
+    - all: no filter (undated files appear only in all)
+    """
+    filter_val = (mod_filter or "all").strip().lower()
+    if filter_val == "all":
+        return True
+    if file_modified is None:
+        return False
+
+    fm = _as_utc(file_modified)
+    if fm is None:
+        return False
+
+    if filter_val == "30d":
+        return fm >= now - timedelta(days=30)
+    elif filter_val == "90d":
+        return fm >= now - timedelta(days=90)
+    elif filter_val == "1y":
+        return fm >= now - timedelta(days=365)
+    elif filter_val == "older":
+        return fm < now - timedelta(days=365)
+    return True
+
+
 async def get_not_imported_from_index(
     db: Session,
     client=None,
@@ -272,6 +301,7 @@ async def get_not_imported_from_index(
     include_pdf: bool = False,
     folder: Optional[str] = None,
     q: Optional[str] = None,
+    modified: Optional[str] = "all",
 ) -> Dict[str, Any]:
     """Read candidates from the stored index that are not yet imported into QShala.
 
@@ -449,6 +479,7 @@ async def get_not_imported_from_index(
 
     target_root_filter = folder.strip().lower() if folder and folder.strip() and folder.strip().lower() != "all" else None
     search_q = q.strip().lower() if q and q.strip() else None
+    now = datetime.now(timezone.utc)
 
     bucket_counts = {"likely": 0, "other": 0, "excluded": 0}
     view_candidates: List[Dict[str, Any]] = []
@@ -472,6 +503,10 @@ async def get_not_imported_from_index(
         if search_q:
             if search_q not in it.name.lower() and search_q not in folder_path.lower():
                 continue
+
+        # Filter by modified date
+        if not is_matching_modified_filter(it.modified, modified, now):
+            continue
 
         ancestors = get_ancestor_folder_ids(it.parent_id)
         bucket = classify_file(

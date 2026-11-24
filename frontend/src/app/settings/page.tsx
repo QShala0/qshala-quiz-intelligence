@@ -25,6 +25,19 @@ import SharePointImporter from '@/components/SharePointImporter';
 import CustomTemplateManager from '@/components/CustomTemplateManager';
 import { useToast } from '@/components/ui/Feedback';
 
+function getInitialModifiedFilter(): '30d' | '90d' | '1y' | 'older' | 'all' {
+  if (typeof window === 'undefined') return '90d';
+  try {
+    const saved = window.localStorage.getItem('qshala_sp_not_imported_modified');
+    if (saved && ['30d', '90d', '1y', 'older', 'all'].includes(saved)) {
+      return saved as '30d' | '90d' | '1y' | 'older' | 'all';
+    }
+  } catch {
+    // Ignore
+  }
+  return '90d';
+}
+
 function formatTimeAgo(isoString?: string | null): string {
   if (!isoString) return 'never';
   const diffMs = Date.now() - new Date(isoString).getTime();
@@ -69,6 +82,7 @@ export default function SettingsPage() {
   const [drawerFilterView, setDrawerFilterView] = useState<'likely' | 'other' | 'all'>('likely');
   const [drawerIncludePdf, setDrawerIncludePdf] = useState(false);
   const [drawerRootFolder, setDrawerRootFolder] = useState<string>('all');
+  const [drawerModifiedFilter, setDrawerModifiedFilter] = useState<'30d' | '90d' | '1y' | 'older' | 'all'>(getInitialModifiedFilter);
   const [drawerSearchQuery, setDrawerSearchQuery] = useState<string>('');
   const [hiddenFolderToast, setHiddenFolderToast] = useState<{ folderId: string; folderPath: string } | null>(null);
   const [hidingFolderId, setHidingFolderId] = useState<string | null>(null);
@@ -104,6 +118,7 @@ export default function SettingsPage() {
       includePdf?: boolean;
       folder?: string;
       q?: string;
+      modified?: '30d' | '90d' | '1y' | 'older' | 'all';
     }
   ) => {
     if (append) setLoadingMore(true);
@@ -114,6 +129,7 @@ export default function SettingsPage() {
       const activeIncludePdf = opts?.includePdf !== undefined ? opts.includePdf : drawerIncludePdf;
       const activeFolder = opts?.folder !== undefined ? opts.folder : drawerRootFolder;
       const activeQ = opts?.q !== undefined ? opts.q : drawerSearchQuery;
+      const activeModified = opts?.modified !== undefined ? opts.modified : drawerModifiedFilter;
 
       const res = await api.spNotImported({
         limit: 200,
@@ -122,6 +138,7 @@ export default function SettingsPage() {
         includePdf: activeIncludePdf,
         folder: activeFolder === 'all' ? undefined : activeFolder,
         q: activeQ.trim() || undefined,
+        modified: activeModified,
       });
       if (append) {
         setNotImportedData((prev) => (prev ? { ...res, files: [...prev.files, ...res.files] } : res));
@@ -158,6 +175,18 @@ export default function SettingsPage() {
   const handleRootChange = (folder: string) => {
     setDrawerRootFolder(folder);
     void fetchNotImported(0, false, { folder });
+  };
+
+  const handleModifiedChange = (val: '30d' | '90d' | '1y' | 'older' | 'all') => {
+    setDrawerModifiedFilter(val);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('qshala_sp_not_imported_modified', val);
+      }
+    } catch {
+      // Ignore
+    }
+    void fetchNotImported(0, false, { modified: val });
   };
 
   const handleSearchChange = (val: string) => {
@@ -953,7 +982,7 @@ export default function SettingsPage() {
             onClick={() => setDrawerOpen(false)}
           />
           <div className="fixed inset-y-0 right-0 flex max-w-full pl-10">
-            <div className="w-[420px] max-w-full bg-white shadow-2xl border-l border-slate-200 flex flex-col z-50">
+            <div className="w-[450px] max-w-full bg-white shadow-2xl border-l border-slate-200 flex flex-col z-50">
               {/* Header */}
               <div className="p-4 border-b border-slate-100 flex items-start justify-between">
                 <div>
@@ -1075,6 +1104,17 @@ export default function SettingsPage() {
                     <option value="all">All roots</option>
                     <option value="Quizzes">Quizzes</option>
                     <option value="QShala School Program">QShala School Program</option>
+                  </select>
+                  <select
+                    value={drawerModifiedFilter}
+                    onChange={(e) => handleModifiedChange(e.target.value as '30d' | '90d' | '1y' | 'older' | 'all')}
+                    className="text-[12px] py-1 px-2 bg-white border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="all">All time</option>
+                    <option value="30d">Last 30 days</option>
+                    <option value="90d">Last 90 days</option>
+                    <option value="1y">Last year</option>
+                    <option value="older">Older than a year</option>
                   </select>
                 </div>
 

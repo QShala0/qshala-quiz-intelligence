@@ -16,9 +16,9 @@ BUCKET_LIKELY = "likely"
 BUCKET_OTHER = "other"
 
 
-# Default exclude words / phrases
+# Default exclude words / phrases (cbse and ncert are handled separately by targeted rules)
 DEFAULT_EXCLUDE_WORDS = (
-    "books", "textbooks", "cbse", "ncert", "marketing", "collateral", "collaterals",
+    "books", "textbooks", "marketing", "collateral", "collaterals",
     "flyer", "flyers", "brochure", "invoice", "invoices", "quote", "quotes", "quotation",
     "vendor", "vendors", "agreement", "contract", "proposal", "photos", "photo",
     "images", "videos", "logo", "logos", "certificate", "certificates", "poster",
@@ -155,6 +155,66 @@ def is_file_temp_or_lock(file_name: str) -> bool:
     return False
 
 
+CBSE_NCERT_EXEMPT_QUIZ_WORDS = ("quiz", "prelim", "final", "round", "questions", "reserve")
+
+
+def is_textbook_or_curriculum_folder(folder_path: str) -> bool:
+    """Check if any folder in path is a textbook or curriculum folder:
+    - CBSE Books, Textbooks, Textbook, NCERT Books (whole-word and case-insensitive)
+    - Discover - Curriculum / Discover Curriculum followed (anywhere below it) by a CBSE or NCERT folder
+    """
+    if not folder_path:
+        return False
+
+    segments = [s.strip() for s in folder_path.split("/") if s.strip()]
+    if not segments:
+        return False
+
+    for i, seg in enumerate(segments):
+        norm_seg = re.sub(r'[\s_\-]+', ' ', seg.lower()).strip()
+        # Direct textbook folders matched whole-word
+        if re.search(r'\bcbse\s+books\b', norm_seg):
+            return True
+        if re.search(r'\bncert\s+books\b', norm_seg):
+            return True
+        if re.search(r'\btextbooks?\b', norm_seg):
+            return True
+
+        # Discover - Curriculum / Discover Curriculum followed anywhere below it by CBSE or NCERT folder
+        if "discover curriculum" in norm_seg:
+            for below_seg in segments[i + 1:]:
+                norm_below = re.sub(r'[\s_\-]+', ' ', below_seg.lower()).strip()
+                if re.search(r'\b(cbse|ncert)\b', norm_below):
+                    return True
+
+    return False
+
+
+def is_non_quiz_cbse_or_ncert_filename(file_name: str) -> bool:
+    """Check if file name contains cbse or ncert and none of the quiz words
+    (quiz, prelim, final, round, questions, reserve) appear in the file name.
+    """
+    fn_lower = file_name.lower()
+    tokens = _tokenize(fn_lower)
+
+    # Must contain cbse or ncert as a token or prefix
+    has_cbse_or_ncert = any(t == "cbse" or t == "ncert" or t.startswith("cbse") or t.startswith("ncert") for t in tokens)
+    if not has_cbse_or_ncert:
+        return False
+
+    # Exempt if any quiz word appears in file name
+    has_quiz_word = any(
+        any(t.startswith(qw) or t == qw for qw in CBSE_NCERT_EXEMPT_QUIZ_WORDS)
+        for t in tokens
+    )
+    return not has_quiz_word
+
+
+def is_cbse_ncert_excluded(file_name: str, folder_path: str) -> bool:
+    """Classify as excluded if folder is a textbook/curriculum folder or file name is non-quiz cbse/ncert."""
+    return is_textbook_or_curriculum_folder(folder_path) or is_non_quiz_cbse_or_ncert_filename(file_name)
+
+
 def classify_file(
     name: str,
     folder_path: str = "",
@@ -221,6 +281,10 @@ def classify_file(
 
     # 5. Exclude words / phrases check
     if contains_exclude_word(name, folder_path, exclude_phrases, exclude_single_words):
+        return "excluded"
+
+    # 6. Targeted CBSE / NCERT textbook & curriculum check
+    if is_cbse_ncert_excluded(name, folder_path):
         return "excluded"
 
     # Check for likely signals:
