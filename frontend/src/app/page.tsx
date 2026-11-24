@@ -73,7 +73,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3 shrink-0">
           <Link
             href="/uploads"
-            className="inline-flex items-center gap-2 rounded-xl border-2 border-ink/15 bg-white px-3.5 py-2 text-[13.5px] font-bold text-ink shadow-xs hover:bg-slate-50 transition-colors"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200/15 bg-white px-3.5 py-2 text-[13.5px] font-bold text-ink shadow-xs hover:bg-slate-50 transition-colors"
           >
             <UploadCloud className="h-4 w-4 text-ink/70" />
             <span>Upload Materials</span>
@@ -81,7 +81,7 @@ export default function DashboardPage() {
 
           <Link
             href="/generate"
-            className="inline-flex items-center gap-2 rounded-xl bg-sun px-4 py-2 text-[13.5px] font-bold text-ink shadow-sticker-sm hover:brightness-105 active:scale-[0.99] transition-all"
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-100 border border-sky-200 hover:bg-sky-200 px-4 py-2 text-[13.5px] font-bold text-ink shadow-sticker-sm  active:scale-[0.99] transition-all"
           >
             <Sparkles className="h-4 w-4" />
             <span>Create Quiz</span>
@@ -121,7 +121,7 @@ export default function DashboardPage() {
           <div className="rounded-[20px] border border-sun/30 bg-white shadow-sticker-sm overflow-hidden">
             <div className="p-5 border-b border-slate-100">
               <div className="flex items-center justify-between">
-                <h3 className="section-bar text-[13px] tracking-wider">
+                <h3 data-tint="butter" className="section-bar text-[13px] tracking-wider">
                   Recent Generated Quizzes
                 </h3>
                 <Link
@@ -212,7 +212,7 @@ export default function DashboardPage() {
           <div className="rounded-[20px] border border-sun/30 bg-white shadow-sticker-sm overflow-hidden">
             <div className="p-5 border-b border-slate-100">
               <div className="flex items-center justify-between">
-                <h3 className="section-bar text-[13px] tracking-wider">
+                <h3 data-tint="sky" className="section-bar text-[13px] tracking-wider">
                   Uploaded Quizzes
                 </h3>
                 <Link
@@ -276,7 +276,7 @@ export default function DashboardPage() {
           <div className="rounded-[20px] border border-sun/30 bg-white p-5 shadow-sticker-sm">
             <div className="border-b border-slate-100 pb-3 mb-4 flex items-center justify-between">
               <div>
-                <h3 className="section-bar text-[13px] tracking-wider">
+                <h3 data-tint="sage" className="section-bar text-[13px] tracking-wider">
                   Topic Coverage
                 </h3>
                 <p className="text-[12px] text-slate-500 font-normal mt-1">
@@ -321,12 +321,12 @@ export default function DashboardPage() {
 
           {/* Platform Workflow Card */}
           <div className="rounded-[20px] border border-sun/30 bg-white p-5 shadow-sticker-sm space-y-4">
-            <h3 className="section-bar text-[13px] tracking-wider">
+            <h3 data-tint="peach" className="section-bar text-[13px] tracking-wider">
               Platform Workflow
             </h3>
             <div className="space-y-3 text-[12.5px] text-slate-600">
               <div className="flex items-start gap-2.5">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sun text-ink font-black text-[11px] mt-0.5 shadow-xs">
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-ink font-black text-[11px] mt-0.5 shadow-xs">
                   1
                 </div>
                 <div>
@@ -336,7 +336,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="flex items-start gap-2.5">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sun text-ink font-black text-[11px] mt-0.5 shadow-xs">
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-grass-100 text-ink font-black text-[11px] mt-0.5 shadow-xs">
                   2
                 </div>
                 <div>
@@ -346,7 +346,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="flex items-start gap-2.5">
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sun text-ink font-black text-[11px] mt-0.5 shadow-xs">
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sun-100 text-ink font-black text-[11px] mt-0.5 shadow-xs">
                   3
                 </div>
                 <div>
@@ -359,7 +359,7 @@ export default function DashboardPage() {
             <div className="pt-2 border-t border-slate-100">
               <Link
                 href="/generate"
-                className="flex items-center justify-center gap-1.5 w-full rounded-xl bg-sun py-2 text-[13px] font-bold text-ink shadow-sticker-sm hover:brightness-105 active:scale-[0.99] transition-all"
+                className="flex items-center justify-center gap-1.5 w-full rounded-xl bg-sky-100 border border-sky-200 hover:bg-sky-200 py-2 text-[13px] font-bold text-ink shadow-sticker-sm  active:scale-[0.99] transition-all"
               >
                 <span>Go to Create Quiz</span>
                 <ArrowRight className="h-3.5 w-3.5" />

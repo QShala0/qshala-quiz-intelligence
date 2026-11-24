@@ -25,7 +25,7 @@ import {
 } from '../../components/ui';
 
 const SWATCHES = [
-  { name: 'Joy of Quest (Sun)', hex: '#FDB913', role: 'Hero Brand Accent', cls: 'bg-sun text-ink' },
+  { name: 'Joy of Quest (Sun)', hex: '#FDB913', role: 'Hero Brand Accent', cls: 'bg-[#FDB913] text-ink' },
   { name: 'Qurious Sky (Sky)', hex: '#30B2E7', role: 'Blue Accent', cls: 'bg-sky text-ink' },
   { name: 'Always Questioning (Green)', hex: '#75B543', role: 'Green Accent', cls: 'bg-grass text-white' },
   { name: 'Ink (Black)', hex: '#000000', role: 'Text & Headings', cls: 'bg-ink text-white' },
@@ -144,7 +144,7 @@ export default function DesignPage() {
           <div className="rounded-[20px] border border-sun/30 bg-white p-5 shadow-sticker-sm space-y-3">
             <h3 className="section-bar text-[13px]">Section Divider Bar</h3>
             <p className="text-xs text-slate-600">
-              Black uppercase label paired with a full-width Sun-yellow bar (`.section-bar`).
+              Heading paired with a slim soft-tint bar (`.section-bar`); rotate tint with `data-tint` (butter, sky, sage, peach).
             </p>
           </div>
           <div className="rounded-[20px] border border-sun/30 bg-white p-5 shadow-sticker-sm space-y-3">

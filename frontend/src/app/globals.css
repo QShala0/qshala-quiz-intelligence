@@ -17,10 +17,16 @@
   --brand-sun: #FDB913;      /* Joy of Quest (hero accent) */
   --brand-grass: #75B543;    /* Always Questioning */
   --brand-ink: #000000;
-  --brand-cream: #FFF6E1;    /* page background */
-  --brand-paper: #FFFFFF;    /* cards on cream */
+  --brand-cream: #FAF4E8;    /* page background, softened */
+  --brand-paper: #FDF9F1;    /* soft warm white for cards on cream */
   --brand-grey: #5F5F66;     /* secondary text, passes 4.5:1 on cream */
-  --brand-line: #F0DFB8;     /* hairlines on cream */
+  --brand-line: #EEE5D2;     /* hairlines on cream, subtle */
+
+  /* Soft theme (Nov 2026): warm charcoal replaces pure black in the UI chrome.
+     Logo and mascot assets keep true brand ink. */
+  --ink-soft: #2F2E33;       /* body text, passes AA on cream and tints */
+  --line-soft: rgba(47, 46, 51, 0.12);
+  --highlight: #FFEFB8;      /* search marks, selection */
 
   /* Tints (for hover/selected/chips; derived, keep subtle) */
   --brand-sun-50: #FFF4D1;
@@ -36,51 +42,62 @@
 
   /* Semantic */
   --background: var(--brand-cream);
-  --foreground: var(--brand-ink);
+  --foreground: var(--ink-soft);
   --surface: var(--brand-paper);
-  --surface-hover: var(--brand-sun-50);
+  --surface-hover: var(--brand-sky-50);
   --border: var(--brand-line);
-  --focus-ring: var(--brand-sun);
+  --focus-ring: var(--brand-sky);
+  --focus-glow: rgba(48, 178, 231, 0.22);
+
+  /* Rotating section tints (butter, sky, sage, peach) */
+  --bar-butter: #F6E9C2;
+  --bar-sky: #CDE9F4;
+  --bar-sage: #D6E8C6;
+  --bar-peach: #F5DCCB;
+  --bar-tint: var(--bar-butter);
 
   --radius-card: 20px;
   --radius-pill: 9999px;
-  --rule-yellow: 2px solid var(--brand-sun);
+  --rule-yellow: 2px solid var(--bar-butter);
   --font-sans-stack: var(--font-plus-jakarta), "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 @theme {
-  --color-white: #FFFFFF;
-  --color-black: #000000;
-  --color-ink: #000000;
-  --color-ink-primary: #000000;
-  --color-cream: #FFF6E1;
-  --color-paper: #FFFFFF;
-  --color-hover-tint: #FFF4D1;
+  --color-white: #FDF9F1;
+  --color-black: #2F2E33;
+  --color-ink: #2F2E33;
+  --color-ink-primary: #2F2E33;
+  --color-cream: #FAF4E8;
+  --color-paper: #FDF9F1;
+  --color-hover-tint: #E3F5FC;
+  --color-highlight: #FFEFB8;
+  --color-peach-50: #FEF1E8;
+  --color-peach-100: #FBD9C4;
 
   /* Remapped slate ramp -> warm neutrals, no blue cast */
-  --color-slate-50: #FFF9EC;
-  --color-slate-100: #FBF0D6;
-  --color-slate-200: #F0DFB8;
+  --color-slate-50: #FBF7EE;
+  --color-slate-100: #F5EEDF;
+  --color-slate-200: #EEE5D2;
   --color-slate-300: #D9C79B;
   --color-slate-400: #9A9AA0;
-  --color-slate-500: #77777E;
+  --color-slate-500: #6B6B72;
   --color-slate-600: #5F5F66;
   --color-slate-700: #3F3F45;
-  --color-slate-800: #222226;
-  --color-slate-900: #0D0D0F;
-  --color-slate-950: #000000;
+  --color-slate-800: #38373D;
+  --color-slate-900: #2F2E33;
+  --color-slate-950: #26252A;
 
   /* Remapped gray ramp */
-  --color-gray-50: #FFF9EC;
-  --color-gray-100: #FBF0D6;
-  --color-gray-200: #F0DFB8;
+  --color-gray-50: #FBF7EE;
+  --color-gray-100: #F5EEDF;
+  --color-gray-200: #EEE5D2;
   --color-gray-300: #D9C79B;
   --color-gray-400: #9A9AA0;
-  --color-gray-500: #77777E;
+  --color-gray-500: #6B6B72;
   --color-gray-600: #5F5F66;
   --color-gray-700: #3F3F45;
-  --color-gray-800: #222226;
-  --color-gray-900: #0D0D0F;
+  --color-gray-800: #38373D;
+  --color-gray-900: #2F2E33;
 
   /* Qurious Sky (#30B2E7) & blue ramp */
   --color-sky: #30B2E7;
@@ -104,19 +121,19 @@
   --color-blue-950: #062635;
 
   /* Joy of Quest Sun Yellow (#FDB913) & amber ramp */
-  --color-sun: #FDB913;
-  --color-sun-50: #FFF4D1;
-  --color-sun-100: #FFE9A6;
-  --color-sun-200: #FFDD73;
-  --color-sun-600: #E0A000;
+  --color-sun: #FBE19A;      /* soft butter; true brand Sun lives in --brand-sun */
+  --color-sun-50: #FFF8E3;
+  --color-sun-100: #FFEFB8;
+  --color-sun-200: #FBE19A;
+  --color-sun-600: #B98A0B;
 
-  --color-amber-50: #FFF4D1;
-  --color-amber-100: #FFE9A6;
-  --color-amber-200: #FFDD73;
-  --color-amber-300: #FFD040;
-  --color-amber-400: #FDB913;
-  --color-amber-500: #FDB913;
-  --color-amber-600: #E0A000;
+  --color-amber-50: #FFF8E3;
+  --color-amber-100: #FFEFB8;
+  --color-amber-200: #FBE19A;
+  --color-amber-300: #FBE19A;
+  --color-amber-400: #F5D272;
+  --color-amber-500: #F0C85A;
+  --color-amber-600: #B98A0B;
 
   /* Always Questioning Green (#75B543) & emerald ramp */
   --color-grass: #75B543;
@@ -169,11 +186,11 @@
   /* Shape & Shadow */
   --radius-card: 20px;
   --radius-pill: 9999px;
-  --shadow-sticker: 3px 3px 0 0 #000000;
-  --shadow-sticker-sm: 2px 2px 0 0 #000000;
-  --shadow-sticker-lg: 5px 5px 0 0 #000000;
-  --shadow-soft: 0 6px 24px -8px rgba(0, 0, 0, 0.08);
-  --shadow-warm-focus: 0 0 0 4px rgba(253, 185, 19, 0.35);
+  --shadow-sticker: 0 2px 8px -2px rgba(47, 46, 51, 0.14), 0 1px 2px rgba(47, 46, 51, 0.08);
+  --shadow-sticker-sm: 0 1px 4px -1px rgba(47, 46, 51, 0.12), 0 1px 1px rgba(47, 46, 51, 0.06);
+  --shadow-sticker-lg: 0 8px 24px -8px rgba(47, 46, 51, 0.18), 0 2px 4px rgba(47, 46, 51, 0.08);
+  --shadow-soft: 0 6px 24px -8px rgba(47, 46, 51, 0.10);
+  --shadow-warm-focus: 0 0 0 4px var(--focus-glow);
 
   /* Motion */
   --animate-wiggle: qt-wiggle 0.6s ease-in-out;
@@ -210,7 +227,7 @@ input, button, select, textarea, optgroup {
 }
 
 /* ───────────────────────────── Shared Warm Focus System ─────────────────────────
-   Brand Joy of Quest outline (#FDB913) and ambient warm glow across all inputs,
+   Soft sky outline and ambient glow across all inputs,
    selects, textareas, buttons, and links.
 ────────────────────────────────────────────────────────────────────────────── */
 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
@@ -224,8 +241,8 @@ textarea:focus,
 select:focus,
 .focus-warm:focus,
 .focus-warm:focus-within {
-  border-color: #FDB913 !important;
-  box-shadow: 0 0 0 4px rgba(253, 185, 19, 0.25) !important;
+  border-color: var(--focus-ring) !important;
+  box-shadow: 0 0 0 4px var(--focus-glow) !important;
   outline: none !important;
 }
 
@@ -240,22 +257,22 @@ textarea.focus-none:focus {
 /* Brand Sun Yellow for checkboxes and radio toggles */
 input[type="checkbox"],
 input[type="radio"] {
-  accent-color: #FDB913;
+  accent-color: var(--brand-sky);
 }
 
 button:focus-visible,
 a:focus-visible,
 [role="button"]:focus-visible,
 :focus-visible {
-  outline: 2px solid #FDB913 !important;
+  outline: 2px solid var(--focus-ring) !important;
   outline-offset: 2px !important;
-  box-shadow: 0 0 0 4px rgba(253, 185, 19, 0.25) !important;
+  box-shadow: 0 0 0 4px var(--focus-glow) !important;
   border-radius: 6px;
 }
 
 ::selection {
-  background: #FFE9A6;
-  color: #000000;
+  background: var(--highlight);
+  color: var(--ink-soft);
 }
 
 /* Custom subtle warm scrollbar */
@@ -267,11 +284,11 @@ a:focus-visible,
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #e9dfc9;
+  background: var(--brand-line);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #d8cbb0;
+  background: #D9C79B;
 }
 
 /* ───────────────────────────── Motion ─────────────────────────────
@@ -367,21 +384,11 @@ a:focus-visible,
 }
 
 .qt-shimmer {
-  background: linear-gradient(90deg, #f6f0e2 25%, #fff9ea 50%, #f6f0e2 75%);
+  background: linear-gradient(90deg, var(--brand-sun-50) 25%, #FFFDF6 50%, var(--brand-sun-50) 75%);
   background-size: 200% 100%;
   animation: qt-shimmer 1.6s linear infinite;
 }
 
-
-/* Warm focus utility */
-.focus-warm {
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.focus-warm:focus, .focus-warm:focus-within {
-  border-color: #FDB913 !important;
-  box-shadow: 0 0 0 4px rgba(253, 185, 19, 0.25) !important;
-  outline: none !important;
-}
 
 /* Sticker-style press feel for brand buttons */
 .qt-press {
@@ -392,12 +399,16 @@ a:focus-visible,
 }
 .qt-press:active:not(:disabled) {
   transform: translate(2px, 2px);
-  box-shadow: 0 0 0 0 #000000;
+  box-shadow: none;
 }
 
-/* Signature section divider: BLACK CAPS heading + full-width Sun-yellow bar */
+/* Signature section divider: heading + slim soft-tint bar. Tint rotates per section. */
 .section-bar { display: flex; align-items: center; gap: 12px; }
-.section-bar::after { content: ""; flex: 1; height: 28px; background: var(--brand-sun); border-radius: 4px; }
+.section-bar::after { content: ""; flex: 1; height: 8px; background: var(--bar-tint); border-radius: 9999px; }
+.section-bar:nth-of-type(4n+2), [data-tint="sky"] { --bar-tint: var(--bar-sky); }
+.section-bar:nth-of-type(4n+3), [data-tint="sage"] { --bar-tint: var(--bar-sage); }
+.section-bar:nth-of-type(4n+4), [data-tint="peach"] { --bar-tint: var(--bar-peach); }
+[data-tint="butter"] { --bar-tint: var(--bar-butter); }
 .page-title-rule { border-bottom: var(--rule-yellow); }
 
 @media (prefers-reduced-motion: reduce) {

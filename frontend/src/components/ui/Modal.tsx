@@ -53,7 +53,7 @@ export default function Modal({ open, onClose, title, children, footer, mascot, 
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
-        className={`relative flex max-h-[90vh] w-full flex-col rounded-card border-2 border-ink bg-white shadow-sticker-lg animate-pop focus:outline-none ${WIDTH[size]}`}
+        className={`relative flex max-h-[90vh] w-full flex-col rounded-card border border-slate-200 bg-white shadow-sticker-lg animate-pop focus:outline-none ${WIDTH[size]}`}
       >
         {mascot && <div className="pointer-events-none absolute -top-9 right-6">{mascot}</div>}
         {title && (
