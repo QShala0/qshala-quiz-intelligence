@@ -48,12 +48,12 @@ Defined centrally via CSS variables and Tailwind CSS v4 `@theme` in [`frontend/s
 
 ## 3. Typography: Causten Round
 
-The application uses **Causten Round** loaded locally via `next/font/local` (`frontend/src/fonts/CaustenRound-*.woff2`) as the sole UI typeface. Google Fonts (`Plus Jakarta Sans`) has been completely removed.
+The application uses **Plus Jakarta Sans** (Google Fonts `next/font/google`, weights 400, 500, 600, 700, 800) as the primary UI typeface.
 
-- **Causten Round Black (900) & ExtraBold (800)**: Page titles, section headings, numbers, and primary button labels.
-- **Causten Round Bold (700) & SemiBold (600)**: Navigation links, table headers, subheadings, and badges.
-- **Causten Round Medium (500) & Regular (400)**: Body text, tables, form inputs, speaker notes, and help copy.
-- *(Note: Mikado Black is the school display font reserved for school presentation titles; the UI adheres uniformly to Causten Round).*
+- **Plus Jakarta Sans ExtraBold (800) & Bold (700)**: Page titles, section headings, numbers, and primary button labels.
+- **Plus Jakarta Sans SemiBold (600)**: Navigation links, table headers, subheadings, and badges.
+- **Plus Jakarta Sans Medium (500) & Regular (400)**: Body text, tables, form inputs, speaker notes, and help copy.
+- *(Note: Causten Round woff2 font files remain preserved in `frontend/src/fonts/` for presentation templates and exporter formatting).*
 
 ---
 

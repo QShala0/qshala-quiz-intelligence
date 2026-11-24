@@ -109,24 +109,24 @@ export default function DesignPage() {
       </Section>
 
       {/* 3. Typography */}
-      <Section title="Typography: Causten Round (Sole UI Font)">
+      <Section title="Typography: Plus Jakarta Sans (UI Font)">
         <div className="rounded-[20px] border border-sun/30 bg-white p-6 shadow-sticker-sm space-y-4">
           <div>
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Weight 900 (Black)</span>
-            <p className="text-3xl font-black text-ink">Questions • Quriosity • Quests</p>
-          </div>
-          <div>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Weight 800 (ExtraBold)</span>
-            <p className="text-2xl font-extrabold text-ink">Curiosity Learning Platform for Schools</p>
+            <p className="text-3xl font-extrabold text-ink">Questions • Quriosity • Quests</p>
           </div>
           <div>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Weight 700 (Bold)</span>
-            <p className="text-lg font-bold text-ink">Tournament Prelims, Finals & Mixed Bag Rounds</p>
+            <p className="text-2xl font-bold text-ink">Curiosity Learning Platform for Schools</p>
+          </div>
+          <div>
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Weight 600 (SemiBold)</span>
+            <p className="text-lg font-semibold text-ink">Tournament Prelims, Finals & Mixed Bag Rounds</p>
           </div>
           <div>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Weight 500 (Medium)</span>
             <p className="text-base font-medium text-slate-800">
-              Body copy is set in Causten Round Medium and Regular at 15–16px with line-height 1.5+ for effortless reading.
+              Body copy is set in Plus Jakarta Sans Medium and Regular at 15–16px with line-height 1.5+ for effortless reading.
             </p>
           </div>
           <div>

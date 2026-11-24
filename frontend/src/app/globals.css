@@ -45,7 +45,7 @@
   --radius-card: 20px;
   --radius-pill: 9999px;
   --rule-yellow: 2px solid var(--brand-sun);
-  --font-sans-stack: var(--font-causten-round), "Causten Round", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans-stack: var(--font-plus-jakarta), "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 @theme {

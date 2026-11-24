@@ -34,6 +34,7 @@ Work was executed in 7 discrete work packages, each cleanly committed to local b
 | **WP 6** | `3898e7c` | `feat(screens): restyle screens with brand palette, signature yellow bar, and official QT poses` | Restyled all core application routes: Shell (`Sidebar`, `Topbar`), Home (`/`), Question Bank (`/knowledge-base`), Generate (`/generate`), Quizzes (`/quizzes`, `/quizzes/[id]`), Uploads (`/uploads`), Settings (`/settings`), StagePresenter, StatsOverview, and error/loading boundaries (`error.tsx`, `global-error.tsx`, `loading.tsx`, `not-found.tsx`). |
 | **WP 7** | `ba5a4d0` | `docs(brand): align DESIGN.md and living styleguide with June 2026 Brand Guidelines` | Rewrote `docs/DESIGN.md` to reflect the June 2026 guidelines; updated `app/design/page.tsx` as the interactive living style guide displaying official colors, typography weights, logo variants, and all QT poses. |
 | **Polish**| `5269f74` | `style(brand): polish entity escapes, logo tagline routing, and mascot event handlers` | Cleaned ESLint entity escapes, connected `tagline` boolean to logo file routing, and streamlined QT click event handlers. |
+| **Font**  | `HEAD`    | `feat(fonts): retain Plus Jakarta Sans as primary UI font per user preference` | Reverted `app/layout.tsx` and `globals.css` to load Plus Jakarta Sans (400–800) as requested by user, keeping Causten Round assets for presentation exports. |
 
 ---
 

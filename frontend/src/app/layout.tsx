@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import localFont from 'next/font/local';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import AppShell from '../components/AppShell';
 import { SidebarProvider } from '../context/SidebarContext';
@@ -7,40 +7,10 @@ import { UploadProvider } from '../context/UploadContext';
 import UploadProgressWidget from '../components/UploadProgressWidget';
 import { FeedbackProvider } from '../components/ui';
 
-const caustenRound = localFont({
-  src: [
-    {
-      path: '../fonts/CaustenRound-400.woff2',
-      weight: '400',
-      style: 'normal',
-    },
-    {
-      path: '../fonts/CaustenRound-500.woff2',
-      weight: '500',
-      style: 'normal',
-    },
-    {
-      path: '../fonts/CaustenRound-600.woff2',
-      weight: '600',
-      style: 'normal',
-    },
-    {
-      path: '../fonts/CaustenRound-700.woff2',
-      weight: '700',
-      style: 'normal',
-    },
-    {
-      path: '../fonts/CaustenRound-800.woff2',
-      weight: '800',
-      style: 'normal',
-    },
-    {
-      path: '../fonts/CaustenRound-900.woff2',
-      weight: '900',
-      style: 'normal',
-    },
-  ],
-  variable: '--font-causten-round',
+const plusJakartaSans = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-plus-jakarta',
   display: 'swap',
 });
 
@@ -70,8 +40,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`h-full antialiased ${caustenRound.variable}`}>
-      <body className={`min-h-full flex font-sans ${caustenRound.className}`}>
+    <html lang="en" className={`h-full antialiased ${plusJakartaSans.variable}`}>
+      <body className={`min-h-full flex font-sans ${plusJakartaSans.className}`}>
         <FeedbackProvider>
           <UploadProvider>
             <SidebarProvider>
