@@ -233,6 +233,10 @@ async def admin_browse(
         SharePointAllowedFolder.drive_id == drive_id
     ).all()
     allowed_map = {rec.folder_id: rec for rec in allowed_records}
+    active_roots = [
+        {"id": rec.folder_id, "path": rec.folder_path, "name": rec.folder_name}
+        for rec in allowed_records if rec.is_active
+    ]
 
     folders, files = [], []
     for it in page.get("items", []):
@@ -244,12 +248,28 @@ async def admin_browse(
             fpath = raw_path.split("root:", 1)[1].lstrip("/") if "root:" in raw_path else ""
             full_path = f"{fpath}/{it.get('name')}".strip("/") if fpath else (it.get("name") or "")
 
+            is_inherited = False
+            inherited_from = None
+            if rec:
+                is_allowed = rec.is_active
+            elif active_roots and importer.within_scope(it, active_roots):
+                is_allowed = True
+                is_inherited = True
+                for ar in active_roots:
+                    if importer.within_scope(it, [ar]):
+                        inherited_from = ar["name"]
+                        break
+            else:
+                is_allowed = False
+
             folders.append({
                 "id": fid,
                 "name": it.get("name"),
                 "path": full_path,
                 "child_count": (it.get("folder") or {}).get("childCount"),
-                "is_allowed": rec.is_active if rec else False,
+                "is_allowed": is_allowed,
+                "is_inherited": is_inherited,
+                "inherited_from": inherited_from,
                 "allowed_id": rec.id if rec else None,
                 "display_name": rec.display_name if rec else None,
             })
@@ -290,6 +310,10 @@ async def admin_search(
         SharePointAllowedFolder.drive_id == drive_id
     ).all()
     allowed_folder_ids = {rec.folder_id: rec for rec in allowed_records if rec.is_active}
+    active_roots = [
+        {"id": rec.folder_id, "path": rec.folder_path, "name": rec.folder_name}
+        for rec in allowed_records if rec.is_active
+    ]
 
     folders, files = [], []
     for it in raw_items:
@@ -302,17 +326,36 @@ async def admin_search(
             fid = it["id"]
             rec = allowed_folder_ids.get(fid)
             full_path = f"{fpath}/{it.get('name')}".strip("/") if fpath else (it.get("name") or "")
+            is_inherited = False
+            inherited_from = None
+            if rec:
+                is_allowed = True
+            elif active_roots and importer.within_scope(it, active_roots):
+                is_allowed = True
+                is_inherited = True
+                for ar in active_roots:
+                    if importer.within_scope(it, [ar]):
+                        inherited_from = ar["name"]
+                        break
+            else:
+                is_allowed = False
+
             folders.append({
                 "id": fid,
                 "name": it.get("name"),
                 "path": full_path,
                 "child_count": (it.get("folder") or {}).get("childCount"),
-                "is_allowed": rec is not None,
+                "is_allowed": is_allowed,
+                "is_inherited": is_inherited,
+                "inherited_from": inherited_from,
                 "allowed_id": rec.id if rec else None,
                 "display_name": rec.display_name if rec else None,
             })
         elif "file" in it:
-            parent_is_allowed = parent_id in allowed_folder_ids if parent_id else False
+            parent_is_allowed = (
+                parent_id in allowed_folder_ids
+                or (bool(active_roots) and importer.within_scope(it, active_roots))
+            )
             files.append({
                 "id": it["id"],
                 "name": it.get("name"),

@@ -28,6 +28,8 @@ import {
   Trash2,
   Plus,
   CheckCircle2,
+  FolderCheck,
+  FolderTree,
   Eye,
   EyeOff
 } from 'lucide-react';
@@ -1643,6 +1645,12 @@ export default function SharePointImporter() {
                                 <p className="text-[12px] text-slate-500 font-mono truncate mt-0.5">
                                   {folder.folder_path}
                                 </p>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                    <FolderTree className="h-3 w-3 text-slate-500" />
+                                    <span>Includes all subfolders &amp; decks recursively</span>
+                                  </span>
+                                </div>
                               </div>
                             </div>
 
@@ -1769,7 +1777,7 @@ export default function SharePointImporter() {
                                       {isAllowed ? (
                                         <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
                                           <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                                          <span>Active for Team</span>
+                                          <span>Active for Team{folder.is_inherited && folder.inherited_from ? ` (in ${folder.inherited_from})` : ''}</span>
                                         </span>
                                       ) : (
                                         <button
@@ -1921,20 +1929,27 @@ export default function SharePointImporter() {
 
                                   <div className="flex items-center gap-2 shrink-0">
                                     {isAllowed ? (
-                                      <div className="flex items-center gap-2">
-                                        <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                                          <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                                          <span>Active for Team</span>
+                                      folder.is_inherited ? (
+                                        <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold text-emerald-700 flex items-center gap-1.5 shadow-2xs">
+                                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                                          <span>Included via {folder.inherited_from || 'parent'}</span>
                                         </span>
-                                        <button
-                                          type="button"
-                                          disabled={isToggling}
-                                          onClick={() => void handleRemoveAllowedFolder(folder.id)}
-                                          className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                                        >
-                                          {isToggling ? 'Removing...' : 'Remove'}
-                                        </button>
-                                      </div>
+                                      ) : (
+                                        <div className="flex items-center gap-2">
+                                          <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                                            <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                            <span>Active for Team</span>
+                                          </span>
+                                          <button
+                                            type="button"
+                                            disabled={isToggling}
+                                            onClick={() => void handleRemoveAllowedFolder(folder.id)}
+                                            className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                          >
+                                            {isToggling ? 'Removing...' : 'Remove'}
+                                          </button>
+                                        </div>
+                                      )
                                     ) : (
                                       <button
                                         type="button"

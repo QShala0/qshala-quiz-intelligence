@@ -805,6 +805,8 @@ export interface SpAdminBrowseFolder {
   path: string;
   child_count?: number | null;
   is_allowed: boolean;
+  is_inherited?: boolean;
+  inherited_from?: string | null;
   allowed_id?: string | null;
   display_name?: string | null;
 }

@@ -157,6 +157,15 @@ async def scope_root(client, drive_id: str, db: Optional[Session] = None) -> Opt
     return roots[0] if len(roots) == 1 else None
 
 
+def _normalize_path(p: Optional[str]) -> str:
+    if not p:
+        return ""
+    p_str = str(p).strip().replace("\\", "/")
+    if "root:" in p_str:
+        p_str = p_str.split("root:", 1)[1]
+    return p_str.strip("/")
+
+
 def within_scope(item: Dict[str, Any], root: Union[Optional[Dict[str, str]], List[Dict[str, str]]]) -> bool:
     if not root:
         return True
@@ -164,12 +173,30 @@ def within_scope(item: Dict[str, Any], root: Union[Optional[Dict[str, str]], Lis
     if not roots:
         return True
     item_id = item.get("id")
-    p = (item.get("parentReference") or {}).get("path") or ""
+    parent_ref = item.get("parentReference") or {}
+    parent_id = parent_ref.get("id")
+    raw_parent_path = parent_ref.get("path") or ""
+    parent_rel = _normalize_path(raw_parent_path)
+    item_name = item.get("name") or ""
+    item_rel = f"{parent_rel}/{item_name}".strip("/") if parent_rel else item_name
+
     for r in roots:
-        if item_id == r["id"]:
+        r_id = r.get("id")
+        if item_id and item_id == r_id:
             return True
-        if p == r["path"] or p.startswith(r["path"] + "/"):
+        if parent_id and parent_id == r_id:
             return True
+
+        r_path_rel = _normalize_path(r.get("path") or r.get("name"))
+        if not r_path_rel:
+            continue
+
+        if parent_rel == r_path_rel or parent_rel.startswith(r_path_rel + "/"):
+            return True
+
+        if item_rel == r_path_rel or item_rel.startswith(r_path_rel + "/"):
+            return True
+
     return False
 
 
