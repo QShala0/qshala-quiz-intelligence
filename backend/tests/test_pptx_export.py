@@ -157,9 +157,23 @@ def test_pptx_export_corporate_quiz():
     assert len(prs.slides) == 4
 
     # Slide 1: Cover
-    s0_texts = [p.text for s in prs.slides[0].shapes if s.has_text_frame for p in s.text_frame.paragraphs]
+    s0 = prs.slides[0]
+    s0_texts = [p.text for s in s0.shapes if s.has_text_frame for p in s.text_frame.paragraphs]
     assert any("Varsity Corporate Finance Challenge" in t for t in s0_texts)
     assert any("Executive Track 2026" in t for t in s0_texts)
+
+    # Verify corporate cover layout formatting, left-alignment, and positioning
+    from pptx.enum.text import PP_ALIGN
+    corp_tb = next(s for s in s0.shapes if s.has_text_frame and "Varsity Corporate Finance Challenge" in s.text_frame.text)
+    assert corp_tb.left.inches == pytest.approx(0.88, 0.05)
+    assert corp_tb.top.inches == pytest.approx(4.15, 0.05)
+    assert corp_tb.width.inches == pytest.approx(5.40, 0.05)
+    p_title = corp_tb.text_frame.paragraphs[0]
+    assert p_title.alignment == PP_ALIGN.LEFT
+    assert p_title.font.bold is True
+    p_sub = corp_tb.text_frame.paragraphs[1]
+    assert p_sub.alignment == PP_ALIGN.LEFT
+    assert "Executive Track 2026" in p_sub.text
 
     # Slide 2: Question
     s1_texts = [p.text for s in prs.slides[1].shapes if s.has_text_frame for p in s.text_frame.paragraphs]

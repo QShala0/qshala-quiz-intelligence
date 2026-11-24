@@ -1318,26 +1318,38 @@ class QuizExporter:
 
                 # NO redundant text below Line 2 (no duplicate bottom title, no round subtitle)
             else:
-                # Corporate Cover Layout
-                tb_corp = s_title.shapes.add_textbox(Inches(1.50), Inches(2.80), Inches(10.333), Inches(2.20))
+                # Corporate Cover Layout:
+                # Template background has Zerodha Varsity Quiz pre-printed top-left (y=1.8" - 3.5")
+                # and a blue dotted divider rule at y=4.0". Bottom-left has 'Corporate edition' at y=5.73".
+                # Right side has the puzzle hero illustration (x >= 6.2").
+                # The dynamic title box is cleanly LEFT-ALIGNED in the open left zone (x=0.88", y=4.15", w=5.40", h=1.45"),
+                # perfectly flush with the artwork typography and free of collisions.
+                tb_corp = s_title.shapes.add_textbox(Inches(0.88), Inches(4.15), Inches(5.40), Inches(1.45))
                 tf_c = tb_corp.text_frame
                 tf_c.word_wrap = True
 
                 p_c1 = tf_c.paragraphs[0]
-                p_c1.alignment = PP_ALIGN.CENTER
+                p_c1.alignment = PP_ALIGN.LEFT
                 p_c1.text = final_title
                 p_c1.font.name = FONT_HEAD
-                p_c1.font.size = Pt(40)
+                p_c1.font.size = Pt(28) if len(final_title) <= 30 else (Pt(24) if len(final_title) <= 48 else Pt(20))
                 p_c1.font.bold = True
                 p_c1.font.color.rgb = C_TEXT_DARK
 
-                if campus_edition:
+                sub_raw = (custom_subtitle or campus_edition or "").strip()
+                if sub_raw:
+                    if not sub_raw.startswith("—") and not sub_raw.startswith("-"):
+                        sub_display = f"— {sub_raw} —"
+                    else:
+                        sub_display = sub_raw
                     p_c2 = tf_c.add_paragraph()
-                    p_c2.alignment = PP_ALIGN.CENTER
-                    p_c2.space_before = Pt(12)
-                    p_c2.text = campus_edition.strip()
+                    p_c2.alignment = PP_ALIGN.LEFT
+                    p_c2.space_before = Pt(8)
+                    p_c2.text = sub_display
                     p_c2.font.name = FONT_HEAD
-                    p_c2.font.size = Pt(24)
+                    p_c2.font.size = Pt(18) if len(sub_display) <= 32 else Pt(15)
+                    p_c2.font.bold = False
+                    p_c2.font.italic = True
                     p_c2.font.color.rgb = C_ACCENT_ORANGE
         else:
             # Minimalist fallback title slide
