@@ -346,9 +346,14 @@ def _question_paragraphs(text: str, max_paras: int = 4) -> list:
     """Break a question into readable paragraphs on sentence boundaries, so a long question reads as
     separate lines instead of one dense block (e.g. the context sentences and the final 'Which brand
     is this?' each get their own paragraph). Short questions are returned as a single paragraph."""
-    text = re.sub(r'\s+', ' ', (text or '').strip())
-    if not text:
+    raw = (text or '').strip()
+    if not raw:
         return ['']
+    if '\n\n' in raw or '\r\n\r\n' in raw:
+        explicit = [re.sub(r'\s+', ' ', p).strip() for p in re.split(r'(?:\r?\n){2,}', raw) if p.strip()]
+        if len(explicit) > 1:
+            return explicit[:max_paras]
+    text = re.sub(r'\s+', ' ', raw)
     parts = [s.strip() for s in _SENTENCE_SPLIT.split(text) if s.strip()]
     if len(parts) <= 1:
         return [text]
@@ -361,6 +366,105 @@ def _question_paragraphs(text: str, max_paras: int = 4) -> list:
     per = max(1, math.ceil(len(head) / (max_paras - 1)))
     grouped = [' '.join(head[i:i + per]) for i in range(0, len(head), per)]
     return grouped + [tail]
+
+
+def _format_question_source_notes(q: Any) -> str:
+    """Extract and format question source links and references for PPT notes."""
+    lines = []
+    raw_sources = _get_val(q, "retrieval_sources", []) or _get_val(q, "sources", []) or []
+    if not raw_sources:
+        prov = _get_val(q, "provenance") or {}
+        if isinstance(prov, dict) and (prov.get("document_title") or prov.get("document_id")):
+            raw_sources = [prov]
+
+    if not raw_sources:
+        dt = _get_val(q, "document_title") or _get_val(q, "source_presentation")
+        doc_id = _get_val(q, "document_id")
+        sn = _get_val(q, "source_slide_range")
+        if dt or doc_id:
+            raw_sources = [{"document_title": dt, "slide_number": sn, "document_id": doc_id}]
+
+    # Resolve web URLs from database if available
+    doc_urls = {}
+    doc_ids_to_fetch = set()
+    for s in raw_sources:
+        did = _get_val(s, "document_id")
+        if did:
+            doc_ids_to_fetch.add(str(did))
+    q_doc_id = _get_val(q, "document_id")
+    if q_doc_id:
+        doc_ids_to_fetch.add(str(q_doc_id))
+
+    if doc_ids_to_fetch:
+        try:
+            from backend.app.database import SessionLocal
+            from backend.app.models.document import Document
+            from backend.app.models.sharepoint import SharePointFile
+            with SessionLocal() as db:
+                docs = db.query(Document).filter(Document.id.in_(list(doc_ids_to_fetch))).all()
+                sp_ids = [d.sharepoint_file_id for d in docs if d.sharepoint_file_id]
+                sp_urls = {}
+                if sp_ids:
+                    sp_files = db.query(SharePointFile).filter(SharePointFile.sharepoint_file_id.in_(sp_ids)).all()
+                    for spf in sp_files:
+                        if spf.web_url:
+                            sp_urls[spf.sharepoint_file_id] = spf.web_url
+                for d in docs:
+                    u = d.blob_url or sp_urls.get(d.sharepoint_file_id)
+                    if u:
+                        doc_urls[d.id] = u
+                        if d.title:
+                            doc_urls[d.title] = u
+        except Exception:
+            pass
+
+    seen = set()
+    for s in raw_sources:
+        doc_title = (_get_val(s, "document_title") or "").strip()
+        slide_num = _get_val(s, "slide_number")
+        doc_id = _get_val(s, "document_id")
+        url = (
+            _get_val(s, "web_url")
+            or _get_val(s, "source_url")
+            or _get_val(s, "url")
+            or _get_val(s, "link")
+            or doc_urls.get(str(doc_id))
+            or doc_urls.get(doc_title)
+        )
+
+        slide_str = f"Slide {slide_num}" if slide_num else ""
+        if slide_str and str(slide_num).lower().startswith("slide"):
+            slide_str = str(slide_num)
+
+        ref_parts = []
+        if doc_title:
+            ref_parts.append(doc_title)
+        if slide_str:
+            ref_parts.append(f"({slide_str})")
+
+        ref_text = " ".join(ref_parts) if ref_parts else (str(doc_id) if doc_id else "")
+        if not ref_text and not url:
+            continue
+
+        key = (ref_text, url)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        if ref_text and url:
+            lines.append(f"Source: {ref_text}\nLink: {url}")
+        elif url:
+            lines.append(f"Source Link: {url}")
+        else:
+            lines.append(f"Source: {ref_text}")
+
+    direct_url = _get_val(q, "fact_check_url") or _get_val(q, "source_url")
+    if direct_url and direct_url not in "".join(lines):
+        lines.append(f"Reference Link: {direct_url}")
+
+    if not lines:
+        return "Source: QShala Knowledge Vault"
+    return "\n\n".join(lines)
 
 
 def _text_fits_at_28pt(text: str, options: list, w_in: float, h_in: float) -> bool:
@@ -918,6 +1022,8 @@ class QuizExporter:
 
         if quiz_type in ("qshala_school", "qshala", "qshala-school"):
             quiz_type = "qshala_school"
+        elif quiz_type in ("zvq", "zvq_school", "zvq-school", "zsv"):
+            quiz_type = "school"
 
         media_tmp_dir = Path(tempfile.mkdtemp(prefix="qshala_export_media_"))
         logger.info(f"Export media temp dir: {media_tmp_dir}")
@@ -1761,12 +1867,18 @@ class QuizExporter:
                 tf_q = tb_q.text_frame
                 tf_q.word_wrap = True
 
+                q_font_size = Pt(28) if len(q_text) < 160 else (Pt(24) if len(q_text) < 240 else Pt(20))
                 pq_main = tf_q.paragraphs[0]
-                pq_main.text = q_text
-                pq_main.font.name = FONT_HEAD
-                pq_main.font.size = Pt(28) if len(q_text) < 160 else (Pt(24) if len(q_text) < 240 else Pt(20))
-                pq_main.font.bold = True
-                pq_main.font.color.rgb = C_TEXT_DARK
+                q_paras = _question_paragraphs(q_text)
+                for pi, para in enumerate(q_paras):
+                    p = pq_main if pi == 0 else tf_q.add_paragraph()
+                    if pi > 0:
+                        p.space_before = Pt(8)
+                    p.text = para
+                    p.font.name = FONT_HEAD
+                    p.font.size = q_font_size
+                    p.font.bold = True
+                    p.font.color.rgb = C_TEXT_DARK
 
                 if options:
                     for opt_idx, opt in enumerate(options):
@@ -1838,12 +1950,18 @@ class QuizExporter:
                 tf_q = tb_q.text_frame
                 tf_q.word_wrap = True
 
+                q_font_size = Pt(32) if len(q_text) < 160 else (Pt(26) if len(q_text) < 260 else Pt(22))
                 pq_main = tf_q.paragraphs[0]
-                pq_main.text = q_text
-                pq_main.font.name = FONT_HEAD
-                pq_main.font.size = Pt(32) if len(q_text) < 160 else (Pt(26) if len(q_text) < 260 else Pt(22))
-                pq_main.font.bold = True
-                pq_main.font.color.rgb = C_TEXT_DARK
+                q_paras = _question_paragraphs(q_text)
+                for pi, para in enumerate(q_paras):
+                    p = pq_main if pi == 0 else tf_q.add_paragraph()
+                    if pi > 0:
+                        p.space_before = Pt(8)
+                    p.text = para
+                    p.font.name = FONT_HEAD
+                    p.font.size = q_font_size
+                    p.font.bold = True
+                    p.font.color.rgb = C_TEXT_DARK
 
                 if options:
                     for opt_idx, opt in enumerate(options):
@@ -1856,17 +1974,11 @@ class QuizExporter:
                         po.font.color.rgb = C_TEXT_BODY
 
             if not is_qshala_school:
-                # Speaker Notes (ZSV)
-                host_notes = []
-                if is_starred:
-                    host_notes.append("★ Important: Star tie-breaker question!")
-                ans_val = (_get_val(q, "answer") or "N/A").strip()
-                host_notes.append(f"Official Answer: {ans_val}")
-                if video_path:
-                    host_notes.append(f"Video clue: {video_path.name}")
-                elif audio_path:
-                    host_notes.append(f"Audio clue: {audio_path.name}")
-                sq.notes_slide.notes_text_frame.text = "\n".join(host_notes)
+                # Speaker Notes (ZSV / School) - replace generic notes with question source links
+                source_notes = _format_question_source_notes(q)
+                sq.notes_slide.notes_text_frame.text = source_notes
+                if 'sq_img' in locals() and sq_img is not None:
+                    sq_img.notes_slide.notes_text_frame.text = source_notes
 
             # ---------------------------------------------------------
             # (B) ANSWER TRANSITION SLIDE (Divider)
@@ -2125,13 +2237,9 @@ class QuizExporter:
                     pa_head.font.color.rgb = C_TEXT_DARK
 
             if not is_qshala_school:
-                # Speaker Notes for Answer Slide (ZSV)
-                sa.notes_slide.notes_text_frame.text = (
-                    f"Presenter Talking Points:\n"
-                    f"Official Answer: {ans_val}\n"
-                    f"Award +10 points to any team with the correct answer or verified synonym.\n"
-                    f"Trivia Context: {explanation}"
-                )
+                # Speaker Notes for Answer Slide (ZSV / School) - source links in notes
+                source_notes = _format_question_source_notes(q)
+                sa.notes_slide.notes_text_frame.text = source_notes
 
         if custom_template:
             _apply_custom_style(prs, custom_template.body_font or FONT_BODY, custom_template.header_font or FONT_HEAD)

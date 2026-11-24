@@ -374,3 +374,80 @@ def test_pptx_export_with_video_ref_and_kwargs():
     assert len(pptx_bytes) > 1000
     prs = Presentation(io.BytesIO(pptx_bytes))
     assert len(prs.slides) >= 3
+
+
+def test_zvq_school_quiz_paragraphs_and_source_link_notes():
+    """
+    Verify ZVQ School Quiz PPT export:
+    1. Question text is broken into readable paragraphs on sentence boundaries.
+    2. Slide notes replace old presenter boilerplate with question source links on both Q and A slides.
+    3. Accepts quiz_type='zvq' as an alias for school export.
+    """
+    q_multiline = (
+        "In the 1970s, the Indian Central Excise Department classified cosmetics as luxury goods, which carried a very high tax. "
+        "However, ayurvedic medicines had a much lower tax rate. "
+        "The excise department argued that this company's brand was used for skin improvement. "
+        "To protect their profit margins they released an ad jingle, which went on to be an evergreen classic. "
+        "Which brand?"
+    )
+    sample_quiz = {
+        "id": "quiz-zvq-source-test",
+        "title": "Zerodha Varsity School Quiz",
+        "topic": "Business Trivia",
+        "questions": [
+            {
+                "id": "q-zvq-1",
+                "question_text": q_multiline,
+                "answer": "Vicco",
+                "explanation": "Vicco Vajradanti and Vicco Turmeric skin cream.",
+                "retrieval_sources": [
+                    {
+                        "document_title": "Potpourri Aug to Dec ZVQ College Reserve.pptx",
+                        "slide_number": 14,
+                        "web_url": "https://qshala.sharepoint.com/:p:/s/Quizzes/Potpourri_ZVQ.pptx",
+                    }
+                ],
+                "is_approved": True,
+            }
+        ]
+    }
+
+    pptx_bytes = QuizExporter.to_pptx(
+        sample_quiz,
+        quiz_type="zvq",
+        include_social_slides=False,
+        show_answer_divider=True,
+    )
+    assert len(pptx_bytes) > 1000
+    prs = Presentation(io.BytesIO(pptx_bytes))
+
+    # Slide 1: Cover, Slide 2: Question, Slide 3: Transition, Slide 4: Answer Reveal
+    assert len(prs.slides) == 4
+
+    # 1. Question Slide: Check readable paragraph breaks
+    q_slide = prs.slides[1]
+    q_text_frames = [s.text_frame for s in q_slide.shapes if s.has_text_frame and "Excise Department" in s.text_frame.text]
+    assert len(q_text_frames) == 1
+    tf = q_text_frames[0]
+    # Should have multiple paragraphs instead of one dense text block
+    paras = tf.paragraphs
+    assert len(paras) >= 3, f"Expected multiple readable paragraphs, got {len(paras)}"
+    # Verify paragraph spacing
+    assert paras[1].space_before is not None and paras[1].space_before.pt >= 6
+
+    # 2. Question Slide Notes: Must have source links, NO old boilerplate
+    assert q_slide.has_notes_slide
+    q_notes = q_slide.notes_slide.notes_text_frame.text
+    assert "Source: Potpourri Aug to Dec ZVQ College Reserve.pptx (Slide 14)" in q_notes
+    assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Potpourri_ZVQ.pptx" in q_notes
+    assert "★ Important:" not in q_notes
+    assert "Official Answer:" not in q_notes
+
+    # 3. Answer Slide Notes: Must also have source links, NO old presenter talking points
+    a_slide = prs.slides[3]
+    assert a_slide.has_notes_slide
+    a_notes = a_slide.notes_slide.notes_text_frame.text
+    assert "Source: Potpourri Aug to Dec ZVQ College Reserve.pptx (Slide 14)" in a_notes
+    assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Potpourri_ZVQ.pptx" in a_notes
+    assert "Presenter Talking Points:" not in a_notes
+    assert "Award +10 points" not in a_notes
