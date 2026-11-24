@@ -64,10 +64,13 @@ def compute_event_cost(
 
 
 def _get_default_out_dir() -> Path:
-    """Return a directory outside the repository for reports and rollback files."""
-    tmp = Path(tempfile.gettempdir()) / "qshala_cost_backfill"
-    tmp.mkdir(parents=True, exist_ok=True)
-    return tmp
+    """Return a durable directory outside the repository for reports and rollback files."""
+    if sys.platform == "win32":
+        base = Path(r"C:\Users\bragg\qshala-backups\cost-ledger")
+    else:
+        base = Path.home() / "qshala-backups" / "cost-ledger"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
 
 
 def generate_backfill_events(db: Any) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
@@ -535,6 +538,11 @@ def main() -> int:
         help="Actually apply changes to the database (default is dry-run).",
     )
     parser.add_argument(
+        "--prod-dry-run",
+        action="store_true",
+        help="Production dry run: asserts REQUIRE_POSTGRES=1, asserts postgresql dialect, sets SET TRANSACTION READ ONLY, and guarantees 0 writes.",
+    )
+    parser.add_argument(
         "--db-url",
         type=str,
         default=None,
@@ -572,6 +580,23 @@ def main() -> int:
             deleted = rollback_backfill(db, args.rollback)
             print(f"Successfully rolled back {deleted} cost events.")
             return 0
+
+        # Production dry-run safety gates
+        if args.prod_dry_run:
+            req_pg = os.environ.get("REQUIRE_POSTGRES", "").strip()
+            if req_pg not in {"1", "true", "True"}:
+                print("ERROR: --prod-dry-run requires REQUIRE_POSTGRES=1 environment variable to be set.")
+                return 1
+
+            dialect_name = getattr(db.get_bind().dialect, "name", "")
+            if dialect_name != "postgresql":
+                print(f"ERROR: --prod-dry-run requires a PostgreSQL connection, but detected '{dialect_name}'.")
+                return 1
+
+            from sqlalchemy import text
+            db.execute(text("SET TRANSACTION READ ONLY;"))
+            print("[PROD DRY RUN] Connected to PostgreSQL. Active transaction set to READ ONLY.")
+            args.apply = False
 
         # 2. Ensure schema & active rate card
         Base.metadata.create_all(bind=db.get_bind())

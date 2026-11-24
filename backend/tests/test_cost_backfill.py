@@ -294,3 +294,25 @@ def test_monthly_summary_calculation():
     assert summary["2026-11"]["gemini"] == 300.0
     assert summary["2026-11"]["r2"] == 10.0
     assert summary["2026-11"]["total"] == 310.0
+
+
+def test_durable_backup_dir_and_prod_dry_run_guards(monkeypatch):
+    """Verify durable backup directory location and prod dry-run validation."""
+    from backend.scripts.backfill_cost_events import _get_default_out_dir, main
+
+    # 1. Out dir is durable
+    out_dir = _get_default_out_dir()
+    assert "qshala-backups" in str(out_dir).lower()
+    assert "cost-ledger" in str(out_dir).lower()
+
+    # 2. Prod dry-run requires REQUIRE_POSTGRES=1
+    monkeypatch.delenv("REQUIRE_POSTGRES", raising=False)
+    monkeypatch.setattr("sys.argv", ["backfill_cost_events.py", "--prod-dry-run"])
+    ret = main()
+    assert ret == 1
+
+    # 3. Prod dry-run rejects sqlite
+    monkeypatch.setenv("REQUIRE_POSTGRES", "1")
+    monkeypatch.setattr("sys.argv", ["backfill_cost_events.py", "--prod-dry-run", "--db-url", "sqlite:///:memory:"])
+    ret2 = main()
+    assert ret2 == 1
