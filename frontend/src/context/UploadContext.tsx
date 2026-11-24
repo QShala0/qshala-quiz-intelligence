@@ -579,7 +579,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                 : it
             )
           );
-          toast.info(`“${file.name}” was skipped (already in QShala).`);
+          toast.info(`“${file.name}” is already in QShala, so QT skipped it.`);
         } else if (isAbortError(err)) {
           setItems((prev) =>
             prev.map((it) =>
@@ -679,7 +679,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
       if (skippedCount > 0) {
         toast.info(
-          `${skippedCount} ${skippedCount === 1 ? 'deck was' : 'decks were'} skipped (already in QShala).`
+          `${skippedCount} ${skippedCount === 1 ? 'deck is' : 'decks are'} already in QShala, so QT skipped ${skippedCount === 1 ? 'it' : 'them'}.`
         );
       }
 

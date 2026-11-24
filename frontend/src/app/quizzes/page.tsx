@@ -50,12 +50,12 @@ export default function QuizzesLibraryPage() {
       return;
     }
     if (!trimmed) {
-      toast.error('Title cannot be empty');
+      toast.error('Every quiz needs a name. Give it one?');
       setEditingId(null);
       return;
     }
     if (trimmed.length > 255) {
-      toast.error('Title cannot exceed 255 characters');
+      toast.error('That name is a bit long. Keep it under 255 characters.');
       return;
     }
     savingRef.current = true;
@@ -65,7 +65,7 @@ export default function QuizzesLibraryPage() {
       setQuizzes((prev) =>
         prev.map((q) => (q.id === quizId ? { ...q, title: trimmed } : q))
       );
-      toast.success('Renamed');
+      toast.success('Renamed, fresh and tidy.');
       setEditingId(null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Could not rename';

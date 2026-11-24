@@ -1,5 +1,7 @@
 export { default as QT, QT_POSES, PawIcon } from './QT';
 export type { QTPose } from './QT';
+export { default as QTAnim } from './QTAnim';
+export type { QTAnimName } from './QTAnim';
 export { default as Logo } from './Logo';
 export { default as Button } from './Button';
 export { default as Card, Badge } from './Card';
