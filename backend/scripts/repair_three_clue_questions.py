@@ -41,7 +41,7 @@ if (os.environ.get("DATABASE_URL") or "").startswith(("postgres://", "postgresql
 FIELDS = ("question_text", "format_payload", "question_images", "answer_images", "image_refs",
           "format_needs_review", "content_hash", "tags", "subtopic", "embedding", "embedding_model")
 EDITED_FIELDS = ("question_text", "format_payload", "question_images", "answer_images", "image_refs", "images")
-FORMAT_TAGS = {"stepped clue (portfolio builder)", "stepped clue", "three clues", "three clue"}
+FORMAT_TAGS = {"stepped clue (portfolio builder)", "stepped clue", "three clues", "three clue", "3 clue", "3 clues"}
 PLACEHOLDERS = {"additional context clue", "direct giveaway clue"}
 MAX_SLIDE_DISTANCE = 2
 

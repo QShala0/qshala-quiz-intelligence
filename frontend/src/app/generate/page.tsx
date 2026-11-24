@@ -933,7 +933,7 @@ export default function QuizzerHome() {
                       </div>
                     )}
 
-                    {/* Format-aware questions (List It, Image Reveal, Connect, Stepped Clue, Arrange, MCQ) show their own view */}
+                    {/* Format-aware questions (List It, Image Reveal, Connect, 3 Clue, Arrange, MCQ) show their own view */}
                     {hasStructuredView(q.format_payload) ? (
                       <div className="space-y-1.5">
                         <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
@@ -998,11 +998,11 @@ export default function QuizzerHome() {
                         )}
                       </div>
                     ) : q.question_format === 'STEPPED_CLUE' && q.format_payload ? (
-                      /* Specialized Stepped Clue Rendering */
+                      /* Specialized 3 Clue Rendering */
                       <div className="space-y-2.5">
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 text-amber-900 text-[11px] font-bold px-2 py-0.5 uppercase tracking-wide">
-                            Portfolio Builder • 3 Stepped Clues
+                            Portfolio Builder • 3 Clues
                           </span>
                           <span className="text-[11px] text-slate-400">All on buzzer · 1 attempt per clue</span>
                         </div>

@@ -667,8 +667,8 @@ def slots_for(brief: "Brief") -> tuple:
     return tuple(slots)
 
 
-_FORMAT_ALIASES = {"CONNECT_4": "CONNECT", "THREE_CLUE": "STEPPED_CLUE", "QA": "STANDARD_QA", "SLIDE_QA": "STANDARD_QA",
-                   "MULTIPLE_CHOICE": "MCQ"}
+_FORMAT_ALIASES = {"CONNECT_4": "CONNECT", "THREE_CLUE": "STEPPED_CLUE", "3_CLUE": "STEPPED_CLUE", "3CLUE": "STEPPED_CLUE",
+                   "QA": "STANDARD_QA", "SLIDE_QA": "STANDARD_QA", "MULTIPLE_CHOICE": "MCQ"}
 
 
 def format_counts(bank: List[Dict[str, Any]]) -> Dict[str, int]:

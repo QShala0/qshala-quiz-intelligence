@@ -59,6 +59,8 @@ export interface SteppedCluePayload extends PayloadBase {
   answer: string;
 }
 
+export type ThreeCluePayload = SteppedCluePayload;
+
 export interface ArrangeItem {
   label: number;
   text: string;
@@ -99,6 +101,7 @@ export const isStepped = (p: unknown): p is SteppedCluePayload => {
   const o = obj(p);
   return o?.type === 'STEPPED_CLUE' && Array.isArray(o.clues) && 'scoring_ladder_ok' in o;
 };
+export const isThreeClue = isStepped;
 export const isArrange = (p: unknown): p is ArrangePayload => {
   const o = obj(p);
   return o?.type === 'ARRANGE_ORDER' && Array.isArray(o.items) && 'correct_order' in o;
@@ -123,8 +126,8 @@ const STYLES: Record<string, FormatStyle> = {
   IMAGE_REVEAL: { label: 'Image Reveal', chip: 'bg-sky-100 border-sky-200 text-sky-700' },
   CONNECT: { label: 'Connect', chip: 'bg-blue-100 border-blue-200 text-blue-700' },
   CONNECT_4: { label: 'Connect', chip: 'bg-blue-100 border-blue-200 text-blue-700' },
-  STEPPED_CLUE: { label: 'Stepped Clue', chip: 'bg-amber-100 border-amber-200 text-amber-700' },
-  THREE_CLUE: { label: 'Stepped Clue', chip: 'bg-amber-100 border-amber-200 text-amber-700' },
+  STEPPED_CLUE: { label: '3 Clue', chip: 'bg-amber-100 border-amber-200 text-amber-700' },
+  THREE_CLUE: { label: '3 Clue', chip: 'bg-amber-100 border-amber-200 text-amber-700' },
   ARRANGE_ORDER: { label: 'Arrange', chip: 'bg-purple-100 border-purple-200 text-purple-700' },
   MCQ: { label: 'MCQ', chip: 'bg-teal-100 border-teal-200 text-teal-700' },
   BUZZER: { label: 'Buzzer', chip: 'bg-rose-50 border-rose-200 text-rose-700' },
@@ -141,7 +144,7 @@ export const FORMAT_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: 'LIST_IT', label: 'List It' },
   { value: 'IMAGE_REVEAL', label: 'Image Reveal' },
   { value: 'CONNECT', label: 'Connect' },
-  { value: 'STEPPED_CLUE', label: 'Stepped Clue (Three Clues)' },
+  { value: 'STEPPED_CLUE', label: '3 Clue' },
   { value: 'ARRANGE_ORDER', label: 'Arrange the Order' },
   { value: 'MCQ', label: 'Multiple Choice' },
   { value: 'STANDARD_QA', label: 'Direct Question & Answer' },

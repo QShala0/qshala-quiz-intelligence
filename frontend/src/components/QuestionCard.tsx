@@ -235,7 +235,7 @@ export default function QuestionCard({
             </h3>
           )}
 
-          {/* The question's own format (List It, Image Reveal, Connect, Stepped Clue, Arrange, MCQ) */}
+          {/* The question's own format (List It, Image Reveal, Connect, 3 Clue, Arrange, MCQ) */}
           {!isEditing && hasStructuredView(question.format_payload) && (
             <div className="mt-3">
               <StructuredFormatBody
