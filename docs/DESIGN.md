@@ -12,7 +12,7 @@
 Defined centrally via CSS variables and Tailwind CSS v4 `@theme` in [`frontend/src/app/globals.css`](file:///c:/Users/aaksh/Downloads/qshala/frontend/src/app/globals.css) and [`antigravity_brief/brand-tokens.css`](file:///c:/Users/aaksh/Downloads/qshala/antigravity_brief/brand-tokens.css).
 
 ### The Strict Palette Rule
-**Soft theme (Nov 2026): Never use colors outside the 3 official brand colors + black/white/cream (+ tints, + functional error red).** The UI chrome is deliberately low-contrast: true Sun `#FDB913` is reserved for the logo and mascot, while buttons, bars and highlights use soft tints (butter `#FBE7A4`, sky `#BFE8F8`, sage `#CFE8B8`, peach `#FBD9C4`) and body text/borders use warm charcoal `#2F2E33` instead of pure black. No gradients that blend brand colors, and no drop shadows on the logo or mascot.
+**Never use colors outside the 3 official brand colors + black/white/cream (+ tints, + functional error red).** No gradients that blend brand colors, and no drop shadows on the logo or mascot.
 
 | Brand Color | Role | HEX | CMYK | Usage in App |
 | :--- | :--- | :--- | :--- | :--- |
@@ -36,13 +36,13 @@ Defined centrally via CSS variables and Tailwind CSS v4 `@theme` in [`frontend/s
 ## 2. Signature Brand Devices
 
 1. **Section Divider Bar (`.section-bar`)**:
-   A black ALL-CAPS heading (Causten Round Black 900) paired with a slim soft-tint bar (`height: 8px; background: var(--bar-tint); border-radius: 9999px`). Rotate the tint per section with `data-tint` = `butter | sky | sage | peach`.
+   A black ALL-CAPS heading (Causten Round Black 900) paired with a full-width Sun-yellow bar (`height: 3px; background: #FDB913; border-radius: 9999px`).
 2. **Page Title Rule (`.page-title-rule` / `border-b-2 border-sun`)**:
    A crisp 2px Sun-yellow border running under top page titles.
 3. **Rounded Brand Cards**:
    Cards with generous rounding (`rounded-[20px]`), crisp black or subtle Sun-yellow border (`border border-sun/30`), white fill on cream background, and sticker shadows (`shadow-sticker-sm`).
 4. **Primary Action Buttons**:
-   `bg-sky-100 border border-sky-200 text-ink font-bold shadow-sticker-sm hover:bg-sky-200 active:scale-[0.99] rounded-xl px-4 py-2` (soft shadows, no hard black offset).
+   `bg-sun text-ink font-bold shadow-sticker-sm hover:brightness-105 active:scale-[0.99] rounded-xl px-4 py-2`.
 
 ---
 
@@ -113,7 +113,7 @@ Managed via [`frontend/src/components/ui/QT.tsx`](file:///c:/Users/aaksh/Downloa
 
 - [x] Causten Round 400-900 loaded as the sole UI font; Plus Jakarta Sans completely removed.
 - [x] Zero stray old hex codes (`#F8B42C`, `#5BB4DE`) or legacy hand-drawn cat SVGs.
-- [x] All primary buttons use the soft sky tint with charcoal text and soft shadows.
-- [x] All section titles utilize the signature `.section-bar` (heading + rotating soft-tint bar).
+- [x] All primary buttons styled in Sun yellow (`#FDB913`) with black text (`#000000`) and sticker shadows.
+- [x] All section titles utilize the signature `.section-bar` (black caps + Sun-yellow bar).
 - [x] All cards styled on cream canvas (`#FFF6E1`) with rounded corners (`rounded-[20px]`).
 - [x] 100% of text and background pairings pass WCAG AA contrast standards.

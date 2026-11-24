@@ -37,14 +37,14 @@ export default function Error({
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
         <button
           onClick={() => reset()}
-          className="inline-flex items-center gap-2 rounded-xl bg-sky-100 border border-sky-200 hover:bg-sky-200 px-4 py-2 text-sm font-bold text-ink shadow-sticker-sm  active:scale-[0.99] transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 rounded-xl bg-sun px-4 py-2 text-sm font-bold text-ink shadow-sticker-sm hover:brightness-105 active:scale-[0.99] transition-all cursor-pointer"
         >
           <RefreshCcw className="h-4 w-4" />
           Try again
         </button>
         <button
           onClick={() => window.location.reload()}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200/20 bg-white px-4 py-2 text-sm font-bold text-ink hover:bg-slate-50 transition-all cursor-pointer"
+          className="inline-flex items-center gap-2 rounded-xl border-2 border-ink/20 bg-white px-4 py-2 text-sm font-bold text-ink hover:bg-slate-50 transition-all cursor-pointer"
         >
           Refresh page
         </button>

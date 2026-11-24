@@ -132,7 +132,7 @@ function KnowledgeBaseContent() {
             onClick={() => setActiveTab('all')}
             className={`px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'all'
-                ? 'bg-sky-100 text-ink shadow-sticker-sm'
+                ? 'bg-sun text-ink shadow-sticker-sm'
                 : 'text-slate-700 hover:text-ink'
             }`}
           >
@@ -151,7 +151,7 @@ function KnowledgeBaseContent() {
             <span>Possible Duplicates</span>
             {duplicateCount > 0 && (
               <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none ${
-                activeTab === 'duplicates' ? 'bg-sky-100 text-ink' : 'bg-amber-200 text-amber-900'
+                activeTab === 'duplicates' ? 'bg-sun text-ink' : 'bg-amber-200 text-amber-900'
               }`}>
                 {duplicateCount}
               </span>

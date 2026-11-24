@@ -271,10 +271,10 @@ export default function QT({
           aria-live="polite"
           className={`absolute ${bubblePositionClass} z-30 pointer-events-none select-none animate-bubble-pop whitespace-nowrap`}
         >
-          <div className="relative rounded-2xl border border-slate-200 bg-sun-100 px-3 py-1.5 text-[12px] font-bold text-black shadow-sticker-sm">
+          <div className="relative rounded-2xl border-2 border-black bg-sun-100 px-3 py-1.5 text-[12px] font-bold text-black shadow-sticker-sm">
             <span>{activeBubble}</span>
             {/* Bubble Tail */}
-            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-2.5 w-2.5 rotate-45 border-b-2 border-r-2 border-slate-300 bg-sun-100" />
+            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 h-2.5 w-2.5 rotate-45 border-b-2 border-r-2 border-black bg-sun-100" />
           </div>
         </div>
       )}

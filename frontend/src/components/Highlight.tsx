@@ -30,7 +30,7 @@ export default function Highlight({ text, query }: { text: string | null | undef
     <>
       {pieces.map((p, i) =>
         i % 2 === 1 ? (
-          <mark key={i} className="rounded-sm bg-highlight px-0.5 text-slate-900">{p}</mark>
+          <mark key={i} className="rounded-sm bg-yellow-200 px-0.5 text-slate-900">{p}</mark>
         ) : (
           <Fragment key={i}>{p}</Fragment>
         ),

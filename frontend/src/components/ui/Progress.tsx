@@ -19,7 +19,7 @@ export default function Progress({
   const fill = { sun: 'bg-sun', sky: 'bg-sky', leaf: 'bg-leaf' }[tone];
   return (
     <div
-      className={`relative h-3.5 rounded-pill border border-slate-200 bg-white ${rider ? 'mt-6' : ''} ${className}`}
+      className={`relative h-3.5 rounded-pill border-2 border-ink bg-white ${rider ? 'mt-6' : ''} ${className}`}
       role="progressbar"
       aria-valuenow={pct}
       aria-valuemin={0}
