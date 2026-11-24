@@ -7,14 +7,13 @@ import {
   Sparkles,
   ArrowRight,
   UploadCloud,
-  Layers,
   Lightbulb,
   CheckCircle2,
-  BookOpen,
   AlertTriangle,
   RefreshCw,
 } from 'lucide-react';
 import StatsOverview from '../components/StatsOverview';
+import CostPanel from '../components/CostPanel';
 import { QT, QTAnim } from '../components/ui';
 import { api } from '../lib/api';
 import { DashboardStats } from '../lib/types';
@@ -267,6 +266,9 @@ export default function DashboardPage() {
 
         {/* Right Column (4 cols): Knowledge Distribution & Workflow */}
         <div className="lg:col-span-4 space-y-6">
+          {/* Operating Cost Panel */}
+          <CostPanel />
+
           {/* Topic Coverage & Knowledge Distribution */}
           <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-100/50">
             <div className="border-b border-slate-100 pb-3 mb-4 flex items-center justify-between">
@@ -371,7 +373,7 @@ export default function DashboardPage() {
               <div>
                 <h4 className="text-[14px] font-semibold text-slate-900">Need to add new material?</h4>
                 <p className="mt-1 text-[13px] text-slate-600 leading-relaxed font-normal">
-                  Upload your PPT, PPTX or PDF files and they'll be parsed into slide-pair questions
+                  Upload your PPT, PPTX or PDF files and they&apos;ll be parsed into slide-pair questions
                   automatically.
                 </p>
                 <Link
