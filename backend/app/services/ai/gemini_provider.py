@@ -640,33 +640,34 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
                         logger.warning(f"[GeminiEmbeddingProvider] batchEmbedContents error ({resp.status_code}), falling back to serial")
                         for t in chunk:
                             results.append(await self._embed_one_or_none(t))
-                    data_obj = resp.json()
-                    um = data_obj.get("usageMetadata") or {}
-                    chunk_tokens = um.get("promptTokenCount") or sum(max(1, len(t) // 4) for t in chunk)
-                    record_usage("embedding", {"in": chunk_tokens, "calls": len(chunk)}, model=self.model)
-                    if len(data := data_obj.get("embeddings", [])) != len(chunk):
-                        # batchEmbedContents returned a different count than requested -- can't
-                        # safely zip results back to texts by position, so re-fetch this whole
-                        # chunk serially rather than risk silently mismatching embeddings to texts.
-                        logger.warning(
-                            "[GeminiEmbeddingProvider] batchEmbedContents returned %d embeddings "
-                            "for %d texts, falling back to serial for this chunk", len(data), len(chunk),
-                        )
-                        for t in chunk:
-                            results.append(await self._embed_one_or_none(t))
                     else:
-                        for t, e in zip(chunk, data):
-                            try:
-                                values = self._coerce_dim(e["values"], t)
-                                results.append(self._normalize(values))
-                            except (ValueError, KeyError, TypeError):
-                                # Too short to coerce (see _coerce_dim) -- fall back to a single
-                                # get_embedding() call for just this text.
-                                logger.warning(
-                                    "[GeminiEmbeddingProvider] batch item too short to coerce, "
-                                    "refetching serially (text=%r)", t[:80],
-                                )
+                        data_obj = resp.json()
+                        um = data_obj.get("usageMetadata") or {}
+                        chunk_tokens = um.get("promptTokenCount") or sum(max(1, len(t) // 4) for t in chunk)
+                        record_usage("embedding", {"in": chunk_tokens, "calls": len(chunk)}, model=self.model)
+                        if len(data := data_obj.get("embeddings", [])) != len(chunk):
+                            # batchEmbedContents returned a different count than requested -- can't
+                            # safely zip results back to texts by position, so re-fetch this whole
+                            # chunk serially rather than risk silently mismatching embeddings to texts.
+                            logger.warning(
+                                "[GeminiEmbeddingProvider] batchEmbedContents returned %d embeddings "
+                                "for %d texts, falling back to serial for this chunk", len(data), len(chunk),
+                            )
+                            for t in chunk:
                                 results.append(await self._embed_one_or_none(t))
+                        else:
+                            for t, e in zip(chunk, data):
+                                try:
+                                    values = self._coerce_dim(e["values"], t)
+                                    results.append(self._normalize(values))
+                                except (ValueError, KeyError, TypeError):
+                                    # Too short to coerce (see _coerce_dim) -- fall back to a single
+                                    # get_embedding() call for just this text.
+                                    logger.warning(
+                                        "[GeminiEmbeddingProvider] batch item too short to coerce, "
+                                        "refetching serially (text=%r)", t[:80],
+                                    )
+                                    results.append(await self._embed_one_or_none(t))
             except Exception as batch_err:
                 logger.warning(f"[GeminiEmbeddingProvider] batchEmbedContents failed ({type(batch_err).__name__}), falling back to serial")
                 # results may already hold part of this chunk if the failure came part-way through it

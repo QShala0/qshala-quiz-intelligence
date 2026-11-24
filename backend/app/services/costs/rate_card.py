@@ -145,6 +145,25 @@ def get_active_rate_card(db: Optional[Session] = None) -> Dict[str, Any]:
                 card_data["version"] = row.version
         except Exception as e:
             logger.debug("Could not query CostRateCard from DB: %s", e)
+    else:
+        try:
+            from backend.app.database import SessionLocal
+            sess = SessionLocal()
+            try:
+                from backend.app.models.cost import CostRateCard
+                row = (
+                    sess.query(CostRateCard)
+                    .filter(CostRateCard.status == "active")
+                    .order_by(CostRateCard.version.desc())
+                    .first()
+                )
+                if row and isinstance(row.rates, dict):
+                    card_data = copy.deepcopy(row.rates)
+                    card_data["version"] = row.version
+            finally:
+                sess.close()
+        except Exception as e:
+            logger.debug("Could not query CostRateCard from SessionLocal: %s", e)
 
     if card_data is None:
         # Fallback to seed v1
