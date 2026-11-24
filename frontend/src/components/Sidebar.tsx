@@ -114,8 +114,8 @@ export default function Sidebar() {
                 isCollapsed ? 'h-10 w-full justify-center px-0' : 'gap-2.5 px-3 py-2 text-[13.5px] whitespace-nowrap'
               } ${
                 isActive
-                  ? 'border-amber-400 bg-amber-100/70 font-bold text-slate-900 shadow-xs'
-                  : 'border-transparent font-medium text-slate-700 hover:bg-amber-50 hover:text-slate-900'
+                  ? 'border-sky-200 bg-sky-100/70 font-bold text-slate-900 shadow-xs'
+                  : 'border-transparent font-medium text-slate-700 hover:bg-sky-50 hover:text-slate-900'
               }`}
             >
               <Icon

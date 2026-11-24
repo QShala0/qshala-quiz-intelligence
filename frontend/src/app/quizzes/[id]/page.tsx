@@ -307,7 +307,7 @@ ${err.message}` : ''),
           {approvedQuestions.length > 0 && (
             <button
               onClick={() => setIsStageOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl bg-sun px-3.5 py-1.5 text-[13px] font-bold text-ink hover:brightness-105 active:scale-[0.99] transition-all shadow-sticker-sm cursor-pointer"
+              className="flex items-center gap-1.5 rounded-xl bg-sky-100 border border-sky-200 hover:bg-sky-200 px-3.5 py-1.5 text-[13px] font-bold text-ink  active:scale-[0.99] transition-all shadow-sticker-sm cursor-pointer"
             >
               <Presentation className="h-3.5 w-3.5" />
               <span>Present Live</span>

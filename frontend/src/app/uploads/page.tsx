@@ -337,7 +337,7 @@ export default function UploadPage() {
           onClick={() => setUploadSource('local')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-bold transition-all cursor-pointer ${
             uploadSource === 'local'
-              ? 'bg-sun text-ink shadow-sticker-sm'
+              ? 'bg-sky-100 text-ink shadow-sticker-sm'
               : 'text-slate-600 hover:text-ink'
           }`}
         >
@@ -352,7 +352,7 @@ export default function UploadPage() {
           onClick={() => setUploadSource('sharepoint')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-bold transition-all cursor-pointer ${
             uploadSource === 'sharepoint'
-              ? 'bg-sun text-ink shadow-sticker-sm'
+              ? 'bg-sky-100 text-ink shadow-sticker-sm'
               : 'text-slate-600 hover:text-ink'
           }`}
         >
