@@ -44,8 +44,8 @@ export default function Logo({
   }
 
   const logoSrc = {
-    horizontal: '/brand/logo-horizontal-black.png',
-    stacked: '/brand/logo-tagline-black.png',
+    horizontal: tagline ? '/brand/logo-horizontal-black.png' : '/brand/logo-black.png',
+    stacked: tagline ? '/brand/logo-tagline-black.png' : '/brand/logo-black.png',
     white: '/brand/logo-white.png',
     sky: '/brand/logo-sky.png',
     grass: '/brand/logo-grass.png',

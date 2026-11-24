@@ -205,7 +205,7 @@ export default function QT({
     };
   }, []);
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = () => {
     if (interactive || speechBubble || onClick) {
       setIsSquishing(true);
       setTimeout(() => setIsSquishing(false), 380);
@@ -236,7 +236,7 @@ export default function QT({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((interactive || onClick) && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
-      handleClick(e as unknown as React.MouseEvent);
+      handleClick();
     }
   };
 

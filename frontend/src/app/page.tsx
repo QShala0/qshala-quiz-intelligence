@@ -7,10 +7,8 @@ import {
   Sparkles,
   ArrowRight,
   UploadCloud,
-  Layers,
   Lightbulb,
   CheckCircle2,
-  BookOpen,
   AlertTriangle,
   RefreshCw,
 } from 'lucide-react';
@@ -378,7 +376,7 @@ export default function DashboardPage() {
               <div>
                 <h4 className="text-[14px] font-bold text-ink">Need to add new material?</h4>
                 <p className="mt-1 text-[13px] text-slate-600 leading-relaxed font-normal">
-                  Upload your PPT, PPTX or PDF files and they'll be parsed into slide-pair questions
+                  Upload your PPT, PPTX or PDF files and they&apos;ll be parsed into slide-pair questions
                   automatically.
                 </p>
                 <Link
