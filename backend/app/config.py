@@ -234,6 +234,7 @@ class Settings(BaseSettings):
     # = no auth enforced, matching current behavior) so this can be deployed without breaking anything,
     # then turned on by setting this env var once the frontend is sending the header.
     API_KEY_SECRET: Optional[str] = None
+    COST_CRON_SECRET: Optional[str] = None
 
     # Comma-separated list of allowed frontend origins (e.g. "https://qshala.vercel.app,
     # https://qshala-git-main-yourteam.vercel.app"). Empty/unset falls back to localhost-only --
@@ -443,7 +444,7 @@ class Settings(BaseSettings):
                      "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
                      "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL", "API_KEY_SECRET",
                      "CORS_ORIGINS", "SENTRY_DSN", "GCP_PROJECT_ID", "GCP_REGION",
-                     "INGESTION_JOB_NAME",
+                     "INGESTION_JOB_NAME", "COST_CRON_SECRET",
                      "AUTH_PUBLIC_BASE_URL", "AUTH_MS_CLIENT_ID", "AUTH_MS_CLIENT_SECRET",
                      mode="before")
     @classmethod
