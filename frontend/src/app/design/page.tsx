@@ -5,6 +5,7 @@ import { useState } from 'react';
 import {
   QT,
   QT_POSES,
+  QTAnim,
   Logo,
   Button,
   Card,
@@ -108,7 +109,7 @@ export default function DesignPage() {
           <Button variant="danger" onClick={() => toast.error('Upload failed. Check the file and try again.')}>
             Error toast
           </Button>
-          <Button variant="secondary" onClick={() => toast.info('QT is warming up the engine.')}>
+          <Button variant="secondary" onClick={() => toast.info('QT is warming up the engine.', { announce: true })}>
             Info toast
           </Button>
           <Button
@@ -163,6 +164,25 @@ export default function DesignPage() {
           <Card tone="leaf"><EmptyState pose="happy" title="All confirmed!" hint="Nothing needs review." /></Card>
           <Card tone="sky"><EmptyState pose="sleepy" title="Queue is idle" hint="QT is napping until the next deck." /></Card>
         </div>
+      </Section>
+
+      <Section title="QT animations (use each in its own context)">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+          {([
+            ['lets-get-started', 'box-yellow', 'First run / nothing here yet'],
+            ['magnify', 'chase-blue', 'Searching or finding questions'],
+            ['celebrate', 'professor', 'Something finished well'],
+            ['correct-answer', 'happy', 'An answer reveal / correct moment'],
+            ['megaphone', 'happy', 'Announcements and batch notices'],
+          ] as const).map(([anim, pose, ctx]) => (
+            <div key={anim} className="flex flex-col items-center gap-2 rounded-card border-2 border-ink bg-white p-3 text-center shadow-sticker-sm">
+              <QTAnim anim={anim} fallbackPose={pose} height={80} />
+              <code className="text-[11px] font-bold">{anim}</code>
+              <span className="text-[11px] text-ink/70">{ctx}</span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-ink/60">Animated only when the visitor has not asked for reduced motion; otherwise a still pose shows.</p>
       </Section>
 
       <Section title={`All ${QT_POSES.length} poses of QT`}>

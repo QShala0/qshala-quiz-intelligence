@@ -24,7 +24,7 @@ export default function Error({
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-50">
         <AlertTriangle className="h-7 w-7 text-red-600" />
       </div>
-      <h2 className="text-xl font-semibold text-slate-900">Something went wrong</h2>
+      <h2 className="text-xl font-semibold text-slate-900">Oops, QT knocked something over</h2>
       <p className="mt-2 max-w-md text-sm text-slate-500">
         This page hit an unexpected error. Try again, or refresh the page if it keeps
         happening.

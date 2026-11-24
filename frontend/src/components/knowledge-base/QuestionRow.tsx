@@ -73,11 +73,11 @@ function QuestionRow({
     try {
       setIsDeleting(true);
       await api.deleteQuestionFromBank(q.id);
-      toast.success('Question deleted from bank');
+      toast.success('Question removed from the bank.');
       onQuestionDeleted?.(q.id);
     } catch (err) {
       console.error('Failed to delete question:', err);
-      toast.error('Failed to delete question. Please try again.');
+      toast.error('QT could not remove that question. Give it another go?');
     } finally {
       setIsDeleting(false);
     }

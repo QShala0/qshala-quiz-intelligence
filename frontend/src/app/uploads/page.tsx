@@ -21,7 +21,7 @@ import SlideViewerModal from '../../components/SlideViewerModal';
 import UploadReportDialog from '../../components/UploadReportDialog';
 import SharePointImporter from '../../components/SharePointImporter';
 import { useUpload } from '../../context/UploadContext';
-import { useConfirm, useToast, QT } from '../../components/ui';
+import { useConfirm, useToast, QT, QTAnim } from '../../components/ui';
 import { UploadDuplicateReport } from '../../lib/types';
 
 // Decks whose duplicate report was already shown (or that finished before this feature): never shown again.
@@ -259,13 +259,13 @@ export default function UploadPage() {
     try {
       const report = await api.getUploadReport(doc.id);
       if (!report) {
-        toast.info('No upload report is available for this deck.');
+        toast.info('This deck has no report yet. QT looked everywhere.');
         return;
       }
       setReopenedReport({ deckTitle: doc.filename, report });
     } catch (err) {
       console.error(err);
-      toast.error('Could not load the upload report.');
+      toast.error('That report is hiding. Try opening it again.');
     }
   };
 
@@ -288,11 +288,11 @@ export default function UploadPage() {
       return ['.pptx', '.ppt', '.pdf'].includes(ext);
     });
     if (validFiles.length === 0) {
-      toast.error('Please select PowerPoint (.pptx, .ppt) or PDF files.');
+      toast.error('QT only reads PowerPoint (.pptx, .ppt) and PDF decks. Pick one of those?');
       return;
     }
     if (validFiles.length > 25) {
-      toast.info('Only the first 25 files were accepted.');
+      toast.info('That is a big stack! QT took the first 25 files. Send the rest next.');
     }
     handleMultiFileUpload(validFiles.slice(0, 25));
   };
@@ -999,8 +999,9 @@ export default function UploadPage() {
             </div>
           )}
           {documents.length === 0 && !loading && !loadError && (
-            <div className="py-12 text-center text-[13px] text-slate-400 font-normal">
-              No documents uploaded yet.
+            <div className="py-10 flex flex-col items-center text-center text-[13px] text-slate-500 font-normal">
+              <QTAnim anim="lets-get-started" fallbackPose="fishbowl" height={84} alt="QT ready for your first deck" />
+              <p className="mt-2">No decks yet. Drop your first one above and the quest begins.</p>
             </div>
           )}
         </div>

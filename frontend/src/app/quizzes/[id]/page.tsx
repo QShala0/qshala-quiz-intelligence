@@ -60,12 +60,12 @@ export default function QuizReviewStudioPage() {
       return;
     }
     if (!trimmed) {
-      toast.error('Title cannot be empty');
+      toast.error('Every quiz needs a name. Give it one?');
       setIsEditingTitle(false);
       return;
     }
     if (trimmed.length > 255) {
-      toast.error('Title cannot exceed 255 characters');
+      toast.error('That name is a bit long. Keep it under 255 characters.');
       return;
     }
     savingTitleRef.current = true;
@@ -73,7 +73,7 @@ export default function QuizReviewStudioPage() {
     try {
       await api.renameQuiz(quiz.id, trimmed);
       setQuiz((prev) => (prev ? { ...prev, title: trimmed } : prev));
-      toast.success('Renamed');
+      toast.success('Renamed, fresh and tidy.');
       setIsEditingTitle(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Could not rename';
@@ -424,8 +424,8 @@ ${err.message}` : ''),
                   type="button"
                   onClick={() => {
                     navigator.clipboard?.writeText(promptLines.join('\n')).then(
-                      () => toast.success('Prompt copied'),
-                      () => toast.error('Could not copy'),
+                      () => toast.success('Prompt copied, go forth and quest!'),
+                      () => toast.error('QT could not copy that. Try selecting it by hand?'),
                     );
                   }}
                   className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
