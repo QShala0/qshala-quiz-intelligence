@@ -10,6 +10,7 @@ import SourceMultiPicker, { summarizeSelectedSources } from '../../components/So
 import { FORMAT_FILTER_OPTIONS, hasStructuredView, formatStyle } from '../../lib/formatPayloads';
 import StructuredFormatBody from '../../components/formats/StructuredFormatBody';
 import QT, { PawIcon } from '../../components/ui/QT';
+import QTAnim from '../../components/ui/QTAnim';
 import VoiceInputButton from '../../components/VoiceInputButton';
 import { buildVocabulary } from '../../lib/voiceVocabulary';
 
@@ -516,14 +517,18 @@ export default function QuizzerHome() {
           </h1>
           {draft && (
             <div className="shrink-0 transition-transform duration-300">
-              <QT
-                pose={showCelebration ? 'winner' : 'round'}
-                height={52}
-                motion={showCelebration ? 'bob' : 'breathe'}
-                interactive={true}
-                speechBubble={showCelebration ? 'Quiz champion! Your quiz is calibrated and ready!' : 'Quiz generated successfully!'}
-                alt="Champion QT celebrating your quiz"
-              />
+              {showCelebration ? (
+                <QTAnim anim="celebrate" fallbackPose="winner" height={64} alt="QT celebrating your new quiz" />
+              ) : (
+                <QT
+                  pose="round"
+                  height={48}
+                  motion="breathe"
+                  interactive={true}
+                  speechBubble="Quiz ready! Tweak it or take it for a spin."
+                  alt="QT, pleased with your quiz"
+                />
+              )}
             </div>
           )}
         </div>
@@ -614,14 +619,7 @@ export default function QuizzerHome() {
         {loading && (
           <div className="mt-8 flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
             <div className="relative mb-2">
-              <QT
-                pose="quizzing"
-                height={62}
-                motion="bob"
-                interactive={true}
-                speechBubble="Crafting your quiz questions from the archive..."
-                alt="QT crafting quiz questions"
-              />
+              <QTAnim anim="magnify" fallbackPose="quizzing" height={72} alt="QT hunting through your sources for questions" />
             </div>
             {/* Stage paw-prints 1..6 */}
             <div className="flex items-center gap-2.5 mb-2.5">
