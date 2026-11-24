@@ -35,6 +35,10 @@ import {
   BatchStatusResponse,
   ActiveBatchResponse,
   CancelPendingResponse,
+  CostsSimpleResponse,
+  CostsSummaryResponse,
+  DocumentsCostResponse,
+  CostRefreshStatusResponse,
 } from './types';
 
 // Module-scoped fetch shadow, applied to every existing fetch() call site in this file with no
@@ -607,6 +611,33 @@ export const api = {
   getStats: async (): Promise<DashboardStats> => {
     const res = await fetch(`${getApiBase()}/stats`, { cache: 'no-store' });
     return handleResponse<DashboardStats>(res);
+  },
+
+  // Operating Costs & Ledger
+  getCostsSimple: async (period?: string): Promise<CostsSimpleResponse> => {
+    const q = period ? `?period=${encodeURIComponent(period)}` : '';
+    const res = await fetch(`${getApiBase()}/costs/simple${q}`, { cache: 'no-store' });
+    return handleResponse<CostsSimpleResponse>(res);
+  },
+
+  getCostsSummary: async (period?: string): Promise<CostsSummaryResponse> => {
+    const q = period ? `?period=${encodeURIComponent(period)}` : '';
+    const res = await fetch(`${getApiBase()}/costs/summary${q}`, { cache: 'no-store' });
+    return handleResponse<CostsSummaryResponse>(res);
+  },
+
+  getCostsDocuments: async (limit = 20, offset = 0): Promise<DocumentsCostResponse> => {
+    const res = await fetch(`${getApiBase()}/costs/documents?limit=${limit}&offset=${offset}`, { cache: 'no-store' });
+    return handleResponse<DocumentsCostResponse>(res);
+  },
+
+  getCostsRefreshStatus: async (): Promise<CostRefreshStatusResponse> => {
+    const res = await fetch(`${getApiBase()}/costs/refresh-status`, { cache: 'no-store' });
+    if (res.status === 404) {
+      const fallback = await fetch(`${getApiBase()}/costs/refresh/status`, { cache: 'no-store' });
+      return handleResponse<CostRefreshStatusResponse>(fallback);
+    }
+    return handleResponse<CostRefreshStatusResponse>(res);
   },
 
   // Documents

@@ -888,3 +888,118 @@ export interface CustomPptTemplate {
   created_at?: string | null;
   updated_at?: string | null;
 }
+
+// ---------------------------------------------------------------- Cost Ledger
+export interface CostLineItem {
+  key: string;
+  label: string;
+  inr: number;
+  approx?: boolean;
+}
+
+export interface CostsSimpleResponse {
+  period: string;
+  gemini: number;
+  database: number;
+  storage: number;
+  compute: number;
+  other: number;
+  total: number;
+  total_inr: number;
+  currency: string;
+  lines: CostLineItem[];
+  approx?: boolean;
+  last_refresh_at?: string | null;
+  fx_stale?: boolean;
+  price_notice?: string | null;
+}
+
+export interface GeminiStageBreakdown {
+  vision: number;
+  tagging: number;
+  embedding: number;
+  total: number;
+}
+
+export interface GeminiQuizBreakdown {
+  intent: number;
+  curator: number;
+  interpreter: number;
+  total: number;
+}
+
+export interface CostPeriodSummary {
+  headline_inr: number;
+  measured_inr: number;
+  billed_inr: number;
+  gap_inr: number;
+  categories: Record<string, { headline_inr: number; measured_inr: number; billed_inr: number }>;
+  gemini_breakdown: {
+    ingestion: GeminiStageBreakdown;
+    quiz: GeminiQuizBreakdown;
+    other: number;
+    total: number;
+  };
+  sources: {
+    measured: number;
+    accrued: number;
+    billed: number;
+    estimated: number;
+  };
+}
+
+export interface CostsSummaryResponse {
+  period?: string;
+  current_month?: CostPeriodSummary;
+  last_month?: CostPeriodSummary;
+  all_time?: CostPeriodSummary;
+  periods?: {
+    current_month: CostPeriodSummary;
+    last_month: CostPeriodSummary;
+    all_time: CostPeriodSummary;
+  };
+  approx?: boolean;
+  last_refresh_at?: string | null;
+  fx_rate?: number;
+  fx_source?: string;
+  fx_stale?: boolean;
+}
+
+export interface DocumentsCostResponse {
+  total: number;
+  items?: DocumentCostItem[];
+  documents?: DocumentCostItem[];
+  limit?: number;
+  offset?: number;
+}
+
+export interface DocumentCostItem {
+  document_id: string;
+  filename: string;
+  title?: string | null;
+  total_inr: number;
+  inr_per_question?: number;
+  cost_per_question_inr?: number;
+  question_count: number;
+  vision_inr: number;
+  tagging_inr: number;
+  embedding_inr?: number;
+  embed_inr?: number;
+  job_compute_inr: number;
+  r2_inr: number;
+  has_estimated?: boolean;
+  created_at?: string | null;
+  first_seen?: string | null;
+}
+
+export interface CostRefreshStatusResponse {
+  last_refresh_at: string | null;
+  finished_at?: string | null;
+  fx_rate?: number;
+  fx_source?: string;
+  fx_stale: boolean;
+  active_rate_card_version: number;
+  proposed_rate_card_version?: number | null;
+  price_notice?: string | null;
+  status: string;
+}
