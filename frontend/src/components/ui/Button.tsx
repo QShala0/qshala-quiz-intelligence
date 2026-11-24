@@ -12,13 +12,13 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
-// Soft theme: primary is a calm sky tint with charcoal text; no hard shadows.
+// Yellow only ever carries black text (white-on-yellow fails contrast).
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-sky-100 text-slate-900 border border-sky-200 shadow-sticker-sm hover:bg-sky-200',
-  secondary: 'bg-white text-slate-800 border border-slate-200 shadow-sticker-sm hover:bg-sky-50 hover:border-sky-200',
-  success: 'bg-emerald-600 text-white border border-emerald-700 shadow-sticker-sm hover:bg-emerald-700',
-  danger: 'bg-red-600 text-white border border-red-700 shadow-sticker-sm hover:bg-red-700',
-  ghost: 'bg-transparent text-slate-800 border-2 border-transparent hover:bg-sky-50 hover:border-slate-900/10',
+  primary: 'bg-slate-900 text-white border-2 border-slate-900 shadow-sticker-sm hover:bg-slate-800',
+  secondary: 'bg-white text-slate-800 border-2 border-slate-300 shadow-sticker-sm hover:bg-amber-50 hover:border-slate-800',
+  success: 'bg-emerald-600 text-white border-2 border-slate-900 shadow-sticker-sm hover:bg-emerald-700',
+  danger: 'bg-red-600 text-white border-2 border-slate-900 shadow-sticker-sm hover:bg-red-700',
+  ghost: 'bg-transparent text-slate-800 border-2 border-transparent hover:bg-amber-50 hover:border-slate-900/15',
 };
 
 const SIZES: Record<Size, string> = {

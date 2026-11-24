@@ -157,7 +157,7 @@ export default function CustomTemplateManager({
             onClick={() => setFilterCategory('all')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
               filterCategory === 'all'
-                ? 'bg-sky-100 text-ink shadow-sticker-sm'
+                ? 'bg-sun text-ink shadow-sticker-sm'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -167,7 +167,7 @@ export default function CustomTemplateManager({
             onClick={() => setFilterCategory('qshala_school')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
               filterCategory === 'qshala_school'
-                ? 'bg-sky-100 text-ink shadow-sticker-sm'
+                ? 'bg-sun text-ink shadow-sticker-sm'
                 : 'text-slate-600 hover:bg-amber-50 hover:text-amber-800'
             }`}
           >
@@ -178,7 +178,7 @@ export default function CustomTemplateManager({
             onClick={() => setFilterCategory('zvq')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
               filterCategory === 'zvq'
-                ? 'bg-sky-100 text-ink shadow-sticker-sm'
+                ? 'bg-sun text-ink shadow-sticker-sm'
                 : 'text-slate-600 hover:bg-amber-50 hover:text-amber-800'
             }`}
           >
@@ -193,7 +193,7 @@ export default function CustomTemplateManager({
             setError(null);
             setSuccessMsg(null);
           }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-100 border border-sky-200 hover:bg-sky-200 text-ink text-xs font-bold  active:scale-[0.99] transition shadow-sticker-sm"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sun text-ink text-xs font-bold hover:brightness-105 active:scale-[0.99] transition shadow-sticker-sm"
         >
           <Plus className="h-4 w-4" />
           Extract from Sample PPT
@@ -231,7 +231,7 @@ export default function CustomTemplateManager({
           </p>
           <button
             onClick={() => setShowUploadModal(true)}
-            className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-100 border border-sky-200 hover:bg-sky-200 text-ink text-xs font-bold  active:scale-[0.99] transition shadow-sticker-sm"
+            className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl bg-sun text-ink text-xs font-bold hover:brightness-105 active:scale-[0.99] transition shadow-sticker-sm"
           >
             <Upload className="h-3.5 w-3.5" />
             Upload Sample PPT
@@ -484,7 +484,7 @@ export default function CustomTemplateManager({
                 <button
                   type="submit"
                   disabled={extracting || !selectedFile}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-sky-100 border border-sky-200 hover:bg-sky-200  active:scale-[0.99] text-ink text-xs font-bold transition disabled:opacity-50 shadow-sticker-sm"
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-sun hover:brightness-105 active:scale-[0.99] text-ink text-xs font-bold transition disabled:opacity-50 shadow-sticker-sm"
                 >
                   {extracting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {extracting ? 'Extracting Template...' : 'Extract & Save Template'}

@@ -41,7 +41,7 @@ export default function SettingsPage() {
             onClick={() => setActiveTab('platform')}
             className={`px-3.5 py-1.5 rounded-lg text-[13px] font-bold transition-all cursor-pointer ${
               activeTab === 'platform'
-                ? 'bg-sky-100 text-ink shadow-sticker-sm'
+                ? 'bg-sun text-ink shadow-sticker-sm'
                 : 'text-slate-600 hover:text-ink'
             }`}
           >
@@ -53,7 +53,7 @@ export default function SettingsPage() {
             onClick={() => setActiveTab('templates')}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[13px] font-bold transition-all cursor-pointer ${
               activeTab === 'templates'
-                ? 'bg-sky-100 text-ink shadow-sticker-sm'
+                ? 'bg-sun text-ink shadow-sticker-sm'
                 : 'text-slate-600 hover:text-ink'
             }`}
           >
@@ -113,7 +113,7 @@ export default function SettingsPage() {
               </div>
               <Link
                 href="/uploads?tab=sharepoint"
-                className="inline-flex items-center gap-1.5 shrink-0 rounded-xl bg-sky-100 border border-sky-200 hover:bg-sky-200  px-4 py-2 text-[13px] font-bold text-ink transition-all cursor-pointer shadow-sticker-sm"
+                className="inline-flex items-center gap-1.5 shrink-0 rounded-xl bg-sun hover:brightness-105 px-4 py-2 text-[13px] font-bold text-ink transition-all cursor-pointer shadow-sticker-sm"
               >
                 <span>Go to Upload Center</span>
                 <ArrowRight className="h-3.5 w-3.5" />

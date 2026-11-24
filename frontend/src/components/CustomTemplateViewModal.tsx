@@ -257,7 +257,7 @@ export default function CustomTemplateViewModal({
                     {isSchool ? 'Grades 6 - 8 • Middle School Assembly Track' : 'Bengaluru Campus Tournament Finals'}
                   </p>
                   <div className="pt-1">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/10 text-slate-800 text-[11px] font-semibold border border-slate-300/5">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/10 text-slate-800 text-[11px] font-semibold border border-black/5">
                       <Sparkles className="h-3 w-3 text-amber-600" />
                       Title Font: <strong className="font-semibold">{template.title_font || 'Causten Round'}</strong>
                     </span>
@@ -408,7 +408,7 @@ export default function CustomTemplateViewModal({
                   title="Click to copy color hex"
                 >
                   <span
-                    className="h-2.5 w-2.5 rounded-full border border-slate-300/10"
+                    className="h-2.5 w-2.5 rounded-full border border-black/10"
                     style={{ backgroundColor: template.title_color_hex || '#1E293B' }}
                   />
                   <span>{template.title_color_hex || '#1E293B'}</span>
@@ -444,7 +444,7 @@ export default function CustomTemplateViewModal({
                   title="Click to copy color hex"
                 >
                   <span
-                    className="h-2.5 w-2.5 rounded-full border border-slate-300/10"
+                    className="h-2.5 w-2.5 rounded-full border border-black/10"
                     style={{ backgroundColor: template.body_color_hex || '#0F172A' }}
                   />
                   <span>{template.body_color_hex || '#0F172A'}</span>
@@ -507,7 +507,7 @@ export default function CustomTemplateViewModal({
                     title={`Click to copy ${slot}: ${hex}`}
                   >
                     <span
-                      className="h-5 w-5 rounded-md border border-slate-300/10 shrink-0 shadow-xs"
+                      className="h-5 w-5 rounded-md border border-black/10 shrink-0 shadow-xs"
                       style={{ backgroundColor: hex }}
                     />
                     <div className="min-w-0 flex-1">

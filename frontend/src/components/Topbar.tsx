@@ -41,7 +41,7 @@ export default function Topbar() {
       <div className="flex items-center gap-4">
         <Link
           href="/knowledge-base"
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-ink transition-colors hover:bg-sky-100"
+          className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-ink bg-white text-ink transition-colors hover:bg-sun"
           title="Search Questions"
           aria-label="Search questions"
         >
@@ -49,7 +49,7 @@ export default function Topbar() {
         </Link>
 
         <div className="flex items-center gap-2.5 pl-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-sky text-[12px] font-black text-ink">
+          <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-ink bg-sky text-[12px] font-black text-ink">
             Q
           </div>
           <button className="flex items-center gap-1.5 text-[13px] font-bold text-ink transition-colors hover:text-ink/70">
