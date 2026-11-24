@@ -163,6 +163,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Lifespan seed check exception: {e}")
 
+    try:
+        import threading
+        from backend.app.services.costs.daily_refresh import catchup_missed_days
+        threading.Thread(target=catchup_missed_days, name="cost-catchup", daemon=True).start()
+    except Exception as _ce:
+        logger.debug("Failed to spawn cost catch-up on startup: %s", _ce)
+
     logger.info("[startup] ready to serve %.1fs after the process started (maintenance mode: %s)",
                 _boot_time.monotonic() - _BOOT_T0, STARTUP_MAINTENANCE.get("mode"))
 
@@ -339,6 +346,9 @@ app.include_router(qshala_tagging.router, prefix=settings.API_V1_STR)
 app.include_router(qshala_tagging.router)  # Also mount at /qshala/* directly
 app.include_router(prompt_quiz.router, prefix=settings.API_V1_STR)
 app.include_router(templates.router, prefix=settings.API_V1_STR)
+from backend.app.routers import costs as _costs_router
+app.include_router(_costs_router.router, prefix=settings.API_V1_STR)
+app.include_router(_costs_router.router)  # Also mount at /costs/* directly
 
 @app.get("/")
 @app.get("/api")

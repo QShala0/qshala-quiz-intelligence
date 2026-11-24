@@ -177,7 +177,8 @@ def interpret_with_gemini(
             "response_mime_type": "application/json",
             "response_schema": BRIEF_SCHEMA,
             "temperature": 0.0,
-            "maxOutputTokens": 800,
+            "maxOutputTokens": 800,
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -186,7 +187,12 @@ def interpret_with_gemini(
         headers = {"x-goog-api-key": key} if key else {}
         resp = guarded_post(url, json=payload, headers=headers, timeout=timeout_s)
         resp.raise_for_status()
-        data = resp.json()
+        data = resp.json()
+        try:
+            from backend.app.services.costs.quiz_tracking import track_quiz_llm_call
+            track_quiz_llm_call("quiz_interpreter", model, usage_metadata=data.get("usageMetadata"))
+        except Exception:
+            pass
         cands = data.get("candidates") or []
         if not cands:
             return None
@@ -231,5 +237,12 @@ def interpret_with_gemini(
             return parsed
         return None
     except Exception as e:
-        logger.info("Gemini interpreter unavailable, falling back to regex parse_prompt: %s", type(e).__name__)
+        logger.info("Gemini interpreter unavailable, falling back to regex parse_prompt: %s", type(e).__name__)
+        try:
+            import httpx
+            from backend.app.services.costs.quiz_tracking import track_quiz_llm_call
+            is_to = isinstance(e, (httpx.TimeoutException, TimeoutError))
+            track_quiz_llm_call("quiz_interpreter", model if "model" in locals() else "unknown", is_timeout=is_to)
+        except Exception:
+            pass
         return None
