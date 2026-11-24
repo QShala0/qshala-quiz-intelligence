@@ -79,6 +79,19 @@ class CloudflareR2Service:
         )
         url = f"{self.public_base_url}/{clean_key}"
         logger.info(f"[CloudflareR2Service] Uploaded {clean_key} ({len(data)} bytes) -> {url}")
+        try:
+            from backend.app.services.costs.ledger import get_current_cost_scope, record_unattributed_call
+            scope = get_current_cost_scope()
+            if scope:
+                scope.add_r2_usage("r2_put", objects=1, bytes_uploaded=len(data))
+            else:
+                record_unattributed_call(
+                    category="r2",
+                    operation="r2_put",
+                    units={"objects": 1, "bytes": len(data), "calls": 1},
+                )
+        except Exception:
+            pass
         return url
 
     def upload_file(self, key: str, path: str, content_type: Optional[str] = None) -> str:
@@ -113,6 +126,21 @@ class CloudflareR2Service:
         )
         url = f"{self.public_base_url}/{clean_key}"
         logger.info(f"[CloudflareR2Service] Uploaded {clean_key} from file -> {url}")
+        try:
+            import os
+            fsize = os.path.getsize(path) if os.path.exists(path) else 0
+            from backend.app.services.costs.ledger import get_current_cost_scope, record_unattributed_call
+            scope = get_current_cost_scope()
+            if scope:
+                scope.add_r2_usage("r2_put", objects=1, bytes_uploaded=fsize)
+            else:
+                record_unattributed_call(
+                    category="r2",
+                    operation="r2_put",
+                    units={"objects": 1, "bytes": fsize, "calls": 1},
+                )
+        except Exception:
+            pass
         return url
 
     def create_multipart_upload(self, key: str, content_type: Optional[str] = None) -> str:
@@ -165,6 +193,19 @@ class CloudflareR2Service:
         )
         url = f"{self.public_base_url}/{clean_key}"
         logger.info(f"[CloudflareR2Service] Completed multipart upload {clean_key} -> {url}")
+        try:
+            from backend.app.services.costs.ledger import get_current_cost_scope, record_unattributed_call
+            scope = get_current_cost_scope()
+            if scope:
+                scope.add_r2_usage("r2_put", objects=1, bytes_uploaded=0)
+            else:
+                record_unattributed_call(
+                    category="r2",
+                    operation="r2_put",
+                    units={"objects": 1, "bytes": 0, "calls": 1},
+                )
+        except Exception:
+            pass
         return url
 
     def abort_multipart_upload(self, key: str, upload_id: str) -> None:

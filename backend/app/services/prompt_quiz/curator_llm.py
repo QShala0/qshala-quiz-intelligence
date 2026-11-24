@@ -175,6 +175,7 @@ def curate_quiz_with_gemini(
             "response_schema": CURATION_SCHEMA,
             "temperature": 0.1,
             "maxOutputTokens": 1200,
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -186,6 +187,12 @@ def curate_quiz_with_gemini(
         resp = guarded_post(url, json=payload, headers=headers, timeout=timeout_s)
         resp.raise_for_status()
         data = resp.json()
+
+        try:
+            from backend.app.services.costs.quiz_tracking import track_quiz_llm_call
+            track_quiz_llm_call("quiz_curator", model, usage_metadata=data.get("usageMetadata"))
+        except Exception:
+            pass
 
         cands = data.get("candidates") or []
         if not cands:
@@ -255,4 +262,9 @@ def curate_quiz_with_gemini(
         }
     except Exception as e:
         logger.warning(f"curate_quiz_with_gemini error ({e}), falling back to deterministic editor")
+        try:
+            from backend.app.services.costs.quiz_tracking import track_quiz_llm_call
+            track_quiz_llm_call("quiz_curator", model, is_timeout=True, note=f"fallback:{type(e).__name__}")
+        except Exception:
+            pass
         return None
