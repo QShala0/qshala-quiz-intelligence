@@ -57,7 +57,13 @@ class CloudflareR2Service:
                 self.is_configured = False
                 self._client = None
 
-    def upload_bytes(self, key: str, data: bytes, content_type: Optional[str] = None) -> str:
+    def upload_bytes(
+        self,
+        key: str,
+        data: bytes,
+        content_type: Optional[str] = None,
+        content_disposition: Optional[str] = None,
+    ) -> str:
         """
         Uploads bytes to R2 under `key` and returns the public HTTPS URL.
         Raises if R2 isn't configured or the upload fails -- callers should
@@ -76,6 +82,7 @@ class CloudflareR2Service:
             Key=clean_key,
             Body=data,
             ContentType=content_type,
+            **({"ContentDisposition": content_disposition} if content_disposition else {}),
         )
         url = f"{self.public_base_url}/{clean_key}"
         logger.info(f"[CloudflareR2Service] Uploaded {clean_key} ({len(data)} bytes) -> {url}")

@@ -1,6 +1,8 @@
 import logging
+import uuid
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Body
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from backend.app.database import get_db
 from backend.app.models.quiz import Quiz, GeneratedQuestion
@@ -32,6 +34,40 @@ def _safe_to_pptx(*args, **kwargs):
             status_code=500,
             detail="Could not build the PowerPoint for this quiz. Try the JSON export or contact support.",
         )
+
+
+CLOUD_RUN_SAFE_EXPORT_BYTES = 26 * 1024 * 1024  # Cloud Run HTTP/1.1 caps responses at 32 MB
+_PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+
+def _pptx_export_response(pptx_bytes: bytes, filename: str, clean_id: str):
+    """Return PPTX bytes directly when under Cloud Run's response limit, or upload to R2 and return a download URL."""
+    if len(pptx_bytes) <= CLOUD_RUN_SAFE_EXPORT_BYTES:
+        return Response(
+            content=pptx_bytes,
+            media_type=_PPTX_MEDIA_TYPE,
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    try:
+        from backend.app.services.storage.r2_storage import get_media_storage
+        r2 = get_media_storage()
+        if r2 is not None and r2.is_configured:
+            key = f"exports/{clean_id}/{uuid.uuid4().hex[:12]}_{filename}"
+            url = r2.upload_bytes(
+                key,
+                pptx_bytes,
+                content_type=_PPTX_MEDIA_TYPE,
+                content_disposition=f'attachment; filename="{filename}"',
+            )
+            return JSONResponse(
+                content={"download_url": url, "filename": filename, "size_bytes": len(pptx_bytes)}
+            )
+    except Exception:
+        logger.exception("Failed to upload large PPTX export to R2")
+    raise HTTPException(
+        status_code=413,
+        detail="Exported PowerPoint exceeds the 32 MB server response limit. Please remove large video/media files or export as JSON.",
+    )
 
 @router.post("/generate", response_model=QuizResponse)
 async def generate_quiz(
@@ -230,11 +266,7 @@ def export_quiz(
             template_id=template_id,
             db=db,
         )
-        return Response(
-            content=pptx_bytes,
-            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            headers={"Content-Disposition": f"attachment; filename=qshala_quiz_{quiz.id[:8]}.pptx"}
-        )
+        return _pptx_export_response(pptx_bytes, f"qshala_quiz_{quiz.id[:8]}.pptx", quiz.id[:8])
 
 @router.post("/export")
 def export_quiz_payload(
@@ -293,9 +325,5 @@ def export_quiz_payload(
             template_id=template_id,
             db=db,
         )
-        return Response(
-            content=pptx_bytes,
-            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            headers={"Content-Disposition": f"attachment; filename=qshala_quiz_{clean_id}.pptx"}
-        )
+        return _pptx_export_response(pptx_bytes, f"qshala_quiz_{clean_id}.pptx", clean_id)
 

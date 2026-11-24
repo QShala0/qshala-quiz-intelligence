@@ -452,11 +452,10 @@ def test_zvq_school_quiz_paragraphs_and_source_link_notes():
     # Verify paragraph spacing
     assert paras[1].space_before is not None and paras[1].space_before.pt >= 6
 
-    # 2. Question Slide Notes: Must have source links, NO old boilerplate
+    # 2. Question Slide Notes: Must NOT leak answer, presenter clues, or source links
     assert q_slide.has_notes_slide
     q_notes = q_slide.notes_slide.notes_text_frame.text
-    assert "Source: Potpourri Aug to Dec ZVQ College Reserve.pptx (Slide 14)" in q_notes
-    assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Potpourri_ZVQ.pptx" in q_notes
+    assert "Source:" not in q_notes
     assert "★ Important:" not in q_notes
     assert "Official Answer:" not in q_notes
 
@@ -649,22 +648,21 @@ def test_speaker_notes_source_links_and_answer_removal_on_question_slide():
     assert q_slide.has_notes_slide
     q_notes = q_slide.notes_slide.notes_text_frame.text
 
-    # 1. Answer MUST NOT leak in Question slide notes
+    # 1. Answer, Presenter Clues, and Source Links MUST NOT be on Question slide notes
     assert "Official Answer:" not in q_notes, "Question slide notes must not contain 'Official Answer:'"
     assert "Southern Cross" not in q_notes, "Question slide notes must not reveal the answer!"
-    # 2. Presenter clues and source links MUST be present
-    assert "Presenter Clues: Look at the Southern sky stars." in q_notes
-    assert "Source: Polynesian Wayfinding & Astronomy.pptx (Slide 7)" in q_notes
-    assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Wayfinding_Pacific.pptx" in q_notes
+    assert "Presenter Clues:" not in q_notes, "Presenter Clues belong on the Answer slide, not Question slide"
+    assert "Source:" not in q_notes, "Source links belong on the Answer slide, not Question slide"
 
     # Slide index 3: Answer Reveal Slide
     a_slide = prs.slides[3]
     assert a_slide.has_notes_slide
     a_notes = a_slide.notes_slide.notes_text_frame.text
 
-    # 3. Answer slide notes must contain source links and context, no old boilerplate
+    # 3. Answer slide notes must contain presenter clues, source links, and context, no old boilerplate
     assert "Presenter Talking Points:" not in a_notes
     assert "Context: Used as a navigational compass by Pacific waypoint voyagers." in a_notes
+    assert "Presenter Clues: Look at the Southern sky stars." in a_notes
     assert "Source: Polynesian Wayfinding & Astronomy.pptx (Slide 7)" in a_notes
     assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Wayfinding_Pacific.pptx" in a_notes
 
