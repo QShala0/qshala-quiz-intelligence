@@ -34,7 +34,8 @@ def clean_db():
     invalidate_costs_cache()
     db = SessionLocal()
     try:
-        for tbl in (CostEvent, CostFxRate, CostRateCard, CostRefreshRun, Document):
+        db.query(Document).filter(Document.id == "doc-123").delete()
+        for tbl in (CostEvent, CostFxRate, CostRateCard, CostRefreshRun):
             db.query(tbl).delete()
         db.commit()
     finally:
