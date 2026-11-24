@@ -15,7 +15,7 @@
   --foreground: #232733; /* soft ink body text */
   --surface: #fffcf5;    /* warm paper card surface */
   --surface-hover: #fff6e0; /* warm hover tint */
-  --font-sans-stack: var(--font-plus-jakarta), "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans-stack: var(--font-causten-round), "Causten Round", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 @theme {
