@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from backend.app.database import get_db
 from backend.app.models.custom_template import CustomPptTemplate
 from backend.app.services.export.template_extractor import TemplateExtractor
+from backend.app.services.export import template_store
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +42,31 @@ def _template_response(tpl: CustomPptTemplate) -> Dict[str, Any]:
             (tpl.preview_image_path and os.path.exists(tpl.preview_image_path))
             or (tpl.storage_path and os.path.exists(os.path.join(os.path.dirname(tpl.storage_path), "cover_bg.png")))
             or (tpl.storage_path and os.path.exists(os.path.join(os.path.dirname(tpl.storage_path), "preview.png")))
+            or "preview.png" in template_store.stored_files(tpl)
         ),
+        # False = the template's files are gone (server restarted before they were saved to durable storage):
+        # the UI should ask for the sample deck to be uploaded again instead of exporting a wrong deck.
+        "files_ok": template_store.files_ok(tpl),
         "file_size_bytes": tpl.file_size_bytes,
         "layout_metadata": tpl.layout_metadata or {},
         "created_at": tpl.created_at.isoformat() if tpl.created_at else None,
         "updated_at": tpl.updated_at.isoformat() if tpl.updated_at else None,
     }
+
+
+def _finalize_extracted(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Copy the extracted files to durable storage and record which files exist. Runs in a worker thread."""
+    folder = Path(data["storage_path"]).parent
+    names = template_store.upload_template_dir(data["id"], folder)
+    meta = dict(data.get("layout_metadata") or {})
+    meta["stored_files"] = names
+    data["layout_metadata"] = meta
+    return data
+
+
+def _extract_and_store(source, name: str, category: str, description: Optional[str]) -> Dict[str, Any]:
+    data = TemplateExtractor(source).extract(name=name, category=category, description=description)
+    return _finalize_extracted(data)
 
 
 def _persist_extracted_template(data: Dict[str, Any], db: Session) -> CustomPptTemplate:
@@ -116,12 +136,8 @@ async def extract_template(
         raise HTTPException(status_code=400, detail="Uploaded file is empty or corrupted")
 
     try:
-        extractor = TemplateExtractor(bytes(content))
-        data = extractor.extract(
-            name=clean_name,
-            category=clean_category,
-            description=description,
-        )
+        # Heavy PPTX parsing + upload: run in a worker thread so the single Cloud Run instance keeps serving other requests.
+        data = await asyncio.to_thread(_extract_and_store, bytes(content), clean_name, clean_category, description)
     except Exception as e:
         logger.exception("Failed to extract template from PPTX")
         raise HTTPException(status_code=422, detail=f"Could not extract template from presentation: {str(e)}")
@@ -188,12 +204,7 @@ async def extract_template_chunk(
                     with open(p, "rb") as infile:
                         shutil.copyfileobj(infile, outfile)
 
-            extractor = TemplateExtractor(stitched_path)
-            return extractor.extract(
-                name=clean_name,
-                category=clean_category,
-                description=description,
-            )
+            return _extract_and_store(stitched_path, clean_name, clean_category, description)
 
         data = await asyncio.to_thread(_stitch_and_extract)
         tpl = _persist_extracted_template(data, db)
@@ -261,14 +272,7 @@ def delete_template(
     if not tpl:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    # Clean up storage directory
-    if tpl.storage_path:
-        storage_dir = Path(tpl.storage_path).parent
-        if storage_dir.exists() and storage_dir.is_dir():
-            try:
-                shutil.rmtree(storage_dir, ignore_errors=True)
-            except Exception as e:
-                logger.warning(f"Failed to remove template directory {storage_dir}: {e}")
+    template_store.delete_template_files(tpl)
 
     db.delete(tpl)
     db.commit()
@@ -286,7 +290,7 @@ def get_template_preview(
     if not tpl:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    storage_dir = Path(tpl.storage_path).parent if tpl.storage_path else None
+    storage_dir = template_store.ensure_local_dir(tpl)  # restores from durable storage after a restart
     role = (slide or "cover").strip().lower()
     role_key = "divider" if role in ("divider", "section", "intro") else ("cover" if role in ("cover", "title") else ("question" if role in ("question", "q") else "answer"))
 
@@ -363,13 +367,16 @@ def download_template_master(
 ):
     """Downloads the clean master presentation (.pptx) file."""
     tpl = db.query(CustomPptTemplate).filter(CustomPptTemplate.id == template_id).first()
-    if not tpl or not tpl.storage_path or not os.path.exists(tpl.storage_path):
-        raise HTTPException(status_code=404, detail="Template master presentation file not found")
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    master = template_store.master_path(tpl)
+    if master is None:
+        raise HTTPException(status_code=409, detail="This template's files are no longer on the server. Upload the sample deck again to recreate it.")
 
     safe_name = "".join(c for c in tpl.name if c.isalnum() or c in (" ", "-", "_")).strip().replace(" ", "_")
     filename = f"{safe_name or 'template'}_master.pptx"
     return FileResponse(
-        tpl.storage_path,
+        str(master),
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         filename=filename,
     )
