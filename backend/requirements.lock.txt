@@ -6,6 +6,10 @@ annotated-doc==0.0.6
     # via fastapi
 annotated-types==0.8.0
     # via pydantic
+argon2-cffi==21.3.0
+    # via -r requirements.txt
+argon2-cffi-bindings==25.1.0
+    # via argon2-cffi
 anyio==4.16.0
     # via
     #   fastapi
@@ -25,7 +29,9 @@ certifi==2026.10.23
     #   requests
     #   sentry-sdk
 cffi==2.1.1
-    # via cryptography
+    # via
+    #   argon2-cffi-bindings
+    #   cryptography
 charset-normalizer==3.5.2
     # via
     #   pdfminer-six
