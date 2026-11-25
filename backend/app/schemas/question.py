@@ -81,6 +81,7 @@ class QuestionResponse(QuestionBase):
 class DuplicateResolveRequest(BaseModel):
     action: str  # "CONFIRM_DUPLICATE", "DISMISS_UNIQUE", "MERGE"
     notes: Optional[str] = None
+    keep: Optional[str] = "EXISTING"  # "EXISTING" | "CANDIDATE"
 
 class QuestionUpdate(BaseModel):
     tags: Optional[List[str]] = None

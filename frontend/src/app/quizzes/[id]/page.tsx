@@ -513,10 +513,11 @@ ${err.message}` : ''),
           </div>
         ) : (
           <>
-            {quiz.questions.map((q) => (
+            {quiz.questions.map((q, idx) => (
               <QuestionCard
                 key={q.id}
                 question={q}
+                displayNumber={idx + 1}
                 onUpdate={handleUpdateQuestion}
                 onAction={handleQuestionAction}
                 onDelete={handleDeleteQuestion}

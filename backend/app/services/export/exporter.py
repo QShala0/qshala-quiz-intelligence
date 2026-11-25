@@ -14,6 +14,33 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
+def _patch_pptx_media_parts() -> None:
+    """Work around a python-pptx bug where loaded audio/video parts are Part (no .sha1) rather than MediaPart,
+    which causes shapes.add_movie() to raise AttributeError: 'Part' object has no attribute 'sha1'."""
+    try:
+        import hashlib
+        from pptx.package import _MediaParts
+
+        if getattr(_MediaParts._find_by_sha1, "_qshala_patched", False):
+            return
+
+        def _safe_find_by_sha1(self, sha1):
+            for media_part in self:
+                part_sha1 = getattr(media_part, "sha1", None)
+                if part_sha1 is None:
+                    blob = getattr(media_part, "blob", None)
+                    if blob is not None:
+                        part_sha1 = hashlib.sha1(blob).hexdigest()
+                if part_sha1 == sha1:
+                    return media_part
+            return None
+
+        _safe_find_by_sha1._qshala_patched = True  # type: ignore[attr-defined]
+        _MediaParts._find_by_sha1 = _safe_find_by_sha1  # type: ignore[method-assign]
+    except Exception as e:
+        logger.debug("Could not patch python-pptx _MediaParts._find_by_sha1: %s", e)
+
+
 # ---------------------------------------------------------------------------------------------- media safety
 # POST /quizzes/export takes media references straight from the request body, so the exporter must not be a way
 # to make the server fetch internal URLs or embed arbitrary local files into the returned deck.
@@ -234,7 +261,7 @@ def _resolve_media_path(rel_url: Optional[str], download_dir: Optional[Path] = N
                 logger.warning(f"R2 fallback failed for {clean_url}: {e}")
     # 2. Storage directory general (/static/...)
     elif clean_url.startswith("/static/"):
-        sub = clean_url.lstrip("/static/").lstrip("/\\")
+        sub = clean_url[len("/static/"):].lstrip("/\\")
         if not _safe_sub(sub):
             return None
         candidates = [
@@ -291,19 +318,56 @@ def _resolve_media_path(rel_url: Optional[str], download_dir: Optional[Path] = N
 
     return None
 
+_MAX_EMBED_IMAGE_DIM = 1600
+_OPTIMIZE_IMAGE_MIN_BYTES = 512 * 1024
+
+
+def _optimize_picture_source(img_path: Path, pil_img: Image.Image) -> Union[str, io.BytesIO]:
+    """Return a compressed BytesIO stream when an image is oversized, otherwise the original path."""
+    try:
+        orig_size = img_path.stat().st_size
+    except OSError:
+        return str(img_path)
+    img_w, img_h = pil_img.size
+    if max(img_w, img_h) <= _MAX_EMBED_IMAGE_DIM and orig_size <= _OPTIMIZE_IMAGE_MIN_BYTES:
+        return str(img_path)
+    try:
+        work = pil_img.copy()
+        if max(img_w, img_h) > _MAX_EMBED_IMAGE_DIM:
+            resampling = getattr(Image, "Resampling", Image).LANCZOS
+            work.thumbnail((_MAX_EMBED_IMAGE_DIM, _MAX_EMBED_IMAGE_DIM), resampling)
+        has_alpha = work.mode in ("RGBA", "LA") or (
+            work.mode == "P" and "transparency" in work.info
+        )
+        buf = io.BytesIO()
+        if has_alpha:
+            work.save(buf, format="PNG", optimize=True)
+        else:
+            if work.mode != "RGB":
+                work = work.convert("RGB")
+            work.save(buf, format="JPEG", quality=85, optimize=True)
+        if buf.tell() < orig_size:
+            buf.seek(0)
+            return buf
+    except Exception as opt_err:
+        logger.debug(f"Image optimization skipped for {img_path}: {opt_err}")
+    return str(img_path)
+
+
 def _add_scaled_picture(slide, img_path: Path, max_left, max_top, max_w, max_h):
     """Adds an image keeping exact aspect ratio without distortion or borders."""
     try:
         with Image.open(img_path) as pil_img:
             img_w, img_h = pil_img.size
-        if img_w <= 0 or img_h <= 0:
-            return None
+            if img_w <= 0 or img_h <= 0:
+                return None
+            img_source = _optimize_picture_source(img_path, pil_img)
         scale = min(float(max_w) / img_w, float(max_h) / img_h)
         scaled_w = int(img_w * scale)
         scaled_h = int(img_h * scale)
         final_left = int(max_left + (max_w - scaled_w) / 2)
         final_top = int(max_top + (max_h - scaled_h) / 2)
-        return slide.shapes.add_picture(str(img_path), final_left, final_top, width=scaled_w, height=scaled_h)
+        return slide.shapes.add_picture(img_source, final_left, final_top, width=scaled_w, height=scaled_h)
     except Exception as img_err:
         logger.warning(f"Error adding picture {img_path} to slide: {img_err}")
         return None
@@ -470,6 +534,98 @@ def _format_question_source_notes(q: Any) -> str:
     if not lines:
         return "Source: QShala Knowledge Vault"
     return "\n\n".join(lines)
+
+
+def _strip_answer_from_notes(notes: str) -> str:
+    """Remove any 'Official Answer:' lines so answers never leak onto Question slide notes."""
+    if not notes:
+        return ""
+    cleaned = re.sub(r"(?im)^Official Answer:.*$", "", notes)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
+def _get_original_slide_notes(q: Any) -> Tuple[str, str]:
+    """Look up the original PowerPoint speaker notes from the ingested Slide(s) for this question.
+    Returns (question_slide_notes, answer_slide_notes)."""
+    raw_sources = _get_val(q, "retrieval_sources", []) or _get_val(q, "sources", []) or []
+    q_slide_ids = []
+    a_slide_ids = []
+    hq_ids = []
+    doc_slide_pairs = []
+
+    for s in raw_sources:
+        sid = _get_val(s, "slide_id")
+        if sid:
+            q_slide_ids.append(str(sid))
+        hqid = _get_val(s, "historical_question_id")
+        if hqid:
+            hq_ids.append(str(hqid))
+        did = _get_val(s, "document_id")
+        snum = _get_val(s, "slide_number")
+        if did and snum and not sid:
+            try:
+                doc_slide_pairs.append((str(did), int(snum)))
+            except (TypeError, ValueError):
+                pass
+
+    for attr in ("slide_id",):
+        val = _get_val(q, attr)
+        if val:
+            q_slide_ids.append(str(val))
+    ans_sid = _get_val(q, "answer_slide_id")
+    if ans_sid:
+        a_slide_ids.append(str(ans_sid))
+    hq_direct = _get_val(q, "historical_question_id") or _get_val(q, "duplicate_of_id")
+    if hq_direct:
+        hq_ids.append(str(hq_direct))
+
+    if not q_slide_ids and not a_slide_ids and not hq_ids and not doc_slide_pairs:
+        return "", ""
+
+    q_notes_list: List[str] = []
+    a_notes_list: List[str] = []
+    try:
+        from backend.app.database import SessionLocal
+        from backend.app.models.document import Slide
+        from backend.app.models.question import Question
+        with SessionLocal() as db:
+            if hq_ids:
+                hqs = db.query(Question).filter(Question.id.in_(list(set(hq_ids)))).all()
+                for h in hqs:
+                    if h.slide_id:
+                        q_slide_ids.append(str(h.slide_id))
+                    if h.answer_slide_id:
+                        a_slide_ids.append(str(h.answer_slide_id))
+
+            all_sids = list(dict.fromkeys(q_slide_ids + a_slide_ids))
+            slide_map: Dict[str, str] = {}
+            if all_sids:
+                slides = db.query(Slide).filter(Slide.id.in_(all_sids)).all()
+                for sl in slides:
+                    if sl.speaker_notes and sl.speaker_notes.strip():
+                        slide_map[str(sl.id)] = sl.speaker_notes.strip()
+
+            for sid in dict.fromkeys(q_slide_ids):
+                if sid in slide_map and slide_map[sid] not in q_notes_list:
+                    q_notes_list.append(slide_map[sid])
+
+            if not q_notes_list and doc_slide_pairs:
+                for did, snum in doc_slide_pairs:
+                    sl = db.query(Slide).filter(Slide.document_id == did, Slide.slide_number == snum).first()
+                    if sl and sl.speaker_notes and sl.speaker_notes.strip():
+                        if sl.speaker_notes.strip() not in q_notes_list:
+                            q_notes_list.append(sl.speaker_notes.strip())
+
+            for sid in dict.fromkeys(a_slide_ids):
+                if sid in slide_map and slide_map[sid] not in a_notes_list and slide_map[sid] not in q_notes_list:
+                    a_notes_list.append(slide_map[sid])
+    except Exception as e:
+        logger.debug(f"_get_original_slide_notes DB lookup error: {e}")
+
+    q_notes = _strip_answer_from_notes("\n\n".join(q_notes_list))
+    a_notes = "\n\n".join(a_notes_list).strip()
+    return q_notes, a_notes
 
 
 def _text_fits_at_28pt(text: str, options: list, w_in: float, h_in: float) -> bool:
@@ -796,7 +952,18 @@ def _apply_custom_style(
                 cur_pt = f.size.pt if f.size else (size.pt if size else None)
                 if cur_pt and 16.0 <= cur_pt <= 30.0:
                     f.size = Pt(body_size_pt)
-            if color is not None:
+            from pptx.dml.color import RGBColor
+            green = "059669"
+            black = RGBColor(15, 23, 42)
+            c = color
+            try:
+                if f.color and f.color.type is not None and f.color.rgb is not None:
+                    c = f.color.rgb
+            except Exception:
+                pass
+            if c is not None and str(c).upper() in (green.upper(), "16A34A"):
+                f.color.rgb = black
+            elif color is not None:
                 try:
                     if f.color is None or getattr(f.color, "type", None) is None:
                         f.color.rgb = color
@@ -1087,6 +1254,7 @@ class QuizExporter:
         5. Inter typography strictly retained with WCAG AAA contrast (#0F172A / #059669)
         """
         from pptx import Presentation
+        _patch_pptx_media_parts()
         from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN
@@ -1152,6 +1320,7 @@ class QuizExporter:
         **kwargs: Any,
     ) -> bytes:
         from pptx import Presentation
+        _patch_pptx_media_parts()
         from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
@@ -1577,6 +1746,7 @@ class QuizExporter:
             fp_q = _get_val(q, "format_payload")
             if format_slides.export_format_of(fp_q):
                 opts_q = _get_val(q, "options", None)
+                before_fmt = len(prs.slides)
                 if format_slides.add_format_question(
                     prs, blank_layout, payload=fp_q,
                     question_text=(_get_val(q, "question_text") or _get_val(q, "question", "") or "").strip(),
@@ -1588,6 +1758,27 @@ class QuizExporter:
                     question_bg=question_bg if (is_qshala_school and master_prs is None and question_bg.exists()) else None,
                     answer_layout=divider_layout,
                 ):
+                    orig_q_notes, orig_a_notes = _get_original_slide_notes(q)
+                    fmt_src_notes = _format_question_source_notes(q)
+                    if len(prs.slides) > before_fmt:
+                        last_s = prs.slides[-1]
+                        a_parts = []
+                        # Presenter notes on answer slide only: original notes, clues, and format payloads
+                        # sit exclusively on the answer reveal slide, never on question slides.
+                        if orig_q_notes:
+                            a_parts.append(f"Original Notes:\n{orig_q_notes}")
+                        v_clue_fmt = _get_val(q, "visual_clues") or _get_val(q, "clue")
+                        if v_clue_fmt:
+                            a_parts.append(f"Presenter Clues: {v_clue_fmt}")
+                        if orig_a_notes and orig_a_notes != orig_q_notes:
+                            a_parts.append(f"Original Answer Slide Notes:\n{orig_a_notes}")
+                        if fmt_src_notes:
+                            a_parts.append(fmt_src_notes)
+                        existing_blob = last_s.notes_slide.notes_text_frame.text or ""
+                        if existing_blob:
+                            a_parts.append(existing_blob)
+                        if a_parts:
+                            last_s.notes_slide.notes_text_frame.text = "\n\n".join(a_parts)
                     continue
             is_starred = (idx % 5 == 0)
             star_tag = " *" if is_starred else ""
@@ -1754,11 +1945,12 @@ class QuizExporter:
                             p.font.color.rgb = C_TEXT_DARK
                         if options:
                             for opt_idx, opt in enumerate(options):
+                                opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                                 po = tf_q.add_paragraph()
                                 po.alignment = PP_ALIGN.CENTER
                                 po.space_before = Pt(8)
-                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                                po.text = f"{prefix}{opt}"
+                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                                po.text = f"{prefix}{opt_str}"
                                 po.font.name = FONT_BODY
                                 po.font.size = Pt(22)
                                 po.font.color.rgb = C_TEXT_BODY
@@ -1839,11 +2031,12 @@ class QuizExporter:
 
                         if options:
                             for opt_idx, opt in enumerate(options):
+                                opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                                 po = tf_q.add_paragraph()
                                 po.alignment = PP_ALIGN.CENTER
                                 po.space_before = Pt(8)
-                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                                po.text = f"{prefix}{opt}"
+                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                                po.text = f"{prefix}{opt_str}"
                                 po.font.name = FONT_BODY
                                 po.font.size = Pt(22)
                                 po.font.color.rgb = C_TEXT_BODY
@@ -1966,15 +2159,15 @@ class QuizExporter:
 
                     if options:
                         for opt_idx, opt in enumerate(options):
+                            opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                             po = tf_q.add_paragraph()
                             po.alignment = PP_ALIGN.CENTER
                             po.space_before = Pt(8)
-                            prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                            po.text = f"{prefix}{opt}"
+                            prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                            po.text = f"{prefix}{opt_str}"
                             po.font.name = FONT_BODY
                             po.font.size = Pt(22)
                             po.font.color.rgb = C_TEXT_BODY
-
             elif has_media:
                 # South Zone 2-Column Protocol: Question text left (7.80 in), Media clue right (3.90 in)
                 tb_q = sq.shapes.add_textbox(Inches(0.80), Inches(1.50), Inches(7.80), Inches(4.80))
@@ -1996,10 +2189,11 @@ class QuizExporter:
 
                 if options:
                     for opt_idx, opt in enumerate(options):
+                        opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                         po = tf_q.add_paragraph()
                         po.space_before = Pt(8)
-                        prefix = f"{chr(65 + opt_idx)}.  " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                        po.text = f"{prefix}{opt}"
+                        prefix = f"{chr(65 + opt_idx)}.  " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                        po.text = f"{prefix}{opt_str}"
                         po.font.name = FONT_BODY
                         po.font.size = Pt(18)
                         po.font.color.rgb = C_TEXT_BODY
@@ -2079,10 +2273,11 @@ class QuizExporter:
 
                 if options:
                     for opt_idx, opt in enumerate(options):
+                        opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                         po = tf_q.add_paragraph()
                         po.space_before = Pt(12)
-                        prefix = f"{chr(65 + opt_idx)}.  " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                        po.text = f"{prefix}{opt}"
+                        prefix = f"{chr(65 + opt_idx)}.  " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                        po.text = f"{prefix}{opt_str}"
                         po.font.name = FONT_BODY
                         po.font.size = Pt(20)
                         po.font.color.rgb = C_TEXT_BODY
@@ -2113,7 +2308,7 @@ class QuizExporter:
                         pai.font.size = Pt(50)
                         pai.font.bold = True
                         pai.font.color.rgb = C_TEXT_DARK
-                    if not _has_visual_background(s_ai) and not is_minimalist and answer_intro_bg.exists():
+                    if (custom_template or not _has_visual_background(s_ai)) and not is_minimalist and answer_intro_bg.exists():
                         pic_ai = s_ai.shapes.add_picture(str(answer_intro_bg), 0, 0, prs.slide_width, prs.slide_height)
                         _send_shape_to_back(pic_ai, s_ai)
                 else:
@@ -2140,7 +2335,7 @@ class QuizExporter:
             # ---------------------------------------------------------
             sa = prs.slides.add_slide(blank_layout)
             if master_prs is not None:
-                if not _has_visual_background(sa) and not is_minimalist and answer_bg.exists():
+                if (custom_template or not _has_visual_background(sa)) and not is_minimalist and answer_bg.exists():
                     pic_a = sa.shapes.add_picture(str(answer_bg), 0, 0, prs.slide_width, prs.slide_height)
                     _send_shape_to_back(pic_a, sa)
             elif not is_minimalist and answer_bg.exists():
@@ -2180,17 +2375,7 @@ class QuizExporter:
             has_ans_img = bool(ans_img_path)
 
             if is_qshala_school:
-                # QShala School Answer Reveal Layout
-                tb_ahead = sa.shapes.add_textbox(Inches(1.00), Inches(0.70), Inches(11.333), Inches(0.75))
-                tb_ahead.name = "QNum"
-                pah = tb_ahead.text_frame.paragraphs[0]
-                pah.alignment = PP_ALIGN.CENTER
-                pah.text = f"Answer {idx}"
-                pah.font.name = FONT_HEAD
-                pah.font.size = Pt(36)
-                pah.font.bold = True
-                pah.font.color.rgb = C_TEXT_DARK
-
+                # QShala School Answer Reveal Layout (answer separator slide is enough; no redundant "Answer {idx}" header)
                 if has_ans_img:
                     _a_aspect = _image_aspect(ans_img_path)
                     mode_a, (tl, tt, tw, th), (ml, mt, mw, mh) = _plan_media(_a_aspect, len(ans_val) + len(explanation))
@@ -2222,7 +2407,7 @@ class QuizExporter:
                     _add_scaled_picture(sa, ans_img_path, Inches(ml), Inches(mt), Inches(mw), Inches(mh))
                 else:
                     if explanation:
-                        tb_a = sa.shapes.add_textbox(Inches(1.20), Inches(1.75), Inches(10.933), Inches(1.30))
+                        tb_a = sa.shapes.add_textbox(Inches(1.20), Inches(1.80), Inches(10.933), Inches(1.40))
                         tf_a = tb_a.text_frame
                         tf_a.word_wrap = True
                         pa_head = tf_a.paragraphs[0]
@@ -2233,7 +2418,7 @@ class QuizExporter:
                         pa_head.font.bold = True
                         pa_head.font.color.rgb = C_TEXT_DARK
 
-                        tb_exp = sa.shapes.add_textbox(Inches(1.50), Inches(3.20), Inches(10.333), Inches(3.30))
+                        tb_exp = sa.shapes.add_textbox(Inches(1.50), Inches(3.35), Inches(10.333), Inches(3.20))
                         tf_exp = tb_exp.text_frame
                         tf_exp.word_wrap = True
                         pexp = tf_exp.paragraphs[0]
@@ -2243,9 +2428,10 @@ class QuizExporter:
                         pexp.font.size = Pt(24) if len(explanation) < 180 else Pt(20)
                         pexp.font.color.rgb = C_TEXT_BODY
                     else:
-                        tb_a = sa.shapes.add_textbox(Inches(1.20), Inches(2.50), Inches(10.933), Inches(2.40))
+                        tb_a = sa.shapes.add_textbox(Inches(1.20), Inches(2.20), Inches(10.933), Inches(3.00))
                         tf_a = tb_a.text_frame
                         tf_a.word_wrap = True
+                        tf_a.vertical_anchor = MSO_ANCHOR.MIDDLE
                         pa_head = tf_a.paragraphs[0]
                         pa_head.alignment = PP_ALIGN.CENTER
                         pa_head.text = ans_val
@@ -2253,7 +2439,6 @@ class QuizExporter:
                         pa_head.font.size = Pt(48) if len(ans_val) < 40 else Pt(38)
                         pa_head.font.bold = True
                         pa_head.font.color.rgb = C_TEXT_DARK
-
             elif has_ans_img:
                 if explanation and len(explanation) > 100:
                     # 2-Column Solution Layout
@@ -2262,6 +2447,7 @@ class QuizExporter:
                     tf_a.word_wrap = True
 
                     pa_head = tf_a.paragraphs[0]
+                    pa_head.alignment = PP_ALIGN.CENTER
                     pa_head.text = ans_val
                     pa_head.font.name = FONT_HEAD
                     pa_head.font.size = Pt(34) if len(ans_val) < 40 else (Pt(28) if len(ans_val) < 80 else Pt(22))
@@ -2269,6 +2455,7 @@ class QuizExporter:
                     pa_head.font.color.rgb = C_TEXT_DARK
 
                     pa_exp = tf_a.add_paragraph()
+                    pa_exp.alignment = PP_ALIGN.CENTER
                     pa_exp.space_before = Pt(16)
                     pa_exp.text = explanation
                     pa_exp.font.name = FONT_BODY
@@ -2301,7 +2488,7 @@ class QuizExporter:
                         pexp.font.size = Pt(14)
                         pexp.font.color.rgb = C_TEXT_MUTED
             else:
-                # Text-Only Answer Slide: Large green reveal
+                # Text-Only Answer Slide: Large black reveal
                 if explanation:
                     # Answer at top, explanation card below
                     tb_a = sa.shapes.add_textbox(Inches(1.00), Inches(1.60), Inches(11.333), Inches(1.20))

@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -662,6 +663,11 @@ async def upload_document_chunk(
     """
     if not valid_upload_id(upload_id):
         raise HTTPException(status_code=400, detail="Invalid upload_id.")
+    if total_chunks < 1 or chunk_index < 0 or chunk_index >= total_chunks:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid chunk coordinates: chunk_index={chunk_index}, total_chunks={total_chunks}"
+        )
     if upload_cancel_requested(upload_id):
         remove_chunk_dir(upload_id)
         raise HTTPException(status_code=409, detail={"code": "upload_cancelled", "detail": "Upload was cancelled."})
@@ -873,7 +879,12 @@ def cancel_chunked_upload(upload_id: str, db: Session = Depends(get_db)):
     # storage forever, since nothing else ever completes or expires them.
     from backend.app.models.upload_session import UploadSession
     from backend.app.services.storage.r2_storage import get_r2_service
-    session_rec = db.query(UploadSession).filter(UploadSession.upload_id == upload_id).first()
+    from backend.app.database import is_postgres
+
+    query = db.query(UploadSession).filter(UploadSession.upload_id == upload_id)
+    if is_postgres:
+        query = query.with_for_update()
+    session_rec = query.first()
     if session_rec is None and settings.INGESTION_MODE == "cloud_run_job" and get_r2_service().is_configured:
         # The first slice has not been stored yet, so there is no row to mark. The in-memory flag above only exists in
         # THIS container; leave a cancelled row so any other container refuses the slices that are still on their way.
@@ -919,9 +930,11 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
     # poller picks this up instead. Harmless no-op for the in-process path.
     doc.cancel_requested = True
     db.commit()
+
     reg = INGESTION_STATUS_REGISTRY.get(document_id)
     if reg and reg.get("status") == "PROCESSING":
         reg["current_step"] = "Cancelling..."
+        reg["_ts"] = time.time()
         return {"status": "CANCELLING", "document_id": document_id}
 
     # Cloud Run Job mode: this process never has a registry entry, because the pipeline runs in the worker's
@@ -930,13 +943,35 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
     # row and leave orphaned uploads. Leave cancel_requested set; the worker's poller sees it, stops at its next
     # checkpoint and purges the document itself.
     if worker_is_alive(db, document_id):
+        from backend.app.models.job import IngestionJob
+        jobs = db.query(IngestionJob).filter(
+            IngestionJob.document_id == document_id,
+            IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
+        ).all()
+        for j in jobs:
+            j.cancel_requested = True
+        db.commit()
         return {"status": "CANCELLING", "document_id": document_id}
+
+    # Cancel any queued or processing ingestion jobs for this document
+    from backend.app.models.job import IngestionJob
+    jobs = db.query(IngestionJob).filter(
+        IngestionJob.document_id == document_id,
+        IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
+    ).all()
+    for j in jobs:
+        j.status = "CANCELLED"
+        j.current_step = "CANCELLED"
+        j.cancel_requested = True
+        j.error_message = "Cancelled by user"
+    db.commit()
 
     # Nothing is actively running for this id (e.g. server restarted mid-ingest): clean up now.
     purge_document(db, document_id)
     INGESTION_STATUS_REGISTRY[document_id] = {
         "document_id": document_id, "status": "CANCELLED", "progress_percentage": 0,
         "current_step": "Upload cancelled", "slides_processed": 0, "questions_extracted": 0, "error": None,
+        "_ts": time.time(),
     }
     return {"status": "CANCELLED", "document_id": document_id}
 
@@ -1071,8 +1106,28 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     if worker_is_alive(db, document_id):
         request_doc_cancel(document_id)
         doc.cancel_requested = True
+        from backend.app.models.job import IngestionJob
+        jobs = db.query(IngestionJob).filter(
+            IngestionJob.document_id == document_id,
+            IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
+        ).all()
+        for j in jobs:
+            j.cancel_requested = True
         db.commit()
         return {"message": "Deletion requested: the running worker is being stopped and will remove the document"}
+
+    # Cancel any queued or processing ingestion jobs for this document
+    from backend.app.models.job import IngestionJob
+    jobs = db.query(IngestionJob).filter(
+        IngestionJob.document_id == document_id,
+        IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
+    ).all()
+    for j in jobs:
+        j.status = "CANCELLED"
+        j.current_step = "CANCELLED"
+        j.cancel_requested = True
+        j.error_message = "Document deleted"
+    db.commit()
 
     if os.path.exists(doc.storage_path):
         try:

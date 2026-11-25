@@ -52,7 +52,12 @@ async def index_step(
     if not target_drive:
         raise ValueError("SharePoint drive_id must be provided or configured in settings")
 
-    state = db.query(SharePointIndexState).filter(SharePointIndexState.drive_id == target_drive).first()
+    from backend.app.database import is_postgres
+
+    state_q = db.query(SharePointIndexState).filter(SharePointIndexState.drive_id == target_drive)
+    if is_postgres:
+        state_q = state_q.with_for_update()
+    state = state_q.first()
     if not state:
         state = SharePointIndexState(
             drive_id=target_drive,

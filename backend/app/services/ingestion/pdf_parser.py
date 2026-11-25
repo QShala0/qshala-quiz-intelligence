@@ -44,6 +44,7 @@ class PDFParser:
             logger.warning(f"pdfplumber extraction failed ({e}), falling back to pure-Python pypdf")
 
         # Attempt 2: pypdf (pure Python, 100% reliable in AWS Lambda / Vercel)
+        slides_data = []
         try:
             from pypdf import PdfReader
             reader = PdfReader(self.file_path)

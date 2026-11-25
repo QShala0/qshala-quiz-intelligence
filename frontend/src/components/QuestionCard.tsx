@@ -20,12 +20,13 @@ import {
 } from 'lucide-react';
 import { GeneratedQuestion, RetrievalSource } from '../lib/types';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
-import { hasStructuredView } from '../lib/formatPayloads';
+import { hasStructuredView, isStepped } from '../lib/formatPayloads';
 import { PawIcon } from './ui/QT';
 import StructuredFormatBody from './formats/StructuredFormatBody';
 
 interface Props {
   question: GeneratedQuestion;
+  displayNumber?: number;
   onUpdate: (id: string, updated: Partial<GeneratedQuestion>) => Promise<void>;
   onAction: (id: string, action: 'regenerate' | 'make_easier' | 'make_harder' | 'generate_similar') => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -34,6 +35,7 @@ interface Props {
 
 export default function QuestionCard({
   question,
+  displayNumber,
   onUpdate,
   onAction,
   onDelete,
@@ -48,6 +50,9 @@ export default function QuestionCard({
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [activeImageModal, setActiveImageModal] = useState<string | null>(null);
   const [imgFallbackUrls, setImgFallbackUrls] = useState<Record<string, string>>({});
+
+  const isSteppedClue = isStepped(question.format_payload) ||
+    ((question.question_format === 'STEPPED_CLUE' || question.question_format === 'THREE_CLUE') && hasStructuredView(question.format_payload));
 
   const getImageSrc = (rawUrl: string | null | undefined) => {
     if (!rawUrl) return '';
@@ -111,7 +116,7 @@ export default function QuestionCard({
       <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
         <div className="flex items-center gap-3">
           <span className="text-[14px] font-bold text-slate-900">
-            {question.order_index}.
+            {displayNumber ?? (question.order_index > 0 ? question.order_index : 1)}.
           </span>
           <span className="text-[12px] font-medium text-slate-500">
             {question.difficulty}
@@ -130,7 +135,7 @@ export default function QuestionCard({
               <span className="text-slate-300">•</span>
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded">
                 <Volume2 className="h-3 w-3 text-teal-600" />
-                Audio Clue
+                Text + Audio
               </span>
             </>
           )}
@@ -143,7 +148,7 @@ export default function QuestionCard({
               <span className="text-slate-300">•</span>
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded">
                 <Video className="h-3 w-3 text-violet-600" />
-                Video Clue
+                Text + Video
               </span>
             </>
           )}
@@ -229,15 +234,15 @@ export default function QuestionCard({
               rows={2}
               className="w-full rounded-lg border border-slate-200 bg-white p-3 text-[14px] text-slate-900 focus:outline-none"
             />
-          ) : (
+          ) : !isSteppedClue ? (
             <h3 className="text-[15px] sm:text-[16px] font-semibold text-slate-900 leading-relaxed">
               {question.question_text}
             </h3>
-          )}
+          ) : null}
 
           {/* The question's own format (List It, Image Reveal, Connect, 3 Clue, Arrange, MCQ) */}
           {!isEditing && hasStructuredView(question.format_payload) && (
-            <div className="mt-3">
+            <div className={isSteppedClue ? "mt-1" : "mt-3"}>
               <StructuredFormatBody
                 q={{ id: question.id, format_payload: question.format_payload, question_videos: question.question_video }}
                 getImageSrc={getImageSrc}
@@ -249,7 +254,7 @@ export default function QuestionCard({
           )}
 
           {/* Clue Images Thumbnails */}
-          {((question.question_images && question.question_images.length > 0) ||
+          {!isSteppedClue && ((question.question_images && question.question_images.length > 0) ||
             (question.image_refs && question.image_refs.length > 0)) && (
             <div className="mt-3 pt-2.5 border-t border-slate-200/60">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2 flex items-center gap-1.5">
@@ -509,7 +514,7 @@ export default function QuestionCard({
               <div className="flex items-center gap-2">
                 <Bookmark className="h-3.5 w-3.5 text-blue-600" />
                 <span>
-                  Source: <strong className="font-semibold text-slate-800">{primarySource.document_title || 'QShala Archive'}</strong> · Slide {primarySource.slide_number || 'N/A'}
+                  Source: <strong className="font-semibold text-slate-800">{primarySource.document_title || 'QShala Archive'}</strong>{primarySource.slide_number ? ` · Slide ${primarySource.slide_number}` : ''}
                 </span>
               </div>
               {showSource ? (

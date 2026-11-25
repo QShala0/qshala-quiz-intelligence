@@ -59,10 +59,12 @@ def test_save_creates_a_quiz_with_the_questions_media_and_a_source_link():
         assert gq.answer_images == ["https://cdn.example.test/slides/x/media/a.png"]
         assert gq.question_audio == ["https://cdn.example.test/slides/x/media/q.mp3"]
         assert gq.question_video == ["https://cdn.example.test/slides/x/media/q.mp4"]
+        assert gq.order_index == 1
         assert gq.visual_clues == "a banknote" and (gq.grade_min, gq.grade_max) == (5, 9)
         src = db.query(RetrievalSource).filter(RetrievalSource.generated_question_id == gq.id).one()
         assert src.historical_question_id == q_id and src.document_id == doc_id
         assert src.document_title == "Vault Deck"
+        assert src.source_quote and "Which institution issues" in src.source_quote
     finally:
         db.close()
 
@@ -79,6 +81,7 @@ def test_save_keeps_the_requested_order_and_skips_unknown_ids():
     try:
         rows = (db.query(GeneratedQuestion).filter(GeneratedQuestion.quiz_id == r.json()["quiz_id"])
                 .order_by(GeneratedQuestion.order_index).all())
+        assert [g.order_index for g in rows] == [1, 2]
         srcs = [db.query(RetrievalSource).filter(RetrievalSource.generated_question_id == g.id).one().historical_question_id
                 for g in rows]
         assert srcs == [b, a]

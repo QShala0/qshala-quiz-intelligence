@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 import numpy as np
 from sqlalchemy.orm import Session, selectinload, defer
-from sqlalchemy import or_, and_, not_, func, String, text
+from sqlalchemy import or_, and_, not_, func, String, text, cast
 from backend.app.database import is_postgres, PG_VECTOR_AVAILABLE
 from backend.app.models.question import Question
 from backend.app.models.document import Document, Slide
@@ -266,7 +266,12 @@ class HybridRetriever:
         Prioritizes tag matches and exact topic alignments without vector fuzzy drift.
         """
         query_builder = self.db.query(Question, Document, Slide).\
-            options(selectinload(Question.duplicate_of)).\
+            options(
+                selectinload(Question.duplicate_of),
+                defer(Question.embedding),
+                defer(Slide.embedding),
+                defer(Document.progress_detail),
+            ).\
             join(Document, Question.document_id == Document.id).\
             outerjoin(Slide, Question.slide_id == Slide.id)
 
@@ -290,7 +295,7 @@ class HybridRetriever:
             query_builder = query_builder.filter(
                 or_(
                     and_(Question.visual_clues.isnot(None), Question.visual_clues != ""),
-                    and_(Question.question_images.isnot(None), Question.question_images != "[]")
+                    and_(Question.question_images.isnot(None), cast(Question.question_images, String) != "[]")
                 )
             )
         elif has_visual is False:
@@ -301,13 +306,13 @@ class HybridRetriever:
         if has_audio is True:
             query_builder = query_builder.filter(
                 or_(
-                    and_(Question.audio_refs.isnot(None), Question.audio_refs != "[]"),
-                    and_(Question.question_audio.isnot(None), Question.question_audio != "[]")
+                    and_(Question.audio_refs.isnot(None), cast(Question.audio_refs, String) != "[]"),
+                    and_(Question.question_audio.isnot(None), cast(Question.question_audio, String) != "[]")
                 )
             )
         elif has_audio is False:
             query_builder = query_builder.filter(
-                or_(Question.audio_refs.is_(None), Question.audio_refs == "[]")
+                or_(Question.audio_refs.is_(None), cast(Question.audio_refs, String) == "[]")
             )
 
         if grade_min is not None and grade_max is not None:

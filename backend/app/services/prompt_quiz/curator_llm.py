@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
-CURATOR_TIMEOUT_S = float(os.getenv("CURATOR_TIMEOUT_S", "4.0"))
+CURATOR_TIMEOUT_S = float(os.getenv("CURATOR_TIMEOUT_S", "10.0"))
 
 CURATION_SCHEMA: Dict[str, Any] = {
     "type": "OBJECT",
@@ -43,10 +43,10 @@ _SYSTEM = (
     "Your job is to select the BEST questions from a provided candidate pool to fulfill the user's prompt.\n\n"
     "CRITICAL RULES:\n"
     "1. ZERO HALLUCINATIONS: You MUST select IDs EXCLUSIVELY from the provided candidate pool. Never invent or hallucinate an ID.\n"
-    "2. TOPIC RELEVANCE & HONESTY (ABSOLUTE PRIORITY):\n"
-    "   - Only select questions that GENUINELY match the user's specific requested topic and intent.\n"
-    "   - If the candidate pool contains genuine matches (even if only 2, 3, or 5 exist in the vault), YOU MUST SELECT ALL OF THEM in selected_ids! Never return [] when valid matches exist.\n"
-    "   - Do NOT force-fit completely unrelated trivia (e.g. car factories or corporate accounting) just to fill a count. Deliver all authentic matches found.\n"
+    "2. CRITERIA & RELEVANCE GATE (ABSOLUTE PRIORITY):\n"
+    "   - Verify EVERY candidate against USER REQUEST, CRITERIA, and LOCALITY before selecting its ID.\n"
+    "   - Reject surface-keyword traps (e.g. matching a year or broad category word when the core subject does not match).\n"
+    "   - If the candidate pool contains genuine matches (even if only 2, 3, or 5 exist), select all valid matches. Returning [] is always better than returning off-topic trivia.\n"
     "3. HIGH-ORDER HUMAN CURATION:\n"
     "   - Look beyond surface keywords. Match the user's requested tone, audience psychology, and subtle themes.\n"
     "   - When an audience like 'school students' or 'kids' in India is requested, prioritize inspiring figures, scientists, space pioneers, educators, national icons, and achievers that school students study, relate to, and find educational, rather than adult corporate finance, tax avoidance, or adult satire.\n"
@@ -70,6 +70,11 @@ def _build_curator_prompt(
         f"USER REQUEST: {prompt}",
         f"TARGET QUESTION COUNT: {target_count}",
     ]
+    if previous_brief:
+        if previous_brief.get("must_match_criteria"):
+            parts.append(f"CRITERIA: {previous_brief['must_match_criteria']}")
+        if previous_brief.get("locality"):
+            parts.append(f"LOCALITY: {previous_brief['locality']}")
 
     if previous_brief:
         pb_lines = []
@@ -155,7 +160,7 @@ def curate_quiz_with_gemini(
     if not key:
         return None
 
-    from backend.app.services.ai.model_config import curator_model
+    from backend.app.services.ai.model_config import curator_model, thinking_config_rest
     model = curator_model()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -167,16 +172,20 @@ def curate_quiz_with_gemini(
         previous_brief=previous_brief,
     )
 
+    gen_cfg: Dict[str, Any] = {
+        "response_mime_type": "application/json",
+        "response_schema": CURATION_SCHEMA,
+        "temperature": 0.1,
+        "maxOutputTokens": 1200,
+    }
+    tc = thinking_config_rest(model, "minimal")
+    if tc:
+        gen_cfg["thinkingConfig"] = tc
+
     payload = {
         "contents": [{"parts": [{"text": user_text}]}],
         "system_instruction": {"parts": [{"text": _SYSTEM}]},
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "response_schema": CURATION_SCHEMA,
-            "temperature": 0.1,
-            "maxOutputTokens": 1200,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": gen_cfg,
     }
 
     valid_id_set: Set[str] = {c.get("id") for c in candidates if c.get("id")}
@@ -245,17 +254,8 @@ def curate_quiz_with_gemini(
                 "narrative_arc": parsed.get("narrative_arc") or "No questions in the candidate pool match the requested topic."
             }
 
-        # If Gemini attempted to select questions but some were hallucinated,
-        # backfill only if Gemini originally selected at least target_count
-        if len(selected_ids) >= target_count and len(deduped_ids) < target_count:
-            for c in candidates:
-                cid = c.get("id")
-                if cid and cid not in seen:
-                    seen.add(cid)
-                    deduped_ids.append(cid)
-                if len(deduped_ids) == target_count:
-                    break
-
+        # Never blindly backfill unverified BM25 candidates when fewer than target_count
+        # genuine matches survived zero-hallucination validation.
         return {
             "selected_ids": deduped_ids[:target_count],
             "narrative_arc": parsed.get("narrative_arc") or "Curated for narrative flow and topical alignment."

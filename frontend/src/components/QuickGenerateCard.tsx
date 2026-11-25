@@ -80,9 +80,9 @@ export default function QuickGenerateCard() {
 
   // Difficulty Distribution
   const [difficultyPreset, setDifficultyPreset] = useState<DifficultyPreset>('Balanced');
-  const [easyCount, setEasyCount] = useState<number>(3);
-  const [mediumCount, setMediumCount] = useState<number>(5);
-  const [hardCount, setHardCount] = useState<number>(2);
+  const [easyCount, setEasyCount] = useState<number>(5);
+  const [mediumCount, setMediumCount] = useState<number>(10);
+  const [hardCount, setHardCount] = useState<number>(5);
 
   // Format
   const [questionTypes, setQuestionTypes] = useState<string[]>(['SLIDE_QA']);

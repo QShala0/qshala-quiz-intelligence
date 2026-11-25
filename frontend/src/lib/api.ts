@@ -937,12 +937,13 @@ export const api = {
   resolveDuplicate: async (
     questionId: string,
     action: 'CONFIRM_DUPLICATE' | 'DISMISS_UNIQUE' | 'MERGE',
-    notes?: string
+    notes?: string,
+    keep?: 'EXISTING' | 'CANDIDATE'
   ): Promise<HistoricalQuestion> => {
     const res = await fetch(`${getApiBase()}/questions/${questionId}/resolve-duplicate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, notes }),
+      body: JSON.stringify({ action, notes, keep }),
     });
     return handleResponse<HistoricalQuestion>(res);
   },
@@ -1377,48 +1378,68 @@ export const api = {
     format: 'json' | 'csv' | 'pptx' = 'pptx',
     options?: ExportOptions
   ): Promise<Blob> => {
-    const params = new URLSearchParams({ format });
-    if (format === 'pptx') {
-      const quizType = options?.quizType || (options?.theme === 'corporate' ? 'corporate' : 'school');
-      params.append('quiz_type', quizType);
-      if (options?.campusEdition) params.append('campus_edition', options.campusEdition);
-      if (options?.prizeMoney) params.append('prize_money', options.prizeMoney);
-      if (options?.customTitle) params.append('custom_title', options.customTitle);
-      if (options?.customSubtitle) params.append('custom_subtitle', options.customSubtitle);
-      if (options?.includeSocialSlides !== undefined) params.append('include_social_slides', String(options.includeSocialSlides));
-      if (options?.showAnswerDivider !== undefined) params.append('show_answer_divider', String(options.showAnswerDivider));
-      if (options?.templateId) params.append('template_id', options.templateId);
-    }
-    const queryStr = params.toString();
-
-    // 1. Try GET /quizzes/{id}/export first
-    try {
-      const getRes = await fetch(`${getApiBase()}/quizzes/${quiz.id}/export?${queryStr}`);
-      if (getRes.ok) {
-        return await getRes.blob();
+    const res = await _fetchExportResponse(quiz, format, options);
+    const contentType = res.headers?.get?.('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = await res.json();
+      if (data?.download_url) {
+        const dlRes = await globalThis.fetch(data.download_url);
+        if (!dlRes.ok) {
+          throw new Error(`Export download failed (${dlRes.status}). Please try again.`);
+        }
+        return await dlRes.blob();
       }
-      // Only a missing server copy (404) warrants re-sending the quiz; any other failure would just
-      // make the server build the same slow PPTX a second time.
-      if (getRes.status !== 404) {
-        throw new Error(`Export request failed (${getRes.status}). Please try again.`);
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith('Export request failed')) throw err;
-      // Network trouble or missing server copy: fall back to POST
     }
-
-    // 2. Fallback to POST /quizzes/export with full quiz payload
-    const postRes = await fetch(`${getApiBase()}/quizzes/export?${queryStr}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(quiz),
-    });
-    if (!postRes.ok) {
-      throw new Error(`Export request failed (${postRes.status}): ${postRes.statusText}`);
-    }
-    return await postRes.blob();
+    return await res.blob();
   },
 };
+
+async function _fetchExportResponse(
+  quiz: Quiz,
+  format: 'json' | 'csv' | 'pptx' = 'pptx',
+  options?: ExportOptions
+): Promise<Response> {
+  const params = new URLSearchParams({ format });
+  if (format === 'pptx') {
+    const quizType = options?.quizType || (options?.theme === 'corporate' ? 'corporate' : 'school');
+    params.append('quiz_type', quizType);
+    if (options?.campusEdition) params.append('campus_edition', options.campusEdition);
+    if (options?.prizeMoney) params.append('prize_money', options.prizeMoney);
+    if (options?.customTitle) params.append('custom_title', options.customTitle);
+    if (options?.customSubtitle) params.append('custom_subtitle', options.customSubtitle);
+    if (options?.includeSocialSlides !== undefined) params.append('include_social_slides', String(options.includeSocialSlides));
+    if (options?.showAnswerDivider !== undefined) params.append('show_answer_divider', String(options.showAnswerDivider));
+    if (options?.templateId) params.append('template_id', options.templateId);
+  }
+  const queryStr = params.toString();
+
+  // 1. Try GET /quizzes/{id}/export first
+  try {
+    const getRes = await fetch(`${getApiBase()}/quizzes/${quiz.id}/export?${queryStr}`);
+    if (getRes.ok) {
+      return getRes;
+    }
+    // Only a missing server copy (404) warrants re-sending the quiz; any other failure would just
+    // make the server build the same slow PPTX a second time.
+    if (getRes.status !== 404) {
+      throw new Error(`Export request failed (${getRes.status}). Please try again.`);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Export request failed')) throw err;
+    // Network trouble or missing server copy: fall back to POST
+  }
+
+  // 2. Fallback to POST /quizzes/export with full quiz payload
+  const postRes = await fetch(`${getApiBase()}/quizzes/export?${queryStr}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(quiz),
+  });
+  if (!postRes.ok) {
+    throw new Error(`Export request failed (${postRes.status}): ${postRes.statusText}`);
+  }
+  return postRes;
+}
 
 export interface ExportOptions {
   quizType?: 'school' | 'corporate' | 'minimalist' | 'qshala_school';
@@ -1438,17 +1459,35 @@ export async function downloadQuizFile(
   format: 'json' | 'csv' | 'pptx' = 'pptx',
   options?: ExportOptions
 ): Promise<void> {
-  const blob = await api.exportQuizDirect(quiz, format, options);
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
+  const res = await _fetchExportResponse(quiz, format, options);
   const ext = format === 'pptx' ? 'pptx' : format;
   const cleanTitle = (quiz.title || 'qshala_quiz')
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_|_$/g, '');
-  a.download = `${cleanTitle || 'qshala_quiz'}.${ext}`;
+  const fallbackName = `${cleanTitle || 'qshala_quiz'}.${ext}`;
+
+  const contentType = res.headers?.get?.('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await res.json();
+    if (data?.download_url) {
+      const a = document.createElement('a');
+      a.href = data.download_url;
+      a.download = data.filename || fallbackName;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+  }
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fallbackName;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

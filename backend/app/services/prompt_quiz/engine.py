@@ -65,6 +65,7 @@ class Brief:
     topics_l1: List[str] = field(default_factory=list)
     subtopics_l2: List[str] = field(default_factory=list)
     search_terms: List[str] = field(default_factory=list)
+    must_match_criteria: Optional[str] = None
     narrative_arc: Optional[str] = None
     # Reserve spares and example slides are left out of a quiz unless asked for
     include_reserve: bool = False
@@ -78,7 +79,10 @@ class Brief:
     source_year: Optional[int] = None
 
     def public(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        if d.get("must_match_criteria") is None:
+            d.pop("must_match_criteria", None)
+        return d
 
 
 # ---------- Interpreter ----------
@@ -580,6 +584,7 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
 # The bank is rebuilt from the database on every request (2-3 times per request in places). A short cache lets those
 # share one load. PROMPT_QUIZ_BANK_TTL_S=0 turns it off; questions added or edited show up within that many seconds.
 _BANK_CACHE: Dict[str, Any] = {"at": 0.0, "key": None, "bank": None, "index": None}
+_BANK_ENTRIES: Dict[Any, Dict[str, Any]] = {}
 _CACHE_LOCK = threading.Lock()          # guards every read/write of _BANK_CACHE so a refresh can never be seen half-done
 _REFRESH_LOCK = threading.Lock()        # held while one background refresh runs (single-flight)
 _REFRESH_FAILED_AT = 0.0
@@ -608,16 +613,22 @@ def _bank_stale_window() -> float:
 
 def invalidate_bank_cache() -> None:
     with _CACHE_LOCK:
+        _BANK_ENTRIES.clear()
         _BANK_CACHE.update({"at": 0.0, "key": None, "bank": None, "index": None})
 
 
-def _cache_snapshot():
+def _cache_snapshot(key: Any = None):
     with _CACHE_LOCK:
+        if key is not None and key in _BANK_ENTRIES:
+            entry = _BANK_ENTRIES[key]
+            return entry["at"], key, entry["bank"]
         return _BANK_CACHE["at"], _BANK_CACHE["key"], _BANK_CACHE["bank"]
 
 
 def _store_bank(at: float, key: Any, bank: List[Dict[str, Any]]) -> None:
     with _CACHE_LOCK:
+        if key is not None:
+            _BANK_ENTRIES[key] = {"at": at, "bank": bank, "index": None}
         _BANK_CACHE.update({"at": at, "key": key, "bank": bank, "index": None})
 
 
@@ -687,7 +698,7 @@ def _load_bank(db: Session, slots: Optional[tuple] = None) -> List[Dict[str, Any
     key = (str(db.get_bind().url), slots) if ttl > 0 else None
     now = time.monotonic()
     if ttl > 0:
-        at, cached_key, cached = _cache_snapshot()
+        at, cached_key, cached = _cache_snapshot(key)
         if cached is not None and cached_key == key:
             age = now - at
             if age < ttl:
@@ -708,6 +719,11 @@ def _index_for(bank: List[Dict[str, Any]]) -> Index:
     tok = getattr(bank, "token", None)
     if tok is not None:
         with _CACHE_LOCK:
+            for entry in _BANK_ENTRIES.values():
+                if entry.get("at") == tok and entry.get("bank") is not None:
+                    if entry.get("index") is None:
+                        entry["index"] = Index(entry["bank"])
+                    return entry["index"]
             if _BANK_CACHE["bank"] is not None and _BANK_CACHE["at"] == tok:
                 idx, source = _BANK_CACHE["index"], _BANK_CACHE["bank"]
             else:
@@ -931,7 +947,9 @@ def librarian(bank: List[Dict[str, Any]], brief: Brief, pool: int = 80) -> List[
             hits = real  # enough strong matches — use only those
         elif real:
             hits = real  # some strong matches — use them (may be < count, pad later)
-        # else: zero real matches — keep original hits so stage-2/3 fallback can pad
+        elif not getattr(brief, "cross_topic_padding", False):
+            hits = []  # nothing genuinely matches: report that, do not fill the quiz with stray word overlaps
+        # else: padding was asked for, so keep the original hits for the stage-3 neighbour search
 
     if len(hits) < brief.count:  # Stage 2: relax hard filters other than safety
         relaxed = {k: v for k, v in brief.filters.items() if k in (
@@ -1236,6 +1254,45 @@ def _detect_deck_filter_tokens(prompt_lower: str, bank: List[Dict[str, Any]]) ->
     return _detect_deck_scope(prompt_lower, bank)["tokens"]
 
 
+_GEO_NAMES = {"karnataka", "bengaluru", "bangalore", "mumbai", "delhi", "chennai", "pune", "hyderabad", "kolkata", "india", "bharat"}
+_GEO_CITY_RE = re.compile(r"\b(karnataka|bengaluru|bangalore|mumbai|delhi|chennai|pune|hyderabad|kolkata)\b")
+_GEO_FILLER = {"city", "trivia", "quiz", "facts", "fact", "general", "knowledge", "about", "questions", "question", "the", "of", "on", "in", "a",
+               "i", "me", "my", "us", "we", "need", "want", "make", "build", "give", "please"}
+_NON_GEO_SIGNALS = (
+    "people", "person", "personality", "personalities", "figure", "figures", "leader", "leaders",
+    "scientist", "scientists", "science", "scientific", "experiment", "experiments",
+    "physics", "chemistry", "biology", "space", "astronomy", "agastya", "environment",
+    "nature", "health", "mathematics", "math",
+    "inventor", "inventors", "author", "authors", "food", "dish", "cuisine",
+    "startup", "startups", "company", "companies", "brand", "brands", "tech", "technology", "ai",
+    "finance", "bank", "banking", "cricket", "sport", "sports", "movie", "movies", "film", "music",
+    "history", "heritage", "art", "law", "court", "women", "symbol", "symbols", "freedom", "education"
+)
+
+
+def _mentions_signal(text: str, signal: str) -> bool:
+    # Very short words must stand alone ("ai" is inside "mumbai", "art" inside "smart"); longer ones may sit inside a
+    # compound ("tech" in "fintech").
+    if len(signal) <= 3:
+        return bool(re.search(r"\b" + re.escape(signal) + r"\b", text))
+    return signal in text
+
+
+def _has_topical_subject(prompt_lower: str, query_lower: str) -> bool:
+    return any(_mentions_signal(t, s) for t in (prompt_lower, query_lower) for s in _NON_GEO_SIGNALS)
+
+
+def _is_pure_geo_prompt(prompt_lower: str, query_lower: str) -> bool:
+    """True when the prompt asks about a place itself, with no subject such as finance or food attached."""
+    if _has_topical_subject(prompt_lower, query_lower):
+        return False
+    bare = {w for w in re.findall(r"[a-z]+", query_lower) if w not in _GEO_FILLER}
+    if bare and bare <= _GEO_NAMES:
+        return True
+    return not bare and bool(_GEO_CITY_RE.search(prompt_lower))
+
+
+
 def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                 options: Optional[Dict[str, Any]] = None,
                 previous_brief: Optional[Dict[str, Any]] = None,
@@ -1248,30 +1305,10 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     # Geographic/locality queries: ONLY when the user's prompt is strictly asking for geographic trivia,
     # NOT when geography is just a qualifier for a subject (e.g. "people in india", "food in delhi", "startups in bangalore").
-    geo_names = {"karnataka", "bengaluru", "bangalore", "mumbai", "delhi", "chennai", "pune", "hyderabad", "kolkata", "india", "bharat"}
     q_clean = (brief.query or "").lower().strip()
     p_lower_prompt = (brief.prompt or "").lower().strip()
-
-    # Detect if the prompt has an actual topical subject beyond geography
-    non_geo_signals = (
-        "people", "person", "personality", "personalities", "figure", "figures", "leader", "leaders",
-        "scientist", "scientists", "science", "scientific", "experiment", "experiments",
-        "physics", "chemistry", "biology", "space", "astronomy", "agastya", "environment",
-        "nature", "health", "mathematics", "math",
-        "inventor", "inventors", "author", "authors", "food", "dish", "cuisine",
-        "startup", "startups", "company", "companies", "brand", "brands", "tech", "technology", "ai",
-        "finance", "bank", "banking", "cricket", "sport", "sports", "movie", "movies", "film", "music",
-        "history", "heritage", "art", "law", "court", "women", "symbol", "symbols", "freedom", "education"
-    )
-    has_topical_subject = any(s in p_lower_prompt or s in q_clean for s in non_geo_signals)
-
-    is_pure_geo = (not has_topical_subject) and (
-        q_clean in geo_names
-        or (
-            q_clean in ("", "general knowledge", "trivia", "quiz")
-            and any(re.search(r"\b" + g + r"\b", p_lower_prompt) for g in ["karnataka", "bengaluru", "bangalore", "mumbai", "delhi", "chennai", "pune", "hyderabad", "kolkata"])
-        )
-    )
+    has_topical_subject = _has_topical_subject(p_lower_prompt, q_clean)
+    is_pure_geo = _is_pure_geo_prompt(p_lower_prompt, q_clean)
     if is_pure_geo:
         brief.topics_l1 = []
         brief.subtopics_l2 = []
@@ -1577,8 +1614,9 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     if cands and os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes") and not is_analytical_sort and has_topical_query:
         try:
             from backend.app.services.prompt_quiz.curator_llm import curate_quiz_with_gemini
-            # Cap curator candidates at top 35 to prevent token latency timeouts under serverless
-            curator_pool = cands[:35]
+            # Dynamic candidate pool cap: 18 for 5 Qs, up to 30 for 10+ Qs (saves tokens & latency)
+            pool_limit = min(30, max(18, brief.count * 3))
+            curator_pool = cands[:pool_limit]
             cur_res = curate_quiz_with_gemini(
                 prompt=brief.prompt,
                 target_count=brief.count,
@@ -1604,22 +1642,8 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                             seen_cur_ents.add(ent)
                         seen_picked_ids.add(qid)
                         deduped_cur_picked.append(c)
-                # Replenish only slots lost to duplicate-entity filtering (preserves honest 0/partial counts).
-                target_after_dedup = min(brief.count, matched_before_dedup)
-                if len(deduped_cur_picked) < target_after_dedup:
-                    for c in cands:
-                        cid = c.get("id")
-                        if not cid or cid in seen_picked_ids:
-                            continue
-                        ent = _normalize_answer_entity(c.get("answer") or "")
-                        if ent and ent not in common_geo and ent in seen_cur_ents:
-                            continue
-                        if ent:
-                            seen_cur_ents.add(ent)
-                        seen_picked_ids.add(cid)
-                        deduped_cur_picked.append(c)
-                        if len(deduped_cur_picked) >= target_after_dedup:
-                            break
+                # Never blindly replenish duplicate-filtered slots from uncurated BM25 candidates;
+                # only keep genuinely curated, unique-entity questions.
                 picked = deduped_cur_picked
                 narrative_arc = cur_res.get("narrative_arc")
         except Exception as e:
@@ -1668,12 +1692,21 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     _timer.mark("finish")
     timings = {**_timer.stages, "total": _timer.total_ms()}
+    curator_enabled = os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes")
+    if not curator_enabled or not has_topical_query or is_analytical_sort:
+        curator_status = "disabled"
+    elif narrative_arc and picked:
+        curator_status = "curated"
+    elif cur_res is not None and not picked:
+        curator_status = "empty"
+    else:
+        curator_status = "fallback"
+
     try:
         _metrics.record({
             "at": time.time(), "total_ms": timings["total"], "stages": _timer.stages, "bank_size": len(bank),
             "interpreter": brief.source, "short": bool(fulfillment.get("short")),
-            "curator": "none" if cur_res is None and not narrative_arc and not os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes")
-                       else ("used" if narrative_arc else ("fallback" if cur_res is None else "empty")),
+            "curator": "used" if curator_status == "curated" else curator_status,
         })
     except Exception:
         pass
@@ -1686,6 +1719,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         "stages": stages,
         "fulfillment": fulfillment,
         "narrative_arc": narrative_arc,
+        "curator_status": curator_status,
         "timings_ms": timings,
     }
 

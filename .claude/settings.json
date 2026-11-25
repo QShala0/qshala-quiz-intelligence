@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git fetch:*)",
+      "Bash(git branch:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gcloud builds list:*)",
+      "Bash(gcloud builds describe:*)",
+      "Bash(gcloud run services describe:*)",
+      "Bash(gcloud run jobs describe:*)",
+      "Bash(venv/Scripts/python.exe -m pytest:*)",
+      "Bash(npx tsc --noEmit:*)",
+      "Bash(npx eslint:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./frontend/.env.local)",
+      "Bash(gcloud builds submit:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.js\""
+          }
+        ]
+      }
+    ]
+  }
+}

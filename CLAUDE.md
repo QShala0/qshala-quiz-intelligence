@@ -58,7 +58,7 @@ Read `graphify-out/GRAPH_REPORT.md` before exploring code (run `graphify update 
   the slide master and layouts, never as a picture on a slide. Cover = Title Slide layout, Answer divider = Section
   Header, other slides = Blank. Regenerate the master with `backend/scripts/build_school_master.py`.
 - **Fonts**: Causten Round only. Body `Causten Round` (standard weight), headings `Causten Round Bold`
-  (cover title, Question/Answer N, Answer divider). Answer text is black, never green. Set latin+ea+cs on runs.
+  (cover title, Question N, Answer divider; answer slides carry only the answer). Answer text is black, never green. Set latin+ea+cs on runs.
   OTF fonts cannot be embedded in PPTX, so the viewing machine needs them installed.
 - Startup repair passes (legacy backfill, bilingual repair, `heal_specialized.py`) are OFF on Cloud Run by default
   (`startup_maintenance_mode()` in `database.py`). To run them once, set `STARTUP_MAINTENANCE_MODE=background` for one
@@ -74,6 +74,23 @@ Read `graphify-out/GRAPH_REPORT.md` before exploring code (run `graphify update 
 - Verify before claiming done: run the tests, and for slides/UI render and look (LibreOffice `soffice` + `pdftoppm`,
   `pdffonts` to check which fonts are really used).
 - Use graphify/targeted greps instead of reading whole files, to save tokens.
+
+## Brain and worker (how work flows)
+- Claude Code is the **brain**: analysis, plans, briefs, review, small direct fixes. Antigravity is the **worker** that implements
+  briefs; its rules are in `ANTIGRAVITY.md` (it wins on process, this file wins on domain rules).
+- A brief to Antigravity always has: context, hard rules, phases, and the gate-report format (Done, Not done, Numbers, Evidence,
+  Surprises, Risks, Questions). Use `/brief`. Review its gate report with `/gate-review` before approving a phase or merging.
+- Never trust a report alone: open the PR, read CI, and check "real" evidence is not mocked (token counts, row samples).
+- Merging to `main` is the owner's call. Ask first, then merge, then check the Cloud Build with `/deploy-check`.
+- Slides use Causten Round; the UI follows the tokens in `docs/DESIGN.md`. Commits: `feat(scope):`, `fix(scope):`, `docs:`, `test:`.
+- This repo is **public**: never commit keys, emails, tokens or customer data, not even in docs or `.claude/`.
+
+## Cost ledger (`backend/app/services/costs`, `cost_*` tables)
+- Tracking must never break ingestion or quizzes: every write is fail-safe, in its own session, off the request path.
+- Ingestion cost rows use `cost_scope` with a per-run id in the dedupe key, so re-ingesting a deck records again.
+- Sources: Gemini tokens measured from usage metadata; Cloud Run from Cloud Monitoring `billable_instance_time`; fixed costs
+  are accruals until a real invoice (`POST /costs/invoices`) supersedes them. Do not label inferred numbers "measured".
+- Owner pays only for Cloud Run, Gemini, Neon and R2 (no Vercel Pro, no other GCP services). Rate: about 95 INR per USD.
 
 ## Open backlog
 - After PR 30 deploys: do a real import of about 25 decks and watch Cloud Run peak memory; add the R2 lifecycle rule for

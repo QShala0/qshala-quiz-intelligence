@@ -41,6 +41,9 @@ def db_session():
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     Session = sessionmaker(bind=engine)
     session = Session()
+    if session.query(Document).filter(Document.filename.like("%ZVQ%")).count() == 0:
+        session.close()
+        pytest.skip("ZVQ tournament corpus not present in local qshala.db")
     yield session
     session.close()
 

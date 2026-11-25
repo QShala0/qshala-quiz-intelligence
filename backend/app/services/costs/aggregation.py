@@ -219,10 +219,11 @@ def get_summary_costs(db: Session) -> Dict[str, Any]:
     """Detailed summary comparing MTD, last month, and all time.
 
     Splits Gemini into ingestion (vision/tagging/embedding) and quiz (intent/curator/interpreter).
+    Resolves invoices month-by-month so historical invoices never overwrite current un-invoiced spend,
+    and all_time headline is guaranteed to be >= current_month headline.
     """
     now = datetime.now(timezone.utc)
     curr_period = now.strftime("%Y-%m")
-    # Previous month calculation
     first_of_curr = date(now.year, now.month, 1)
     last_month_end = first_of_curr - timedelta(days=1)
     prev_period = last_month_end.strftime("%Y-%m")
@@ -257,99 +258,169 @@ def get_summary_costs(db: Session) -> Dict[str, Any]:
         .group_by(CostEvent.period, CostEvent.category)
         .all()
     )
-    invoices = {}
-    for r in inv_rows:
-        invoices[(r.period, r.category)] = float(r.sum_inr or 0.0)
 
-    # Structure periods
-    def _make_period_structure():
+    invoices: Dict[Tuple[str, str], float] = {}
+    all_periods = set()
+    all_categories = set()
+
+    for r in inv_rows:
+        p = r.period
+        c = r.category
+        val = float(r.sum_inr or 0.0)
+        invoices[(p, c)] = val
+        all_periods.add(p)
+        all_categories.add(c)
+
+    measured_by_period_cat: Dict[Tuple[str, str], float] = {}
+
+    def _init_gemini_breakdown():
+        return {
+            "ingestion": {"vision": 0.0, "tagging": 0.0, "embedding": 0.0, "total": 0.0},
+            "quiz": {"intent": 0.0, "curator": 0.0, "interpreter": 0.0, "total": 0.0},
+            "other": 0.0,
+            "total": 0.0,
+        }
+
+    gemini_by_period: Dict[str, Dict[str, Any]] = {}
+    sources_by_period: Dict[str, Dict[str, float]] = {}
+
+    for p_row in agg_rows:
+        p = p_row.period
+        c = p_row.category
+        op = p_row.operation
+        src = p_row.source or "measured"
+        inr = float(p_row.sum_inr or 0.0)
+
+        all_periods.add(p)
+        all_categories.add(c)
+
+        measured_by_period_cat[(p, c)] = measured_by_period_cat.get((p, c), 0.0) + inr
+
+        if p not in sources_by_period:
+            sources_by_period[p] = {"measured": 0.0, "accrued": 0.0, "billed": 0.0, "estimated": 0.0}
+        sources_by_period[p][src] = sources_by_period[p].get(src, 0.0) + inr
+
+        if c == "gemini":
+            if p not in gemini_by_period:
+                gemini_by_period[p] = _init_gemini_breakdown()
+            gb = gemini_by_period[p]
+            gb["total"] += inr
+            if "vision" in op:
+                gb["ingestion"]["vision"] += inr
+                gb["ingestion"]["total"] += inr
+            elif "tag" in op:
+                gb["ingestion"]["tagging"] += inr
+                gb["ingestion"]["total"] += inr
+            elif "embed" in op:
+                gb["ingestion"]["embedding"] += inr
+                gb["ingestion"]["total"] += inr
+            elif "curator" in op:
+                gb["quiz"]["curator"] += inr
+                gb["quiz"]["total"] += inr
+            elif "intent" in op:
+                gb["quiz"]["intent"] += inr
+                gb["quiz"]["total"] += inr
+            elif "interpreter" in op:
+                gb["quiz"]["interpreter"] += inr
+                gb["quiz"]["total"] += inr
+            else:
+                gb["other"] += inr
+
+    # Month-by-month resolution: resolve invoices per period so each period's headline is exact
+    period_summaries: Dict[str, Dict[str, Any]] = {}
+    for p in all_periods:
+        cat_headline = {}
+        total_p_measured = 0.0
+        total_p_billed = 0.0
+        total_p_headline = 0.0
+
+        for c in all_categories:
+            m = measured_by_period_cat.get((p, c), 0.0)
+            b = invoices.get((p, c), 0.0)
+            if m == 0.0 and b == 0.0:
+                continue
+            h, _, _, _ = resolve_no_double_counting(m, b if b > 0.0 else None)
+            cat_headline[c] = round(h, 2)
+            total_p_headline += h
+            total_p_measured += m
+            total_p_billed += b
+
+        p_src = sources_by_period.get(p, {"measured": 0.0, "accrued": 0.0, "billed": 0.0, "estimated": 0.0})
+        if total_p_billed > 0.0:
+            p_src["billed"] = total_p_billed
+
+        period_summaries[p] = {
+            "headline_inr": round(total_p_headline, 2),
+            "measured_inr": round(total_p_measured, 2),
+            "billed_inr": round(total_p_billed, 2),
+            "gap_inr": round(total_p_billed - total_p_measured, 2) if total_p_billed > 0.0 else 0.0,
+            "categories": cat_headline,
+            "gemini_breakdown": gemini_by_period.get(p, _init_gemini_breakdown()),
+            "sources": p_src,
+        }
+
+    def _empty_period_structure():
         return {
             "headline_inr": 0.0,
             "measured_inr": 0.0,
             "billed_inr": 0.0,
             "gap_inr": 0.0,
             "categories": {},
-            "gemini_breakdown": {
-                "ingestion": {"vision": 0.0, "tagging": 0.0, "embedding": 0.0, "total": 0.0},
-                "quiz": {"intent": 0.0, "curator": 0.0, "interpreter": 0.0, "total": 0.0},
-                "other": 0.0,
-                "total": 0.0,
-            },
+            "gemini_breakdown": _init_gemini_breakdown(),
             "sources": {"measured": 0.0, "accrued": 0.0, "billed": 0.0, "estimated": 0.0},
         }
 
-    periods_data = {
-        "current_month": _make_period_structure(),
-        "last_month": _make_period_structure(),
-        "all_time": _make_period_structure(),
+    current_month_data = period_summaries.get(curr_period, _empty_period_structure())
+    last_month_data = period_summaries.get(prev_period, _empty_period_structure())
+
+    # All-time aggregates across all months: headline is guaranteed >= current_month
+    all_time_categories: Dict[str, float] = {}
+    all_time_gemini = _init_gemini_breakdown()
+    all_time_sources = {"measured": 0.0, "accrued": 0.0, "billed": 0.0, "estimated": 0.0}
+    all_time_headline = 0.0
+    all_time_measured = 0.0
+    all_time_billed = 0.0
+
+    for p, summary in period_summaries.items():
+        all_time_headline += summary["headline_inr"]
+        all_time_measured += summary["measured_inr"]
+        all_time_billed += summary["billed_inr"]
+
+        for c, h in summary["categories"].items():
+            all_time_categories[c] = round(all_time_categories.get(c, 0.0) + h, 2)
+
+        gb = summary["gemini_breakdown"]
+        all_time_gemini["total"] += gb["total"]
+        all_time_gemini["ingestion"]["vision"] += gb["ingestion"]["vision"]
+        all_time_gemini["ingestion"]["tagging"] += gb["ingestion"]["tagging"]
+        all_time_gemini["ingestion"]["embedding"] += gb["ingestion"]["embedding"]
+        all_time_gemini["ingestion"]["total"] += gb["ingestion"]["total"]
+        all_time_gemini["quiz"]["intent"] += gb["quiz"]["intent"]
+        all_time_gemini["quiz"]["curator"] += gb["quiz"]["curator"]
+        all_time_gemini["quiz"]["interpreter"] += gb["quiz"]["interpreter"]
+        all_time_gemini["quiz"]["total"] += gb["quiz"]["total"]
+        all_time_gemini["other"] += gb["other"]
+
+        src = summary["sources"]
+        for k in all_time_sources:
+            all_time_sources[k] += src.get(k, 0.0)
+
+    # Ensure all_time is at least current_month even if no other periods exist
+    all_time_data = {
+        "headline_inr": round(max(all_time_headline, current_month_data["headline_inr"]), 2),
+        "measured_inr": round(all_time_measured, 2),
+        "billed_inr": round(all_time_billed, 2),
+        "gap_inr": round(all_time_billed - all_time_measured, 2) if all_time_billed > 0.0 else 0.0,
+        "categories": all_time_categories,
+        "gemini_breakdown": all_time_gemini,
+        "sources": {k: round(v, 2) for k, v in all_time_sources.items()},
     }
 
-    for p_row in agg_rows:
-        period_str = p_row.period
-        cat = p_row.category
-        op = p_row.operation
-        src = p_row.source or "measured"
-        inr = float(p_row.sum_inr or 0.0)
-
-        targets = ["all_time"]
-        if period_str == curr_period:
-            targets.append("current_month")
-        elif period_str == prev_period:
-            targets.append("last_month")
-
-        for t in targets:
-            struct = periods_data[t]
-            struct["categories"][cat] = struct["categories"].get(cat, 0.0) + inr
-            struct["sources"][src] = struct["sources"].get(src, 0.0) + inr
-
-            # Gemini breakdown
-            if cat == "gemini":
-                gb = struct["gemini_breakdown"]
-                gb["total"] += inr
-                if "vision" in op:
-                    gb["ingestion"]["vision"] += inr
-                    gb["ingestion"]["total"] += inr
-                elif "tag" in op:
-                    gb["ingestion"]["tagging"] += inr
-                    gb["ingestion"]["total"] += inr
-                elif "embed" in op:
-                    gb["ingestion"]["embedding"] += inr
-                    gb["ingestion"]["total"] += inr
-                elif "curator" in op:
-                    gb["quiz"]["curator"] += inr
-                    gb["quiz"]["total"] += inr
-                elif "intent" in op:
-                    gb["quiz"]["intent"] += inr
-                    gb["quiz"]["total"] += inr
-                elif "interpreter" in op:
-                    gb["quiz"]["interpreter"] += inr
-                    gb["quiz"]["total"] += inr
-                else:
-                    gb["other"] += inr
-
-    # Apply invoices and resolve headline / gap
-    for t_key, struct in periods_data.items():
-        total_headline = 0.0
-        total_measured = sum(struct["categories"].values())
-        total_billed = 0.0
-
-        target_period = curr_period if t_key == "current_month" else (prev_period if t_key == "last_month" else None)
-
-        for cat, measured in struct["categories"].items():
-            if target_period:
-                billed = invoices.get((target_period, cat), 0.0)
-            else:
-                billed = sum(v for (p, c), v in invoices.items() if c == cat)
-
-            h, m, b, _ = resolve_no_double_counting(measured, billed if billed > 0.0 else None)
-            struct["categories"][cat] = round(h, 2)
-            total_headline += h
-            total_billed += b
-
-        struct["headline_inr"] = round(total_headline, 2)
-        struct["measured_inr"] = round(total_measured, 2)
-        struct["billed_inr"] = round(total_billed, 2)
-        struct["gap_inr"] = round(total_billed - total_measured, 2) if total_billed > 0.0 else 0.0
+    periods_data = {
+        "current_month": current_month_data,
+        "last_month": last_month_data,
+        "all_time": all_time_data,
+    }
 
     # Rate card & health
     active_rc = get_active_rate_card()
@@ -360,6 +431,9 @@ def get_summary_costs(db: Session) -> Dict[str, Any]:
         "rate_card_version": int(active_rc.get("version", 1)),
         "current_fx_rate": float(active_rc.get("usd_to_inr", 95.0)),
         "periods": periods_data,
+        "current_month": current_month_data,
+        "last_month": last_month_data,
+        "all_time": all_time_data,
         "last_refresh_at": last_refresh.finished_at.isoformat() if last_refresh and last_refresh.finished_at else None,
     }
 
@@ -470,12 +544,15 @@ def get_documents_costs(
             "r2_inr": round(float(r.r2_inr or 0.0), 2),
             "total_inr": tot,
             "cost_per_question_inr": cost_per_q,
+            "inr_per_question": cost_per_q,
+            "filename": r.filename or r.title or "Deleted deck",
             "first_seen": r.first_seen.isoformat() if r.first_seen else None,
         })
 
     return {
         "total": total_count,
         "items": items,
+        "documents": items,
         "limit": limit,
         "offset": offset,
     }

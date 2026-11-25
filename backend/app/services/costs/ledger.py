@@ -290,9 +290,11 @@ class CostScope:
             # Generate deterministic dedupe key for scoped flush per run (including run_id)
             dedupe_key = None
             if self.document_id and category == "gemini":
-                dedupe_key = f"scope:{self.document_id}:{self.run_id}:{operation}:{model or 'default'}"
+                dedupe_key = f"scope:{self.document_id}:{self.run_id}:{self.job_id or 'none'}:{operation}:{model or 'default'}:{is_batch}"
             elif self.document_id and category == "r2":
-                dedupe_key = f"scope:{self.document_id}:{self.run_id}:{operation}"
+                dedupe_key = f"scope:{self.document_id}:{self.run_id}:{self.job_id or 'none'}:{operation}"
+            elif self.job_id:
+                dedupe_key = f"scope:job:{self.job_id}:{self.run_id}:{category}:{operation}:{model or 'default'}"
 
             ev = record_event(
                 category=category,

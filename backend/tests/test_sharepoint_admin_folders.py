@@ -55,6 +55,8 @@ def mock_graph_handler(request: httpx.Request):
         return httpx.Response(200, json={"id": "fold1", "name": "Quizzes", "folder": {}, "parentReference": {"path": "/drives/D/root:"}})
     if url.startswith(f"{BASE}/drives/D/items/fold2"):
         return httpx.Response(200, json={"id": "fold2", "name": "Admin_Finance", "folder": {}, "parentReference": {"path": "/drives/D/root:"}})
+    if url.startswith(f"{BASE}/drives/D/items/fold1_sub1"):
+        return httpx.Response(200, json={"id": "fold1_sub1", "name": "2024 Finals", "folder": {}, "parentReference": {"id": "fold1", "name": "Quizzes", "path": "/drives/D/root:/Quizzes"}})
     if url.startswith(f"{BASE}/drives/D/items/f_q1"):
         return httpx.Response(200, json=TREE["fold1"]["value"][1])
     if url.startswith(f"{BASE}/drives/D/items/f_fin"):
@@ -306,3 +308,43 @@ def test_admin_search_files_and_folders(api_client, monkeypatch):
     assert res2.status_code == 200
     data2 = res2.json()
     assert data2["files"][0]["parent_is_allowed"] is True
+
+
+@pytest.mark.anyio
+async def test_subfolder_inheritance_and_access(api_client, db_session, monkeypatch):
+    """When a top-level folder like Quizzes is allowed, all its subfolders inherit access,
+    both in Quizmaster browsing/import and in Admin explore views."""
+    monkeypatch.setattr(settings, "SHAREPOINT_ADMIN_PASSWORD", "secret123")
+    token = create_admin_token()
+    headers = {"x-admin-token": token}
+
+    # Add Quizzes to DB allowed folders
+    db_folder = SharePointAllowedFolder(
+        drive_id="D",
+        folder_id="fold1",
+        folder_name="Quizzes",
+        folder_path="Quizzes",  # relative path as stored in DB
+        display_name="Quizzes",
+        is_active=True,
+    )
+    db_session.add(db_folder)
+    db_session.commit()
+
+    sp_client = make_test_client(mock_graph_handler)
+
+    # 1. Effective folder for subfolder 'fold1_sub1' inside Quizzes MUST SUCCEED (not raise outside)
+    eff = await importer.effective_folder(sp_client, "D", "fold1_sub1", db=db_session)
+    assert eff == "fold1_sub1"
+
+    # 2. Effective folder for outside folder 'fold2' (Admin_Finance) MUST FAIL
+    with pytest.raises(ValueError, match="outside"):
+        await importer.effective_folder(sp_client, "D", "fold2", db=db_session)
+
+    # 3. Admin browse inside Quizzes shows subfolder marked as allowed and inherited
+    res = api_client.get("/api/v1/sharepoint/admin/browse?drive_id=D&folder_id=fold1", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    sub = next(f for f in data["folders"] if f["id"] == "fold1_sub1")
+    assert sub["is_allowed"] is True
+    assert sub["is_inherited"] is True
+    assert sub["inherited_from"] == "Quizzes"

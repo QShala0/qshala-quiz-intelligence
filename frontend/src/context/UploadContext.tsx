@@ -332,17 +332,18 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
           });
         });
 
+        const allDone = batchStatus.items.every(
+          (it) => it.status === 'COMPLETED' || it.status === 'FAILED' || it.status === 'CANCELLED'
+        );
+
         const proc = batchStatus.items.find((it) => it.status === 'PROCESSING');
         if (proc && proc.document_id) {
           setActiveDocId(proc.document_id);
           setActiveFileName(proc.filename);
-        } else {
-          setActiveDocId(null);
+        } else if (!allDone) {
+          // Keep activeDocId during transitions so the upload report dialog can fetch its summary
         }
 
-        const allDone = batchStatus.items.every(
-          (it) => it.status === 'COMPLETED' || it.status === 'FAILED' || it.status === 'CANCELLED'
-        );
         if (allDone) {
           setVersion((v) => v + 1);
           stopClock();
@@ -860,7 +861,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         if (id) await api.cancelChunkedUpload(id);
       } else if (activeDocId) {
         const res = await api.cancelIngestion(activeDocId);
-        if (res.status === 'CANCELLED') {
+        if (res.status === 'CANCELLED' || res.status === 'CANCELLING') {
           setActiveDocId(null);
           setVersion((v) => v + 1);
         }

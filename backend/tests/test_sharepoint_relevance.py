@@ -289,7 +289,10 @@ def test_relevance_custom_exclude_words_env(monkeypatch):
 # Endpoint Tests
 # ==========================================
 
-def test_endpoint_not_imported_classification_and_filters(db):
+def test_endpoint_not_imported_classification_and_filters(db, monkeypatch):
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "SHAREPOINT_ROOT_FOLDERS", "")
+    monkeypatch.setattr(settings, "SHAREPOINT_ROOT_FOLDER", "")
     prefix = db._test_prefix
     drive_id = f"{prefix}-drive"
     db._test_drive_ids.append(drive_id)

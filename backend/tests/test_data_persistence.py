@@ -41,7 +41,7 @@ def test_require_postgres_refuses_to_boot_on_sqlite():
     """With REQUIRE_POSTGRES=1 and no DATABASE_URL, importing the DB layer must raise rather than
     silently use an ephemeral SQLite file."""
     repo_root = Path(__file__).resolve().parents[2]
-    env = dict(os.environ, REQUIRE_POSTGRES="1", DATABASE_URL="")
+    env = dict(os.environ, REQUIRE_POSTGRES="1", DATABASE_URL="sqlite:///ephemeral.db")
     proc = subprocess.run(
         [sys.executable, "-c", "import backend.app.database"],
         cwd=str(repo_root),

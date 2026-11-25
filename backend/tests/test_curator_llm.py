@@ -64,7 +64,8 @@ def test_curator_validation_gate_rejects_hallucinated_ids(mock_candidates):
 
     assert res is not None
     selected = res["selected_ids"]
-    assert len(selected) == 5
+    # Zero-hallucination gate: drop fake IDs and never blindly backfill unverified candidates
+    assert selected == ["q_1", "q_3", "q_4"]
 
     # Check: hallucinated IDs MUST NOT be present
     assert "hallucinated_fake_id_999" not in selected
@@ -221,3 +222,62 @@ def test_curator_honest_rejection_delivers_zero_and_preserves_short_fulfillment(
     finally:
         engine.invalidate_bank_cache()
         db.close()
+
+
+def test_build_draft_reports_curator_fallback_status_on_timeout():
+    """When Gemini curator returns None (timeout), build_draft surfaces curator_status='fallback'."""
+    db_engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=db_engine)
+    TestingSession = sessionmaker(bind=db_engine)
+    db = TestingSession()
+
+    try:
+        doc = Document(id="doc_fb", filename="startups.pptx", title="Bangalore Startups", file_type="pptx", storage_path="/tmp")
+        db.add(doc)
+        db.add(Question(
+            id="q_fb_1",
+            document_id="doc_fb",
+            question_text="Which Bengaluru-based startup pioneered quick-commerce deliveries?",
+            answer="Zepto",
+            topic="Business",
+            subtopic="Startups",
+            difficulty="Medium",
+            difficulty_score=0.50,
+        ))
+        db.commit()
+
+        engine.invalidate_bank_cache()
+        with patch("backend.app.services.prompt_quiz.curator_llm.curate_quiz_with_gemini", return_value=None):
+            draft = engine.build_draft(
+                db=db,
+                prompt="startups in bangalore",
+                count=5,
+            )
+
+        assert draft["curator_status"] == "fallback"
+    finally:
+        engine.invalidate_bank_cache()
+        db.close()
+
+
+def test_dynamic_criteria_and_locality_in_curator_prompt():
+    """Curator prompt includes dynamic must_match_criteria and locality from previous_brief."""
+    from backend.app.services.prompt_quiz.curator_llm import _build_curator_prompt
+    from backend.app.services.prompt_quiz.intent_engine import INTENT_SCHEMA
+
+    assert "must_match_criteria" in INTENT_SCHEMA["properties"]
+    assert "must_match_criteria" in INTENT_SCHEMA["required"]
+    assert "8-12" in INTENT_SCHEMA["properties"]["expansion_terms"]["description"]
+
+    prompt_txt = _build_curator_prompt(
+        prompt="startups in bangalore",
+        target_count=5,
+        candidates=[{"id": "q1", "question_text": "Which Bengaluru startup?", "answer": "Zerodha"}],
+        previous_brief={
+            "must_match_criteria": "Must involve startups based in Bengaluru.",
+            "locality": "Bengaluru",
+        },
+    )
+    assert "CRITERIA: Must involve startups based in Bengaluru." in prompt_txt
+    assert "LOCALITY: Bengaluru" in prompt_txt
+

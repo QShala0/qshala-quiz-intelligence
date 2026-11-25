@@ -500,10 +500,9 @@ def swap(req: SwapReq, db: Session = Depends(get_db)):
 def save(req: SaveReq, db: Session = Depends(get_db)):
     if not req.question_ids:
         raise HTTPException(status_code=400, detail="Must select at least 1 question")
-    bank = engine._load_bank(db, engine.ALL_SLOTS)
-    bank_by_id = {b["id"]: b for b in bank}
-    ordered = [bank_by_id[qid] for qid in req.question_ids if qid in bank_by_id]
-    if not ordered:
+    originals = {q.id: q for q in db.query(Question).filter(Question.id.in_(req.question_ids)).all()}
+    ordered_ids = [qid for qid in req.question_ids if qid in originals]
+    if not ordered_ids:
         raise HTTPException(status_code=404, detail="None of the selected questions exist")
 
     # Title: explicit > the prompt the person typed > the AI's framing summary (only when the prompt is blank).
@@ -529,34 +528,34 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
     if isinstance(topic, list):
         topic = ", ".join(str(t) for t in topic)
 
-    # The quiz is built from the stored question rows (the prompt-quiz bank view carries only a subset of their
-    # fields), so options, explanation and every kind of media come across, as they do for generated quizzes.
-    originals = {q.id: q for q in db.query(Question).filter(Question.id.in_([b["id"] for b in ordered])).all()}
     doc_ids = {q.document_id for q in originals.values() if q.document_id}
+    slide_ids = {q.slide_id for q in originals.values() if q.slide_id}
     doc_titles = {}
+    slide_numbers = {}
     if doc_ids:
         from backend.app.models.document import Document
         doc_titles = {d.id: (d.title or d.filename) for d in db.query(Document).filter(Document.id.in_(doc_ids)).all()}
+    if slide_ids:
+        from backend.app.models.document import Slide
+        slide_numbers = {s.id: s.slide_number for s in db.query(Slide).filter(Slide.id.in_(slide_ids)).all()}
 
     quiz = Quiz(
         title=title[:255],
         topic=str(topic)[:100],
         difficulty=str((req.brief or {}).get("hard_bias") or "Medium")[:50],
         raw_prompt=raw_prompt,
-        question_count=len(ordered),
+        question_count=len(ordered_ids),
         status="READY",
     )
     db.add(quiz)
     db.flush()
 
-    for idx, b in enumerate(ordered):
-        orig_q = originals.get(b["id"])
+    for idx, qid in enumerate(ordered_ids, start=1):
+        orig_q = originals.get(qid)
 
-        def field(name, default=None, bank_key=None):
+        def field(name, default=None):
             value = getattr(orig_q, name, None) if orig_q is not None else None
-            if value in (None, "", []):
-                value = b.get(bank_key or name)
-            return default if value in (None, "") else value
+            return default if value in (None, "", []) else value
 
         gq = GeneratedQuestion(
             quiz_id=quiz.id,
@@ -565,7 +564,7 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
             options=field("options") or [],
             answer=field("answer", ""),
             explanation=field("explanation", ""),
-            difficulty=b.get("difficulty") or field("difficulty", "Medium"),
+            difficulty=field("difficulty", "Medium"),
             grade_min=getattr(orig_q, "grade_min", None) or 3,
             grade_max=getattr(orig_q, "grade_max", None) or 12,
             topic=field("topic"),
@@ -585,12 +584,12 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
             validation_details={
                 "provenance": {
                     "has_source": True,
-                    "doc_title": doc_titles.get(orig_q.document_id) if orig_q else b.get("document_title"),
-                    "occurrence_count": b.get("occurrence_count") or (getattr(orig_q, "occurrence_count", 1) if orig_q else 1) or 1,
-                    "is_varsity": bool(b.get("is_varsity")),
-                    "round_stage": b.get("round_stage"),
-                    "star_marked": bool(b.get("star_marked")),
-                    "source_year": b.get("source_year"),
+                    "doc_title": doc_titles.get(orig_q.document_id) if orig_q else None,
+                    "occurrence_count": (getattr(orig_q, "occurrence_count", 1) if orig_q else 1) or 1,
+                    "is_varsity": bool(getattr(orig_q, "is_varsity", False)),
+                    "round_stage": getattr(orig_q, "round_stage", None),
+                    "star_marked": bool(getattr(orig_q, "star_marked", False)),
+                    "source_year": getattr(orig_q, "source_year", None),
                 }
             },
             is_approved=True,
@@ -598,15 +597,22 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
         db.add(gq)
         db.flush()
         if orig_q is not None:
+            s_num = slide_numbers.get(orig_q.slide_id) if orig_q.slide_id else None
+            if s_num is None and getattr(orig_q, "source_slide_range", None):
+                m = re.search(r"\d+", str(orig_q.source_slide_range))
+                if m:
+                    s_num = int(m.group(0))
             db.add(RetrievalSource(
                 generated_question_id=gq.id,
                 historical_question_id=orig_q.id,
                 document_id=orig_q.document_id,
                 slide_id=orig_q.slide_id,
                 document_title=doc_titles.get(orig_q.document_id),
+                slide_number=s_num,
+                source_quote=orig_q.question_text,
                 relevance_score=1.0,
                 rationale="Picked from the vault in the Prompt Quizzer",
             ))
 
     db.commit()
-    return {"id": quiz.id, "quiz_id": quiz.id, "title": quiz.title, "count": len(ordered)}
+    return {"id": quiz.id, "quiz_id": quiz.id, "title": quiz.title, "count": len(ordered_ids)}

@@ -144,7 +144,7 @@ def get_active_upload_batch(client_id: Optional[str] = Query(default=None, max_l
         registered_items = batch.items or []
 
         # If any job is currently PENDING or PROCESSING on the server, batch is active
-        has_server_active = any(j.status in ("PENDING", "PROCESSING") for j in jobs)
+        has_server_active = any(j.status in ("PENDING", "PROCESSING", "CANCELLING") for j in jobs)
         if has_server_active:
             return {"batch_id": batch.id}
 
@@ -212,8 +212,8 @@ def get_upload_batch_status(batch_id: str, db: Session = Depends(get_db)):
             job, doc = jobs_by_cid[cid]
             if job.status == "PENDING":
                 st = "QUEUED"
-            elif job.status == "PROCESSING":
-                if job.current_step == "CANCELLING":
+            elif job.status in ("PROCESSING", "CANCELLING"):
+                if job.status == "CANCELLING" or job.current_step == "CANCELLING":
                     st = "CANCELLING"
                 else:
                     st = "PROCESSING"
@@ -578,8 +578,8 @@ def cancel_job(job_id: str, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Ingestion job not found")
 
-    if job.status in ("COMPLETED", "FAILED", "CANCELLED"):
-        return {"message": "Job already in terminal status", "job": to_job_dict(job)}
+    if job.status in ("COMPLETED", "FAILED", "CANCELLED", "CANCELLING"):
+        return {"message": "Job already in terminal or cancelling status", "job": to_job_dict(job)}
 
     now = datetime.now(timezone.utc)
 

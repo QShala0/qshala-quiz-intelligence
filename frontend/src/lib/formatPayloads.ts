@@ -131,9 +131,9 @@ const STYLES: Record<string, FormatStyle> = {
   ARRANGE_ORDER: { label: 'Arrange', chip: 'bg-purple-100 border-purple-200 text-purple-700' },
   MCQ: { label: 'MCQ', chip: 'bg-teal-100 border-teal-200 text-teal-700' },
   BUZZER: { label: 'Buzzer', chip: 'bg-rose-50 border-rose-200 text-rose-700' },
-  VIDEO_CLUE: { label: 'Video Clue', chip: 'bg-purple-50 border-purple-200 text-purple-700' },
-  AUDIO_CLUE: { label: 'Audio Clue', chip: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-  VISUAL_CLUE: { label: 'Visual Clue', chip: 'bg-slate-100 border-slate-200 text-slate-700' },
+  VIDEO_CLUE: { label: 'Text + Video', chip: 'bg-purple-50 border-purple-200 text-purple-700' },
+  AUDIO_CLUE: { label: 'Text + Audio', chip: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+  VISUAL_CLUE: { label: 'Text + Image', chip: 'bg-slate-100 border-slate-200 text-slate-700' },
 };
 
 export function formatStyle(fmt: string | null | undefined): FormatStyle {

@@ -198,18 +198,23 @@ def _reclaim_stale(db: Session) -> None:
         if job.execution_name:
             c_status = _check_cloud_run_execution(job.id, job.execution_name)
             if c_status == "SUCCEEDED":
-                job.status = "COMPLETED"
-                job.current_step = "DONE"
+                doc = db.query(Document).filter(Document.id == job.document_id).first()
+                if doc is not None and doc.processing_status == "FAILED":
+                    job.status = "FAILED"
+                    job.current_step = "FAILED"
+                    job.error_message = doc.processing_error or "Worker reported failure"
+                else:
+                    job.status = "COMPLETED"
+                    job.current_step = "DONE"
+                    if doc is not None:
+                        doc.processing_status = "COMPLETED"
                 job.completed_at = _now()
                 job.updated_at = _now()
-                doc = db.query(Document).filter(Document.id == job.document_id).first()
-                if doc is not None:
-                    doc.processing_status = "COMPLETED"
                 if job.source_file_id:
                     from backend.app.models.sharepoint import SharePointFile
                     sp_file = db.query(SharePointFile).filter(SharePointFile.id == job.source_file_id).first()
                     if sp_file:
-                        sp_file.sync_status = "COMPLETED"
+                        sp_file.sync_status = job.status
                 reclaimed += 1
                 continue
             elif c_status in ("FAILED", "CANCELLED"):
@@ -268,6 +273,11 @@ def claim_next(db: Session) -> "IngestionJob | None":
     from backend.app.database import is_postgres
     from sqlalchemy import text
 
+    try:
+        _reclaim_stale(db)   # run cleanup and any commits BEFORE acquiring xact lock
+    except Exception as e:
+        logger.warning("[QUEUE] _reclaim_stale failed: %s", e)
+
     if is_postgres:
         try:
             # Held until this transaction ends (commit/rollback); no leaked locks. Serialises claimers.
@@ -275,11 +285,6 @@ def claim_next(db: Session) -> "IngestionJob | None":
         except Exception as e:
             logger.warning("[QUEUE] could not acquire advisory lock: %s", e)
             return None
-
-    try:
-        _reclaim_stale(db)   # a dead PROCESSING job must not block the queue forever
-    except Exception as e:
-        logger.warning("[QUEUE] _reclaim_stale failed: %s", e)
 
     busy = (db.query(IngestionJob)
             .filter(IngestionJob.source_type == SOURCE, IngestionJob.status.in_(["PROCESSING", "CANCELLING"]))

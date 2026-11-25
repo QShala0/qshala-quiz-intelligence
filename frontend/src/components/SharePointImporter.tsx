@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   Check,
@@ -28,6 +29,8 @@ import {
   Trash2,
   Plus,
   CheckCircle2,
+  FolderCheck,
+  FolderTree,
   Eye,
   EyeOff
 } from 'lucide-react';
@@ -36,7 +39,6 @@ import {
   SpBrowse,
   SpConfig,
   SpDrive,
-  SpImportStatus,
   SpItemStatus,
   SpPlan,
   SpSelection,
@@ -119,12 +121,13 @@ function HighlightText({ text, query }: { text: string; query: string }) {
 type Picked = { id: string; kind: 'file' | 'folder'; name: string };
 type Crumb = { id: string | null; name: string };
 
-export default function SharePointImporter() {
+export default function SharePointImporter({ onTransferComplete }: { onTransferComplete?: () => void } = {}) {
+  const router = useRouter();
   const toast = useToast();
   const [cfg, setCfg] = useState<SpConfig | null>(null);
   const [drives, setDrives] = useState<SpDrive[]>([]);
   const [driveId, setDriveId] = useState('');
-  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: null, name: 'Library root' }]);
+  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: null, name: 'Parent Library' }]);
   const [page, setPage] = useState<SpBrowse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -146,7 +149,6 @@ export default function SharePointImporter() {
   const [planning, setPlanning] = useState(false);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ total: number; remaining: number } | null>(null);
-  const [result, setResult] = useState<SpImportStatus | null>(null);
   const [waiting, setWaiting] = useState(0);
   const cancelRef = useRef(false);
 
@@ -172,7 +174,7 @@ export default function SharePointImporter() {
   const [adminTab, setAdminTab] = useState<'active' | 'browse'>('active');
   const [adminAllowedFolders, setAdminAllowedFolders] = useState<SpAdminFolder[]>([]);
   const [adminBrowsePage, setAdminBrowsePage] = useState<SpAdminBrowse | null>(null);
-  const [adminBrowseTrail, setAdminBrowseTrail] = useState<Crumb[]>([{ id: null, name: 'Library root' }]);
+  const [adminBrowseTrail, setAdminBrowseTrail] = useState<Crumb[]>([{ id: null, name: 'Parent Library' }]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState('');
   const [adminTogglingId, setAdminTogglingId] = useState<string | null>(null);
@@ -191,7 +193,7 @@ export default function SharePointImporter() {
       setDrives(r.drives);
       if (r.drives.length > 0) {
         setDriveId(r.drives[0].id);
-        void open(r.drives[0].id, [{ id: null, name: 'Library root' }]);
+        void open(r.drives[0].id, [{ id: null, name: 'Parent Library' }]);
       }
     }).catch((e: Error) => setError(e.message));
   }, [cfg?.configured]);
@@ -241,7 +243,7 @@ export default function SharePointImporter() {
       ]);
       setAdminAllowedFolders(foldersRes.folders);
       setAdminBrowsePage(browseRes);
-      setAdminBrowseTrail([{ id: null, name: 'Library root' }]);
+      setAdminBrowseTrail([{ id: null, name: 'Parent Library' }]);
     } catch (e) {
       if (e instanceof Error && (e.message.includes('401') || e.message.includes('expired'))) {
         setAdminToken(null);
@@ -379,7 +381,7 @@ export default function SharePointImporter() {
       const refreshedCfg = await api.spConfig();
       setCfg(refreshedCfg);
       if (driveId) {
-        await open(driveId, [{ id: null, name: 'Library root' }]);
+        await open(driveId, [{ id: null, name: 'Parent Library' }]);
       }
     } catch { /* ignore */ }
   }
@@ -548,7 +550,6 @@ export default function SharePointImporter() {
   async function preview(items: Picked[]) {
     setPlanning(true);
     setError('');
-    setResult(null);
     try {
       setPlan(await api.spPlan(selectionBody(items)));
     } catch (e) {
@@ -564,29 +565,51 @@ export default function SharePointImporter() {
     cancelRef.current = false;
     let remaining = total;
     try {
+      let totalQueued = 0;
       setProgress({ total, remaining });
       while (remaining > 0 && !cancelRef.current) {
         const step = await api.spTransferNext(batchId, 25);
         remaining = step.remaining;
+        totalQueued += step.queued;
         setProgress({ total, remaining });
         if (step.queued + step.skipped_duplicate + step.failed === 0) break;
       }
       const status = await api.spImportStatus(batchId);
-      setResult(status);
       setWaiting(status.remaining);
       setPlan(null);
       setPicked(new Map());
+      if (status.failed.length > 0) {
+        setError(status.failed.map((f) => `${f.name}: ${f.error}`).join('; '));
+        toast.error(`${status.failed.length} file(s) failed to transfer.`);
+      }
+      const hasTransferred =
+        totalQueued > 0 ||
+        (status.counts?.QUEUED ?? 0) > 0 ||
+        (status.failed.length === 0 && status.skipped_duplicates.length === 0);
+      if (status.remaining === 0 && hasTransferred) {
+        toast.success(`Transferred ${totalQueued || total} file(s) to the ingestion queue.`);
+        if (onTransferComplete) {
+          onTransferComplete();
+        } else {
+          router.push('/uploads?tab=sharepoint');
+        }
+        void open(driveId, crumbs);
+        return;
+      }
+      if (status.skipped_duplicates.length > 0 && (status.counts?.QUEUED ?? 0) === 0) {
+        toast.info(`Skipped ${status.skipped_duplicates.length} duplicate file(s) already in platform.`);
+      }
       void open(driveId, crumbs);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Import failed');
       api.spImportStatus(batchId).then((s) => setWaiting(s.remaining)).catch(() => {});
     } finally {
       setRunning(false);
+      setProgress(null);
     }
   }
 
   async function runImport(items: Picked[]) {
-    setResult(null);
     setError('');
     setRunning(true);
     const capped = items.slice(0, 25);
@@ -755,7 +778,7 @@ export default function SharePointImporter() {
                 onChange={(e) => {
                   setDriveId(e.target.value);
                   setPicked(new Map());
-                  void open(e.target.value, [{ id: null, name: 'Library root' }]);
+                  void open(e.target.value, [{ id: null, name: 'Parent Library' }]);
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-slate-700 font-medium"
                 aria-label="Library"
@@ -1378,46 +1401,6 @@ export default function SharePointImporter() {
           </div>
         )}
 
-        {/* Import Results Card */}
-        {result && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-[13px] space-y-2 animate-fadeIn">
-            <div className="flex items-center gap-2 font-bold text-emerald-800 text-[14px]">
-              <Check className="h-4 w-4 text-emerald-600" />
-              <span>Import Handed Off to Pipeline</span>
-            </div>
-            <p className="text-slate-700">
-              Decks are now securely stored in R2 and queued for the background worker job. Slides are being parsed,
-              images extracted, and questions tagged.
-            </p>
-            <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              {Object.entries(result.counts).map(([k, n]) => (
-                <span
-                  key={k}
-                  className="rounded-md bg-white border border-emerald-200 px-2 py-0.5 text-[11.5px] font-semibold text-emerald-800"
-                >
-                  {k.toLowerCase().replace('_', ' ')}: {n}
-                </span>
-              ))}
-            </div>
-
-            {result.remaining > 0 && (
-              <p className="text-amber-800 text-[12px] pt-1">
-                {result.remaining} file(s) are still waiting (paused). Click &ldquo;Resume&rdquo; above when ready.
-              </p>
-            )}
-            {result.skipped_duplicates.map((s) => (
-              <p key={s.id} className="text-slate-500 text-[12px]">
-                Skipped {s.name}: {s.message}
-              </p>
-            ))}
-            {result.failed.map((f) => (
-              <p key={f.id} className="text-red-700 text-[12px]">
-                Failed {f.name}: {f.error}
-              </p>
-            ))}
-          </div>
-        )}
-
         {/* Admin Password Modal */}
         {showPasswordModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-fadeIn">
@@ -1643,6 +1626,12 @@ export default function SharePointImporter() {
                                 <p className="text-[12px] text-slate-500 font-mono truncate mt-0.5">
                                   {folder.folder_path}
                                 </p>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                    <FolderTree className="h-3 w-3 text-slate-500" />
+                                    <span>Includes all subfolders &amp; decks recursively</span>
+                                  </span>
+                                </div>
                               </div>
                             </div>
 
@@ -1769,7 +1758,7 @@ export default function SharePointImporter() {
                                       {isAllowed ? (
                                         <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
                                           <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                                          <span>Active for Team</span>
+                                          <span>Active for Team{folder.is_inherited && folder.inherited_from ? ` (in ${folder.inherited_from})` : ''}</span>
                                         </span>
                                       ) : (
                                         <button
@@ -1921,20 +1910,27 @@ export default function SharePointImporter() {
 
                                   <div className="flex items-center gap-2 shrink-0">
                                     {isAllowed ? (
-                                      <div className="flex items-center gap-2">
-                                        <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                                          <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                                          <span>Active for Team</span>
+                                      folder.is_inherited ? (
+                                        <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold text-emerald-700 flex items-center gap-1.5 shadow-2xs">
+                                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                                          <span>Included via {folder.inherited_from || 'parent'}</span>
                                         </span>
-                                        <button
-                                          type="button"
-                                          disabled={isToggling}
-                                          onClick={() => void handleRemoveAllowedFolder(folder.id)}
-                                          className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                                        >
-                                          {isToggling ? 'Removing...' : 'Remove'}
-                                        </button>
-                                      </div>
+                                      ) : (
+                                        <div className="flex items-center gap-2">
+                                          <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+                                            <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                            <span>Active for Team</span>
+                                          </span>
+                                          <button
+                                            type="button"
+                                            disabled={isToggling}
+                                            onClick={() => void handleRemoveAllowedFolder(folder.id)}
+                                            className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                          >
+                                            {isToggling ? 'Removing...' : 'Remove'}
+                                          </button>
+                                        </div>
+                                      )
                                     ) : (
                                       <button
                                         type="button"

@@ -212,9 +212,9 @@ def test_reveal_export_single_slide_animation_xml_and_round_trip(tmp_path):
     assert len(effects) == 4
     assert all(e.get("transition") == "out" and e.get("filter") == "fade" for e in effects)
 
-    # Answer slide text must be black (000000), never green
+    # Answer slide text must be black (#0F172A or #000000), never green
     ans_title = next(sh for sh in prs2.slides[2].shapes if sh.has_text_frame)
-    assert str(ans_title.text_frame.paragraphs[0].font.color.rgb) == "000000"
+    assert str(ans_title.text_frame.paragraphs[0].font.color.rgb) in ("000000", "0F172A")
 
     # Round-trip test WITHOUT speaker-notes blob (forces structural extraction)
     for sl in prs2.slides:

@@ -84,3 +84,6 @@ OneDrive_*/
 
 # graphify knowledge-graph output (local, regenerate with: graphify update <dir>)
 graphify-out/
+
+# Claude Code local-only settings
+.claude/settings.local.json

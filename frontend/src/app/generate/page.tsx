@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Check, Plus, RefreshCw, Sparkles, Trash2, Star, Volume2, Video } from 'lucide-react';
+import { ArrowUp, Check, Plus, RefreshCw, Sparkles, Trash2, Star, Volume2, Video, Pin } from 'lucide-react';
 import { getApiBase, resolveMediaUrl } from '../../lib/api';
 import { HistoricalQuestion, SourceCatalog } from '../../lib/types';
 import BankPickerDrawer from '../../components/BankPickerDrawer';
@@ -88,6 +88,7 @@ type Draft = {
   fulfillment?: Fulfillment;
   stages?: string[];
   narrative_arc?: string | null;
+  curator_status?: 'curated' | 'fallback' | 'empty' | 'disabled';
 };
 
 const GREETINGS = [
@@ -104,18 +105,7 @@ const GREETINGS = [
   'No Googling in the back, please. What\u2019s the quiz?',
   'Tell me the vibe. I\u2019ll bring the buzzer.',
 ];
-const PLACEHOLDERS = [
-  '12 tough questions on fintech for a college finals',
-  'A gentle warm-up on brands and logos, no images',
-  'Family quiz night: food, festivals and cricket, 15 questions',
-  'Something fiendish on banking, for people who think they know money',
-];
 const STAGES = ['Reading your brief', 'Searching the archive', 'Weeding out repeats', 'Shaping the order', 'Writing the intro'];
-const FALLBACK_STARTERS = [
-  '10 evergreen questions on Indian startups',
-  'A tough 15-question finals round on banking and money',
-  'Warm-up quiz on brands and logos, no images',
-];
 
 // (format counts: see components/FormatCounts.tsx)
 async function apiFetch<T>(path: string, body?: unknown): Promise<T> {
@@ -156,14 +146,13 @@ export default function QuizzerHome() {
   const router = useRouter();
   const [greeting, setGreeting] = useState(GREETINGS[0]);
   const [prompt, setPrompt] = useState('');
-  const [ph, setPh] = useState(PLACEHOLDERS[0]);
-  const [starters, setStarters] = useState<string[]>(FALLBACK_STARTERS);
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState(0);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [qs, setQs] = useState<DraftQ[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
   // The prompt the quiz was first created from. Follow-ups ("make it harder") change lastPrompt, but the saved
@@ -229,8 +218,6 @@ export default function QuizzerHome() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- random pick must run after hydration
     setGreeting(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
-    setPh(PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
-    apiFetch<{ starters: string[] }>('/prompt-quiz/starters').then((d) => setStarters(d.starters.slice(0, 4))).catch(() => {});
     apiFetch<SourceCatalog>('/documents/sources').then(setSourceCatalog).catch(() => setSourceCatalog(null));
   }, []);
 
@@ -336,12 +323,19 @@ export default function QuizzerHome() {
         prompt: lastPrompt,
         question_id: id,
         keep_ids: qs.map((q) => q.id),
+        options: quizOptions(),
       });
       setQs((cur) => cur.map((q) => (q.id === id ? nq : q)));
       setChecked((cur) => {
         const next = new Set(cur);
         next.delete(id);
         next.add(nq.id);
+        return next;
+      });
+      setLockedIds((cur) => {
+        if (!cur.has(id)) return cur;
+        const next = new Set(cur);
+        next.delete(id);
         return next;
       });
     } catch {
@@ -409,8 +403,10 @@ export default function QuizzerHome() {
     const textToUse = (overrideText !== undefined ? overrideText : refineText).trim();
     if (!textToUse || loading || !draft) return;
 
-    // Checked questions are kept; unchecked questions are excluded
-    const keptIds = qs.filter((q) => checked.has(q.id)).map((q) => q.id);
+    // Locked questions are explicitly kept; unchecked questions are excluded
+    const keptIds = lockedIds.size > 0
+      ? qs.filter((q) => lockedIds.has(q.id) && checked.has(q.id)).map((q) => q.id)
+      : [];
     const excludedIds = qs.filter((q) => !checked.has(q.id)).map((q) => q.id);
     const currentQuestions = qs.map((q, idx) => ({
       index: idx + 1,
@@ -424,6 +420,7 @@ export default function QuizzerHome() {
       const d = await apiFetch<Draft>('/prompt-quiz/draft', {
         prompt: textToUse,
         previous_brief: draft.brief,
+        options: quizOptions(),
         keep_ids: keptIds,
         exclude_ids: excludedIds,
         current_questions: currentQuestions,
@@ -431,6 +428,7 @@ export default function QuizzerHome() {
       setDraft(d);
       setQs(d.questions);
       setChecked(new Set(d.questions.map((q) => q.id)));
+      setLockedIds((prev) => new Set([...prev].filter((id) => d.questions.some((q) => q.id === id))));
 
       setRefineText('');
       setLastPrompt(textToUse);
@@ -562,7 +560,7 @@ export default function QuizzerHome() {
             onBlur={() => setIsFocused(false)}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); } }}
-            placeholder={ph}
+            placeholder="Describe your quiz..."
             aria-label="Describe your quiz"
             className="w-full resize-none bg-transparent px-5 pt-4 text-[16px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none focus-none"
           />
@@ -604,18 +602,6 @@ export default function QuizzerHome() {
             </div>
           </div>
         </div>
-
-        {!draft && !loading && (
-          <ul className="mt-6 space-y-1 text-center">
-            {starters.map((s) => (
-              <li key={s}>
-                <button onClick={() => { setPrompt(s); run(s); }} className="text-[14px] text-slate-500 underline-offset-4 hover:text-slate-900 hover:underline">
-                  {s}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
 
         {loading && (
           <div className="mt-8 flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
@@ -840,6 +826,12 @@ export default function QuizzerHome() {
 
           <p className="text-[15px] text-slate-600">{draft.message}</p>
 
+          {draft.curator_status === 'fallback' && qs.length > 0 && (
+            <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-[12.5px] text-amber-900">
+              <span>AI curation timed out — showing keyword matches. Try regenerating for full AI curation.</span>
+            </div>
+          )}
+
           {draft.narrative_arc && (
             <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-purple-200 bg-purple-50/70 p-3 text-[13px] text-purple-950 shadow-xs">
               <Sparkles size={16} className="mt-0.5 shrink-0 text-purple-600" />
@@ -1057,7 +1049,7 @@ export default function QuizzerHome() {
                               loading="lazy"
                             />
                             <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                              Visual Clue
+                              Text + Image
                             </span>
                           </div>
                         )}
@@ -1177,6 +1169,15 @@ export default function QuizzerHome() {
                   </div>
                   <div className="flex shrink-0 items-start gap-1 text-slate-400 opacity-60 transition group-hover:opacity-100 focus-within:opacity-100">
                     <button
+                      type="button"
+                      aria-label={lockedIds.has(q.id) ? "Unlock question" : "Lock question"}
+                      onClick={() => toggle(lockedIds, q.id, setLockedIds)}
+                      className={`p-1.5 transition rounded ${lockedIds.has(q.id) ? 'bg-amber-100 text-amber-800' : 'hover:text-amber-700 disabled:opacity-30'}`}
+                      title={lockedIds.has(q.id) ? "Question pinned (will stay on Refine)" : "Pin question (keep during Refine)"}
+                    >
+                      <Pin size={16} className={lockedIds.has(q.id) ? "fill-amber-600 text-amber-700" : ""} />
+                    </button>
+                    <button
                       aria-label="Change topic for this question"
                       onClick={() => {
                         setCardTopicEdit(cardTopicEdit === q.id ? null : q.id);
@@ -1245,7 +1246,7 @@ export default function QuizzerHome() {
                   value={refineText}
                   onChange={(e) => setRefineText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleRefine(); }}
-                  placeholder="Adjust this quiz… (e.g. make it harder, add 1 question based on Bengaluru)"
+                  placeholder="Adjust this quiz…"
                   className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-10 py-2.5 text-[14px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                 />
                 <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">

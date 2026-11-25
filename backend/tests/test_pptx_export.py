@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
 from backend.app.main import app
 from backend.app.database import SessionLocal
 from backend.app.models.quiz import Quiz, GeneratedQuestion
@@ -596,4 +597,250 @@ def test_custom_template_formatting_font_sizes_and_bold_retention():
         if created_tpl_id:
             client.delete(f"/api/v1/templates/{created_tpl_id}")
         db.close()
+
+
+def test_speaker_notes_source_links_and_answer_removal_on_question_slide():
+    """
+    Verify that in downloaded PPT slides:
+    1. Question slide notes contains source references and links.
+    2. Question slide notes does NOT contain the answer or 'Official Answer:' (no answer leak).
+    3. Answer slide notes contains source links and context, without obsolete boilerplate.
+    4. Works across standard School export and Custom Template export.
+    """
+    sample_quiz = {
+        "id": "quiz-notes-test-clean",
+        "title": "Maritime History Championship",
+        "topic": "Exploration",
+        "questions": [
+            {
+                "id": "q-notes-1",
+                "question_text": "Which celestial event or landmark guided ancient Polynesian navigators across the Pacific Ocean?",
+                "answer": "The Southern Cross Constellation",
+                "explanation": "Used as a navigational compass by Pacific waypoint voyagers.",
+                "visual_clues": "Look at the Southern sky stars.",
+                "retrieval_sources": [
+                    {
+                        "document_title": "Polynesian Wayfinding & Astronomy.pptx",
+                        "slide_number": 7,
+                        "web_url": "https://qshala.sharepoint.com/:p:/s/Quizzes/Wayfinding_Pacific.pptx",
+                    }
+                ],
+                "is_approved": True,
+            }
+        ]
+    }
+
+    pptx_bytes = QuizExporter.to_pptx(
+        sample_quiz,
+        quiz_type="school",
+        include_social_slides=False,
+        show_answer_divider=True,
+    )
+    assert len(pptx_bytes) > 1000
+    prs = Presentation(io.BytesIO(pptx_bytes))
+
+    # Slide index 1: Question Slide
+    q_slide = prs.slides[1]
+    q_notes = q_slide.notes_slide.notes_text_frame.text if q_slide.has_notes_slide else ""
+
+    # 1. Answer, Presenter Clues, and Source Links MUST NOT be on Question slide notes
+    assert "Official Answer:" not in q_notes, "Question slide notes must not contain 'Official Answer:'"
+    assert "Southern Cross" not in q_notes, "Question slide notes must not reveal the answer!"
+    assert "Presenter Clues:" not in q_notes, "Presenter Clues belong on the Answer slide, not Question slide"
+    assert "Source:" not in q_notes, "Source links belong on the Answer slide, not Question slide"
+
+    # Slide index 3: Answer Reveal Slide
+    a_slide = prs.slides[3]
+    a_notes = a_slide.notes_slide.notes_text_frame.text if a_slide.has_notes_slide else ""
+
+    # 3. Answer slide notes must not have old generated boilerplate or leak on question
+    assert "Official Answer:" not in a_notes
+    assert "Presenter Talking Points:" not in a_notes
+
+    # 4. Answer slide must NOT have "Answer {idx}" header badge (separator slide is enough)
+    for sh in a_slide.shapes:
+        if sh.has_text_frame:
+            assert "Answer 1" not in sh.text_frame.text, "Answer slide must not have redundant 'Answer 1' header badge"
+
+    # 5. Answer text on answer slide must be center aligned
+    ans_text_frames = [sh.text_frame for sh in a_slide.shapes if sh.has_text_frame and "Southern Cross" in sh.text_frame.text]
+    assert len(ans_text_frames) == 1
+    assert ans_text_frames[0].paragraphs[0].alignment == PP_ALIGN.CENTER, "Answer text must be center aligned"
+
+
+
+
+def test_optimize_picture_source_shrinks_large_images(tmp_path):
+    """Oversized images (>1600px) are downscaled and compressed to keep PPTX exports under Cloud Run limits."""
+    from PIL import Image
+    from backend.app.services.export.exporter import _optimize_picture_source
+
+    big_png = tmp_path / "huge.png"
+    img = Image.new("RGB", (3200, 2400), color=(40, 120, 200))
+    img.save(big_png, format="PNG")
+    orig_size = big_png.stat().st_size
+
+    with Image.open(big_png) as opened:
+        result = _optimize_picture_source(big_png, opened)
+
+    assert isinstance(result, io.BytesIO)
+    optimized_bytes = result.getvalue()
+    assert len(optimized_bytes) < orig_size
+    with Image.open(io.BytesIO(optimized_bytes)) as opt_img:
+        assert max(opt_img.size) == 1600
+
+
+def test_large_pptx_export_uses_r2_download_url(monkeypatch):
+    """Exports exceeding Cloud Run's safe payload threshold upload to R2 and return a JSON download_url."""
+    import json
+    from unittest.mock import MagicMock
+    from fastapi.responses import JSONResponse
+    from backend.app.routers import quizzes as quizzes_router
+
+    fake_r2 = MagicMock()
+    fake_r2.is_configured = True
+    fake_r2.upload_bytes.return_value = "https://pub-test.r2.dev/exports/q1/abc_test.pptx"
+
+    monkeypatch.setattr(quizzes_router, "CLOUD_RUN_SAFE_EXPORT_BYTES", 100)
+    monkeypatch.setattr("backend.app.services.storage.r2_storage.get_media_storage", lambda: fake_r2)
+
+    resp = quizzes_router._pptx_export_response(b"x" * 250, "qshala_quiz_q1.pptx", "q1")
+    assert isinstance(resp, JSONResponse)
+    payload = json.loads(resp.body.decode("utf-8"))
+    assert payload["download_url"] == "https://pub-test.r2.dev/exports/q1/abc_test.pptx"
+    assert payload["filename"] == "qshala_quiz_q1.pptx"
+    assert payload["size_bytes"] == 250
+    fake_r2.upload_bytes.assert_called_once()
+
+
+def test_add_movie_on_reopened_deck_with_existing_media(tmp_path):
+    """Reopened decks containing existing audio/video parts must not crash add_movie with Part.sha1 AttributeError."""
+    from pptx.util import Inches
+    from backend.app.services.export.exporter import _patch_pptx_media_parts
+
+    mp3_a = tmp_path / "a.mp3"
+    mp3_a.write_bytes(b"ID3" + b"\x00" * 64)
+    mp3_b = tmp_path / "b.mp3"
+    mp3_b.write_bytes(b"ID3" + b"\x01" * 64)
+
+    prs1 = Presentation()
+    s1 = prs1.slides.add_slide(prs1.slide_layouts[6])
+    s1.shapes.add_movie(str(mp3_a), Inches(1), Inches(1), Inches(1), Inches(1), mime_type="audio/mpeg")
+    saved = tmp_path / "with_media.pptx"
+    prs1.save(str(saved))
+
+    _patch_pptx_media_parts()
+    prs2 = Presentation(str(saved))
+    s2 = prs2.slides.add_slide(prs2.slide_layouts[6])
+    s2.shapes.add_movie(str(mp3_b), Inches(1), Inches(1), Inches(1), Inches(1), mime_type="audio/mpeg")
+    out = tmp_path / "reexported.pptx"
+    prs2.save(str(out))
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_format_question_notes_on_answer_slide_only():
+    """Format-aware questions (CONNECT, IMAGE_REVEAL, etc.) must put speaker notes and QSHALA-FORMAT payloads
+    exclusively on the Answer slide, never on Question slides."""
+    import uuid
+    from backend.app.database import SessionLocal
+    from backend.app.models.document import Document, Slide
+    from backend.app.models.question import Question
+
+    db = SessionLocal()
+    doc_id, qs_id, as_id, q_id = (str(uuid.uuid4()) for _ in range(4))
+    try:
+        db.add(Document(id=doc_id, filename="connect_test.pptx", title="connect", file_type="pptx", storage_path="x"))
+        db.flush()
+        db.add(Slide(id=qs_id, document_id=doc_id, slide_number=1, speaker_notes="Secret Clue Notes: Maruti Suzuki"))
+        db.add(Slide(id=as_id, document_id=doc_id, slide_number=2, speaker_notes="Answer Details: Ignis means fire."))
+        db.flush()
+        db.add(Question(
+            id=q_id,
+            document_id=doc_id,
+            slide_id=qs_id,
+            answer_slide_id=as_id,
+            question_text="Connect these 4 clues",
+            answer="Maruti Suzuki",
+            topic="Automobiles",
+            question_format="CONNECT",
+            format_payload={"type": "CONNECT", "items": [{"order": 1, "image": ""}], "text_hint": "Car Models", "extraction": {"confidence": 1.0}}
+        ))
+        db.commit()
+
+        quiz = {
+            "id": "quiz_fmt_notes",
+            "title": "Connect Test",
+            "questions": [{
+                "id": q_id,
+                "slide_id": qs_id,
+                "answer_slide_id": as_id,
+                "order_index": 1,
+                "question_text": "Connect these 4 clues",
+                "answer": "Maruti Suzuki",
+                "question_format": "CONNECT",
+                "format_payload": {"type": "CONNECT", "items": [{"order": 1, "image": ""}], "text_hint": "Car Models", "extraction": {"confidence": 1.0}},
+                "is_approved": True,
+            }]
+        }
+
+        # Test across both standard and custom/school export modes
+        for q_type in ["minimalist", "qshala_school"]:
+            pptx_bytes = QuizExporter.to_pptx(quiz, quiz_type=q_type, show_answer_divider=True)
+            prs = Presentation(io.BytesIO(pptx_bytes))
+
+            # The question slide (slide 1 after cover) must have NO notes
+            q_slide = prs.slides[1]
+            q_notes = q_slide.notes_slide.notes_text_frame.text if q_slide.has_notes_slide else ""
+            assert q_notes == "", f"Question slide notes must be empty, but got: {q_notes!r}"
+            assert "Maruti Suzuki" not in q_notes
+            assert "QSHALA-FORMAT" not in q_notes
+
+            # The answer slide (final slide for this question) must contain the notes & format payload
+            ans_slide = prs.slides[-1]
+            assert ans_slide.has_notes_slide
+            a_notes = ans_slide.notes_slide.notes_text_frame.text
+            assert "Secret Clue Notes: Maruti Suzuki" in a_notes or "Original Notes:" in a_notes
+            assert "QSHALA-FORMAT v1" in a_notes
+    finally:
+        db.query(Question).filter(Question.id == q_id).delete()
+        db.query(Slide).filter(Slide.document_id == doc_id).delete()
+        db.query(Document).filter(Document.id == doc_id).delete()
+        db.commit()
+        db.close()
+
+
+def test_format_answer_text_color_is_black_not_green():
+    """Verify answer text across format questions and templates is black (#0F172A or #000000) and not green (#059669)."""
+    quiz = {
+        "id": "quiz_fmt_black_answer",
+        "title": "Black Answer Font Test",
+        "questions": [{
+            "id": "q_connect_black",
+            "order_index": 1,
+            "question_text": "Connect these clues",
+            "answer": "Maruti Suzuki",
+            "question_format": "CONNECT",
+            "format_payload": {"type": "CONNECT", "items": [{"order": 1, "image": ""}], "text_hint": "Car Models", "extraction": {"confidence": 1.0}},
+            "is_approved": True,
+        }]
+    }
+    for q_type in ["minimalist", "qshala_school", "varsity"]:
+        pptx_bytes = QuizExporter.to_pptx(quiz, quiz_type=q_type, show_answer_divider=True)
+        prs = Presentation(io.BytesIO(pptx_bytes))
+        ans_slide = prs.slides[-1]
+
+        runs_colors = []
+        for sh in ans_slide.shapes:
+            if sh.has_text_frame:
+                for p in sh.text_frame.paragraphs:
+                    if "Maruti Suzuki" in p.text:
+                        if p.font.color and p.font.color.type is not None and p.font.color.rgb is not None:
+                            runs_colors.append(str(p.font.color.rgb).upper())
+                        for r in p.runs:
+                            if r.font.color and r.font.color.type is not None and r.font.color.rgb is not None:
+                                runs_colors.append(str(r.font.color.rgb).upper())
+        assert len(runs_colors) > 0, f"Expected to find answer run with font color for {q_type}"
+        for c in runs_colors:
+            assert c != "059669", f"Answer font color must not be green 059669 for {q_type}, got: {c}"
+            assert c in ("0F172A", "000000"), f"Answer font color should be black for {q_type}, got: {c}"
 

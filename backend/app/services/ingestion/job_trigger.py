@@ -56,8 +56,11 @@ def trigger_ingestion_job(document_id: str) -> str:
             ),
         )
         operation = client.run_job(request=request)
-        execution_name = getattr(operation, "operation", None)
-        execution_name = getattr(execution_name, "name", None) or "unknown"
+        metadata = getattr(operation, "metadata", None)
+        execution_name = getattr(metadata, "name", None)
+        if not execution_name:
+            op_obj = getattr(operation, "operation", None)
+            execution_name = getattr(op_obj, "name", None) or "unknown"
         logger.info("[INGESTION_JOB] triggered execution=%s for doc_id=%s", execution_name, document_id)
         return execution_name
     except IngestionJobTriggerError:

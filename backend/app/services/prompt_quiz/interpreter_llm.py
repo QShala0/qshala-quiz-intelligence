@@ -166,7 +166,7 @@ def interpret_with_gemini(
     if not key:
         return None
 
-    from backend.app.services.ai.model_config import interpreter_model
+    from backend.app.services.ai.model_config import interpreter_model, thinking_config_rest
     model = interpreter_model()
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
            f"{model}:generateContent")
@@ -178,7 +178,7 @@ def interpret_with_gemini(
             "response_schema": BRIEF_SCHEMA,
             "temperature": 0.0,
             "maxOutputTokens": 800,
-            "thinkingConfig": {"thinkingBudget": 0},
+            **({"thinkingConfig": thinking_config_rest(model, "minimal")} if thinking_config_rest(model, "minimal") else {}),
         },
     }
 
