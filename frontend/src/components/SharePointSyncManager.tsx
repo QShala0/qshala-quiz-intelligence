@@ -17,6 +17,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { AdminOnly } from '@/context/AuthContext';
 import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem, IngestionStatus, SpNotImportedResponse, cleanSteps, getActiveStageIndex } from '@/lib/types';
 import SharePointImporter from '@/components/SharePointImporter';
 import { useToast } from '@/components/ui';
@@ -1221,15 +1222,17 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
                                     {file.folder_path}
                                   </span>
                                   {file.folder_id && (
-                                    <button
-                                      type="button"
-                                      title="Hide folder"
-                                      onClick={() => handleHideFolder(file.folder_id!, file.drive_id, file.folder_path)}
-                                      disabled={hidingFolderId === file.folder_id}
-                                      className="opacity-0 group-hover/folder:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded transition-opacity cursor-pointer shrink-0"
-                                    >
-                                      <EyeOff className="h-3 w-3" />
-                                    </button>
+                                    <AdminOnly>
+                                      <button
+                                        type="button"
+                                        title="Hide folder"
+                                        onClick={() => handleHideFolder(file.folder_id!, file.drive_id, file.folder_path)}
+                                        disabled={hidingFolderId === file.folder_id}
+                                        className="opacity-0 group-hover/folder:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded transition-opacity cursor-pointer shrink-0"
+                                      >
+                                        <EyeOff className="h-3 w-3" />
+                                      </button>
+                                    </AdminOnly>
                                   )}
                                 </div>
                               )}

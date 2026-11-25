@@ -5,8 +5,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
+from backend.app.models.auth import AuthUser
 from backend.app.models.question import Question
 from backend.app.models.quiz import Quiz, GeneratedQuestion, RetrievalSource
+from backend.app.services.auth.dependencies import get_current_user_optional
 from backend.app.services.prompt_quiz import engine
 
 router = APIRouter(prefix="/prompt-quiz", tags=["Prompt Quiz"])
@@ -497,7 +499,11 @@ def swap(req: SwapReq, db: Session = Depends(get_db)):
 
 
 @router.post("/save")
-def save(req: SaveReq, db: Session = Depends(get_db)):
+def save(
+    req: SaveReq,
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
     if not req.question_ids:
         raise HTTPException(status_code=400, detail="Must select at least 1 question")
     originals = {q.id: q for q in db.query(Question).filter(Question.id.in_(req.question_ids)).all()}
@@ -546,6 +552,8 @@ def save(req: SaveReq, db: Session = Depends(get_db)):
         raw_prompt=raw_prompt,
         question_count=len(ordered_ids),
         status="READY",
+        created_by_user_id=current_user.id if current_user else None,
+        created_by_name=current_user.display_name if current_user else None,
     )
     db.add(quiz)
     db.flush()

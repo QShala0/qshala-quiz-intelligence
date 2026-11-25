@@ -35,6 +35,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { AdminOnly } from '../context/AuthContext';
 import {
   SpBrowse,
   SpConfig,
@@ -679,38 +680,40 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
 
           <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
             {/* Admin Folder Access Button */}
-            <button
-              type="button"
-              onClick={() => {
-                if (adminToken) {
-                  setShowAdminManager(true);
-                  void loadAdminData(adminToken, driveId);
-                } else {
-                  setShowPasswordModal(true);
-                }
-              }}
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold shadow-xs transition-colors cursor-pointer ${
-                adminToken
-                  ? 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100'
-                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-              title="Manage which SharePoint folders quizmasters can access"
-            >
-              {adminToken ? (
-                <>
-                  <ShieldCheck className="h-3.5 w-3.5 text-amber-700" />
-                  <span>Folder Access</span>
-                  <span className="rounded-full bg-amber-200 px-1.5 py-0.2 text-[10px] font-bold text-amber-800">
-                    Admin
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Lock className="h-3.5 w-3.5 text-slate-500" />
-                  <span>Folder Access</span>
-                </>
-              )}
-            </button>
+            <AdminOnly>
+              <button
+                type="button"
+                onClick={() => {
+                  if (adminToken) {
+                    setShowAdminManager(true);
+                    void loadAdminData(adminToken, driveId);
+                  } else {
+                    setShowPasswordModal(true);
+                  }
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold shadow-xs transition-colors cursor-pointer ${
+                  adminToken
+                    ? 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                }`}
+                title="Manage which SharePoint folders quizmasters can access"
+              >
+                {adminToken ? (
+                  <>
+                    <ShieldCheck className="h-3.5 w-3.5 text-amber-700" />
+                    <span>Folder Access</span>
+                    <span className="rounded-full bg-amber-200 px-1.5 py-0.2 text-[10px] font-bold text-amber-800">
+                      Admin
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Folder Access</span>
+                  </>
+                )}
+              </button>
+            </AdminOnly>
 
             {crumbs.length > 1 && (
               <button
@@ -1401,8 +1404,9 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
           </div>
         )}
 
-        {/* Admin Password Modal */}
-        {showPasswordModal && (
+        <AdminOnly>
+          {/* Admin Password Modal */}
+          {showPasswordModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-fadeIn">
             <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl space-y-4">
               <div className="flex items-center justify-between">
@@ -1969,7 +1973,8 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
               </div>
             </div>
           </div>
-        )}
+          )}
+        </AdminOnly>
       </div>
     </div>
   );

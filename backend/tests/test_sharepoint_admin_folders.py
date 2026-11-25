@@ -118,6 +118,12 @@ def api_client(db_session, monkeypatch):
 
 
 def test_admin_password_verification(api_client, monkeypatch):
+    from backend.app.models.auth import AuthUser
+    from backend.app.services.auth.dependencies import require_admin
+    app.dependency_overrides[require_admin] = lambda: AuthUser(id="adm1", display_name="Admin", role="admin", status="active", provider="microsoft")
+    from backend.app.models.auth import AuthUser
+    from backend.app.services.auth.dependencies import require_admin
+    app.dependency_overrides[require_admin] = lambda: AuthUser(id="adm1", display_name="Admin", role="admin", status="active", provider="microsoft")
     monkeypatch.setattr(settings, "SHAREPOINT_ADMIN_PASSWORD", "secret123")
 
     # Wrong password
@@ -161,6 +167,9 @@ def test_admin_endpoints_require_token(api_client):
 
 
 def test_admin_browse_and_manage_folders(api_client, db_session, monkeypatch):
+    from backend.app.models.auth import AuthUser
+    from backend.app.services.auth.dependencies import require_admin
+    app.dependency_overrides[require_admin] = lambda: AuthUser(id="adm1", display_name="Admin", role="admin", status="active", provider="microsoft")
     monkeypatch.setattr(settings, "SHAREPOINT_ADMIN_PASSWORD", "pass123")
     auth_res = api_client.post("/api/v1/sharepoint/admin/verify", json={"password": "pass123"}).json()
     token = auth_res["token"]
@@ -280,6 +289,10 @@ def test_admin_search_files_and_folders(api_client, monkeypatch):
     unauth = api_client.get("/api/v1/sharepoint/admin/search?drive_id=D&q=Round1")
     assert unauth.status_code == 401
 
+    from backend.app.models.auth import AuthUser
+    from backend.app.services.auth.dependencies import require_admin
+    app.dependency_overrides[require_admin] = lambda: AuthUser(id="adm1", display_name="Admin", role="admin", status="active", provider="microsoft")
+
     # 2. Search with auth returns files and folders
     res = api_client.get("/api/v1/sharepoint/admin/search?drive_id=D&q=Round1", headers=headers)
     assert res.status_code == 200
@@ -314,6 +327,9 @@ def test_admin_search_files_and_folders(api_client, monkeypatch):
 async def test_subfolder_inheritance_and_access(api_client, db_session, monkeypatch):
     """When a top-level folder like Quizzes is allowed, all its subfolders inherit access,
     both in Quizmaster browsing/import and in Admin explore views."""
+    from backend.app.models.auth import AuthUser
+    from backend.app.services.auth.dependencies import require_admin
+    app.dependency_overrides[require_admin] = lambda: AuthUser(id="adm1", display_name="Admin", role="admin", status="active", provider="microsoft")
     monkeypatch.setattr(settings, "SHAREPOINT_ADMIN_PASSWORD", "secret123")
     token = create_admin_token()
     headers = {"x-admin-token": token}

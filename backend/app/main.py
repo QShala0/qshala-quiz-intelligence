@@ -256,6 +256,8 @@ _PUBLIC_EXACT = {
     f"{settings.API_V1_STR}/auth/login", "/auth/login",
     f"{settings.API_V1_STR}/auth/logout", "/auth/logout",
     f"{settings.API_V1_STR}/auth/me", "/auth/me",
+    f"{settings.API_V1_STR}/costs/refresh", "/costs/refresh",
+    f"{settings.API_V1_STR}/costs/refresh-status", "/costs/refresh-status",
 }
 
 def _api_key_required() -> bool:

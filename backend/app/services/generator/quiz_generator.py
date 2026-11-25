@@ -59,7 +59,12 @@ class QuizGenerator:
             parts.append(subtopic.strip())
         return " ".join(parts)
 
-    async def generate_quiz(self, req: QuizGenerateRequest) -> Quiz:
+    async def generate_quiz(
+        self,
+        req: QuizGenerateRequest,
+        created_by_user_id: Optional[str] = None,
+        created_by_name: Optional[str] = None,
+    ) -> Quiz:
         # Step 1: Clean Retrieval Query (do not contaminate vector search with prompt boilerplate)
         clean_query = f"{req.topic} {req.subtopic or ''}".strip()
 
@@ -118,6 +123,8 @@ class QuizGenerator:
         personality = req.personality or None
         quiz_obj = Quiz(
             title=quiz_title,
+            created_by_user_id=created_by_user_id,
+            created_by_name=created_by_name,
             topic=req.topic,
             subtopic=req.subtopic,
             quiz_format=q_format,

@@ -354,7 +354,7 @@ function buildQuestionSearchQuery(params: QuestionSearchParams): string {
 
 // SharePoint importer calls: surface the API's own message (e.g. "ask an admin to grant the app access") instead of raw JSON.
 async function spJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${getApiBase()}/sharepoint${path}`, { cache: 'no-store', ...init });
+  const res = await fetch(`${getApiBase()}/sharepoint${path}`, { cache: 'no-store', credentials: 'include', ...init });
   if (!res.ok) {
     let msg = `SharePoint request failed (HTTP ${res.status})`;
     try {
