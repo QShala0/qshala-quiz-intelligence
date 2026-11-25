@@ -120,6 +120,11 @@ def _text(slide, x, y, w, h, text, size=20, bold=False, color="0F172A", align="l
         p.font.bold = bold
         p.font.name = font
         p.font.color.rgb = _rgb(color)
+        for r in p.runs:
+            r.font.size = Pt(size)
+            r.font.bold = bold
+            r.font.name = font
+            r.font.color.rgb = _rgb(color)
     return tb
 
 
@@ -148,6 +153,11 @@ def _box(slide, x, y, w, h, fill: str, line: Optional[str] = None, text: str = "
         p.font.bold = bold
         p.font.name = font
         p.font.color.rgb = _rgb(color)
+        for r in p.runs:
+            r.font.size = Pt(size)
+            r.font.bold = bold
+            r.font.name = font
+            r.font.color.rgb = _rgb(color)
     return shp
 
 
@@ -234,7 +244,7 @@ def _reveal_slides(prs, blank, d: Dict[str, Any], P: Dict[str, Any], resolve: Ca
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 1.0, 0.6, 11.3, 1.0, d["answer"], size=34, bold=True, color="059669", align="center", name="Title 1")
+    _text(sa, 1.0, 0.6, 11.3, 1.0, d["answer"], size=34, bold=True, color="0F172A", align="center", name="Title 1")
     _picture(sa, full, 3.2, 1.7, 6.9, 4.8, name="Full Image")
     _notes(sa, blob)
 
@@ -266,7 +276,7 @@ def _list_it_slides(prs, blank, d, P, resolve, blob, idx):
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 1.0, 0.55, 11.3, 1.5, "Correct answers are ticked", size=26, bold=True, color="059669", name="Title 1")
+    _text(sa, 1.0, 0.55, 11.3, 1.5, "Correct answers are ticked", size=26, bold=True, color="0F172A", name="Title 1")
     grid(sa, True)
     _notes(sa, blob)
 
@@ -289,7 +299,7 @@ def _connect_slides(prs, blank, d, P, resolve, blob, idx):
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
+    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="0F172A", align="center", name="Title 1")
     _notes(sa, blob)
 
 
@@ -310,7 +320,7 @@ def _stepped_slides(prs, blank, d, P, resolve, blob, idx):
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
+    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="0F172A", align="center", name="Title 1")
     _notes(sa, blob)
 
 
@@ -347,7 +357,7 @@ def _arrange_slides(prs, blank, d, P, resolve, blob, idx):
     _backdrop(sa, bg)
     order = P.get("correct_order") or []
     head = ("Correct order: " + " – ".join(str(x) for x in order)) if order else "Correct order not recorded"
-    _text(sa, 1.0, 0.55, 11.3, 1.3, head, size=26, bold=True, color="059669", name="Title 1")
+    _text(sa, 1.0, 0.55, 11.3, 1.3, head, size=26, bold=True, color="0F172A", name="Title 1")
     draw(sa, True)
     _notes(sa, blob)
 
@@ -362,7 +372,7 @@ def _mcq_slides(prs, blank, d, P, resolve, blob, idx):
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
+    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="0F172A", align="center", name="Title 1")
     _notes(sa, blob)
 
 

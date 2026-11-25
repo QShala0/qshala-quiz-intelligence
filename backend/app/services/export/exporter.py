@@ -952,7 +952,18 @@ def _apply_custom_style(
                 cur_pt = f.size.pt if f.size else (size.pt if size else None)
                 if cur_pt and 16.0 <= cur_pt <= 30.0:
                     f.size = Pt(body_size_pt)
-            if color is not None:
+            from pptx.dml.color import RGBColor
+            green = "059669"
+            black = RGBColor(15, 23, 42)
+            c = color
+            try:
+                if f.color and f.color.type is not None and f.color.rgb is not None:
+                    c = f.color.rgb
+            except Exception:
+                pass
+            if c is not None and str(c).upper() in (green.upper(), "16A34A"):
+                f.color.rgb = black
+            elif color is not None:
                 try:
                     if f.color is None or getattr(f.color, "type", None) is None:
                         f.color.rgb = color
@@ -2477,7 +2488,7 @@ class QuizExporter:
                         pexp.font.size = Pt(14)
                         pexp.font.color.rgb = C_TEXT_MUTED
             else:
-                # Text-Only Answer Slide: Large green reveal
+                # Text-Only Answer Slide: Large black reveal
                 if explanation:
                     # Answer at top, explanation card below
                     tb_a = sa.shapes.add_textbox(Inches(1.00), Inches(1.60), Inches(11.333), Inches(1.20))
