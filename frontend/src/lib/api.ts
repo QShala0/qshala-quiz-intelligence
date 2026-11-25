@@ -51,13 +51,10 @@ const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
 const RETRY_DELAYS_MS = [300, 900];
 
 const fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
-  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
-  let finalInit = init;
-  if (apiKey) {
-    const headers = new Headers(init.headers || {});
-    headers.set('X-API-Key', apiKey);
-    finalInit = { ...init, headers };
-  }
+  const finalInit: RequestInit = {
+    ...init,
+    credentials: init.credentials || 'include',
+  };
 
   const method = (finalInit.method || 'GET').toUpperCase();
   if (method !== 'GET') {
@@ -65,10 +62,22 @@ const fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<
     // SharePoint imports) are deliberately NOT capped here.
     const urlText = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (!finalInit.signal && INTERACTIVE_URL_RE.test(urlText)) {
-      finalInit = { ...finalInit, signal: AbortSignal.timeout(INTERACTIVE_TIMEOUT_MS) };
+      finalInit.signal = AbortSignal.timeout(INTERACTIVE_TIMEOUT_MS);
     }
     try {
-      return await globalThis.fetch(input, finalInit);
+      const response = await globalThis.fetch(input, finalInit);
+      if (response.status === 401 && typeof window !== 'undefined') {
+        const isAuthLogin = urlText.includes('/auth/login');
+        const authGuardEnabled = process.env.NEXT_PUBLIC_AUTH_GUARD === '1' || process.env.NEXT_PUBLIC_AUTH_GUARD === 'true';
+        if (!isAuthLogin && authGuardEnabled) {
+          const currentPath = window.location.pathname;
+          if (currentPath !== '/login' && currentPath !== '/pending') {
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+            window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+          }
+        }
+      }
+      return response;
     } catch (err) {
       if (err && typeof err === 'object' && (err as { name?: string }).name === 'TimeoutError') {
         throw new Error('This is taking longer than expected. Please try again in a moment.');
@@ -81,6 +90,18 @@ const fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     try {
       const response = await globalThis.fetch(input, finalInit);
+      if (response.status === 401 && typeof window !== 'undefined') {
+        const urlText = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        const isAuthLogin = urlText.includes('/auth/login');
+        const authGuardEnabled = process.env.NEXT_PUBLIC_AUTH_GUARD === '1' || process.env.NEXT_PUBLIC_AUTH_GUARD === 'true';
+        if (!isAuthLogin && authGuardEnabled) {
+          const currentPath = window.location.pathname;
+          if (currentPath !== '/login' && currentPath !== '/pending') {
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+            window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+          }
+        }
+      }
       if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS_MS.length) {
         return response;
       }
@@ -1548,4 +1569,185 @@ export async function searchQshalaQuestions(params: Record<string, unknown> = {}
   const r = await fetch(`${base}/qshala/questions?${qs.toString()}`);
   if (!r.ok) throw new Error(`Search failed (${r.status})`);
   return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// Authentication & User Management API
+// ---------------------------------------------------------------------------
+
+export interface AuthUser {
+  id: string;
+  email: string | null;
+  username: string | null;
+  display_name: string;
+  team: string | null;
+  team_id: string | null;
+  role: 'admin' | 'member';
+  status: 'active' | 'pending' | 'blocked';
+  provider: 'microsoft' | 'password';
+  must_change_password: boolean;
+  failed_logins: number;
+  locked_until: string | null;
+  last_login_at: string | null;
+  created_at: string | null;
+  created_by: string | null;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  at: string | null;
+  actor_user_id: string;
+  action: string;
+  target_user_id: string | null;
+  detail: Record<string, unknown> | null;
+}
+
+export interface ListUsersResponse {
+  items: AuthUser[];
+  users: AuthUser[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ListAuditResponse {
+  items: AuditLogEntry[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export async function getMe(): Promise<AuthUser> {
+  const base = getApiBase();
+  const res = await fetch(`${base}/auth/me`);
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || `Failed to fetch current user (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function loginWithPassword(username: string, password: string): Promise<{ message: string; user: AuthUser }> {
+  const base = getApiBase();
+  const res = await fetch(`${base}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Invalid username or password');
+  }
+  return res.json();
+}
+
+export async function logout(): Promise<{ message: string }> {
+  const base = getApiBase();
+  const res = await fetch(`${base}/auth/logout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Logout failed');
+  }
+  return res.json();
+}
+
+export async function changePassword(oldPassword: string, newPassword: string): Promise<{ message: string }> {
+  const base = getApiBase();
+  const res = await fetch(`${base}/auth/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Change password failed');
+  }
+  return res.json();
+}
+
+export async function listUsers(params: { team?: string; page?: number; limit?: number } = {}): Promise<ListUsersResponse> {
+  const base = getApiBase();
+  const qs = new URLSearchParams();
+  if (params.team) qs.set('team', params.team);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  const res = await fetch(`${base}/auth/users?${qs.toString()}`);
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Failed to list users');
+  }
+  return res.json();
+}
+
+export async function createUser(data: {
+  email?: string;
+  username?: string;
+  display_name: string;
+  team_id?: string;
+  role?: string;
+  provider: string;
+  password?: string;
+  must_change_password?: boolean;
+}): Promise<AuthUser> {
+  const base = getApiBase();
+  const res = await fetch(`${base}/auth/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Failed to create user');
+  }
+  return res.json();
+}
+
+export async function updateUser(
+  id: string,
+  data: { display_name?: string; team_id?: string; role?: string; status?: string }
+): Promise<AuthUser> {
+  const base = getApiBase();
+  const res = await fetch(`${base}/auth/users/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Failed to update user');
+  }
+  return res.json();
+}
+
+export async function resetUserPassword(
+  id: string,
+  data: { new_password: string; must_change_password?: boolean }
+): Promise<{ ok: boolean }> {
+  const base = getApiBase();
+  const res = await fetch(`${base}/auth/users/${encodeURIComponent(id)}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Failed to reset password');
+  }
+  return res.json();
+}
+
+export async function listAuditLogs(params: { page?: number; limit?: number } = {}): Promise<ListAuditResponse> {
+  const base = getApiBase();
+  const qs = new URLSearchParams();
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  const res = await fetch(`${base}/auth/audit?${qs.toString()}`);
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Failed to load audit logs');
+  }
+  return res.json();
 }
