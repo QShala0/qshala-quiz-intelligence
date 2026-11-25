@@ -711,3 +711,28 @@ def test_large_pptx_export_uses_r2_download_url(monkeypatch):
     assert payload["filename"] == "qshala_quiz_q1.pptx"
     assert payload["size_bytes"] == 250
     fake_r2.upload_bytes.assert_called_once()
+
+
+def test_add_movie_on_reopened_deck_with_existing_media(tmp_path):
+    """Reopened decks containing existing audio/video parts must not crash add_movie with Part.sha1 AttributeError."""
+    from pptx.util import Inches
+    from backend.app.services.export.exporter import _patch_pptx_media_parts
+
+    mp3_a = tmp_path / "a.mp3"
+    mp3_a.write_bytes(b"ID3" + b"\x00" * 64)
+    mp3_b = tmp_path / "b.mp3"
+    mp3_b.write_bytes(b"ID3" + b"\x01" * 64)
+
+    prs1 = Presentation()
+    s1 = prs1.slides.add_slide(prs1.slide_layouts[6])
+    s1.shapes.add_movie(str(mp3_a), Inches(1), Inches(1), Inches(1), Inches(1), mime_type="audio/mpeg")
+    saved = tmp_path / "with_media.pptx"
+    prs1.save(str(saved))
+
+    _patch_pptx_media_parts()
+    prs2 = Presentation(str(saved))
+    s2 = prs2.slides.add_slide(prs2.slide_layouts[6])
+    s2.shapes.add_movie(str(mp3_b), Inches(1), Inches(1), Inches(1), Inches(1), mime_type="audio/mpeg")
+    out = tmp_path / "reexported.pptx"
+    prs2.save(str(out))
+    assert out.exists() and out.stat().st_size > 0
