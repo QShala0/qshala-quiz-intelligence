@@ -824,32 +824,123 @@ def resolve_question_duplicate(
 
     if action in ["CONFIRM_DUPLICATE", "MERGE"]:
         q.duplicate_status = "CONFIRMED_DUPLICATE"
+        keep_target = (getattr(req, "keep", None) or "EXISTING").upper()
         if q.duplicate_of_id:
             original = db.query(Question).filter(Question.id == q.duplicate_of_id).first()
             if original:
                 from backend.app.models.qshala_tag import QshalaQuestionMetadata
                 from backend.app.services.question_meta_service import add_repeat, meta_to_dict
                 dup_meta = db.query(QshalaQuestionMetadata).filter(QshalaQuestionMetadata.question_id == q.id).first()
+                orig_meta = db.query(QshalaQuestionMetadata).filter(QshalaQuestionMetadata.question_id == original.id).first()
+
+                prev_doc_id = original.document_id
+                prev_slide_range = original.source_slide_range
+
+                if keep_target == "CANDIDATE":
+                    # User chose to keep newly ingested candidate: copy candidate's text & media to original
+                    original.question_text = q.question_text
+                    original.answer = q.answer
+                    if q.options is not None:
+                        original.options = q.options
+                    if q.explanation is not None:
+                        original.explanation = q.explanation
+                    if q.topic:
+                        original.topic = q.topic
+                    if q.subtopic:
+                        original.subtopic = q.subtopic
+                    if q.topics:
+                        original.topics = q.topics
+                    if q.tags:
+                        original.tags = q.tags
+                    if q.question_format:
+                        original.question_format = q.question_format
+                    if q.format_payload is not None:
+                        original.format_payload = q.format_payload
+                    if q.format_data is not None:
+                        original.format_data = q.format_data
+                    if q.difficulty:
+                        original.difficulty = q.difficulty
+                    if q.difficulty_score is not None:
+                        original.difficulty_score = q.difficulty_score
+                    if q.cognitive_level:
+                        original.cognitive_level = q.cognitive_level
+                    if q.grade_min is not None:
+                        original.grade_min = q.grade_min
+                    if q.grade_max is not None:
+                        original.grade_max = q.grade_max
+                    if q.audience_suitability:
+                        original.audience_suitability = q.audience_suitability
+                    if q.image_refs:
+                        original.image_refs = q.image_refs
+                    if q.question_images:
+                        original.question_images = q.question_images
+                    if q.answer_images:
+                        original.answer_images = q.answer_images
+                    if q.audio_refs:
+                        original.audio_refs = q.audio_refs
+                    if q.question_audio:
+                        original.question_audio = q.question_audio
+                    if q.answer_audio:
+                        original.answer_audio = q.answer_audio
+                    if q.video_refs:
+                        original.video_refs = q.video_refs
+                    if q.question_videos:
+                        original.question_videos = q.question_videos
+                    if q.answer_videos:
+                        original.answer_videos = q.answer_videos
+                    if q.visual_clues:
+                        original.visual_clues = q.visual_clues
+                    if q.audio_transcript:
+                        original.audio_transcript = q.audio_transcript
+                    if q.video_transcript:
+                        original.video_transcript = q.video_transcript
+                    if q.raw_media_refs:
+                        original.raw_media_refs = q.raw_media_refs
+                    if q.embedding is not None:
+                        original.embedding = q.embedding
+                    if q.embedding_model:
+                        original.embedding_model = q.embedding_model
+                    if q.content_hash:
+                        original.content_hash = q.content_hash
+
+                    # Switch primary deck & slide pointers to candidate deck
+                    original.document_id = q.document_id
+                    original.slide_id = q.slide_id
+                    original.answer_slide_id = q.answer_slide_id
+                    original.source_slide_range = q.source_slide_range
+                    if q.source_year:
+                        original.source_year = q.source_year
+
+                    if prev_doc_id != q.document_id:
+                        add_repeat(db, original, prev_doc_id, meta_to_dict(orig_meta), prev_slide_range,
+                                   match_type="CONFIRMED")
+
                 if q.document_id == original.document_id:
-                    # Same deck: it is not "found again in another quiz", so just count it and keep the row.
+                    # Same deck: count it
                     original.occurrence_count = (original.occurrence_count or 1) + 1
                 else:
-                    rep = add_repeat(db, original, q.document_id, meta_to_dict(dup_meta), q.source_slide_range,
+                    repeat_doc_id = prev_doc_id if keep_target == "CANDIDATE" else q.document_id
+                    repeat_meta = orig_meta if keep_target == "CANDIDATE" else dup_meta
+                    repeat_range = prev_slide_range if keep_target == "CANDIDATE" else q.source_slide_range
+
+                    rep = add_repeat(db, original, repeat_doc_id, meta_to_dict(repeat_meta), repeat_range,
                                      match_type="CONFIRMED")
                     if rep is not None:
                         original.occurrence_count = (original.occurrence_count or 1) + 1
                     prov = list(original.provenance_decks or [])
-                    if not any(p.get("document_id") == q.document_id for p in prov):
-                        prov.append({"document_id": q.document_id, "slide_id": q.slide_id})
-                        original.provenance_decks = prov
-                    # The question is stored once: the extra copy goes, and the original carries the Repeated entry.
-                    db.delete(q)
-                    db.commit()
-                    o_item = db.query(Question, Document, Slide).\
-                        outerjoin(Document, Question.document_id == Document.id).\
-                        outerjoin(Slide, Question.slide_id == Slide.id).\
-                        filter(Question.id == original.id).first()
-                    return _enrich_one(db, to_question_response(*o_item))
+                    for d_id, s_id in [(q.document_id, q.slide_id), (prev_doc_id, None)]:
+                        if d_id and not any(p.get("document_id") == d_id for p in prov):
+                            prov.append({"document_id": d_id, "slide_id": s_id})
+                    original.provenance_decks = prov
+
+                # The question is stored once: remove candidate copy
+                db.delete(q)
+                db.commit()
+                o_item = db.query(Question, Document, Slide).\
+                    outerjoin(Document, Question.document_id == Document.id).\
+                    outerjoin(Slide, Question.slide_id == Slide.id).\
+                    filter(Question.id == original.id).first()
+                return _enrich_one(db, to_question_response(*o_item))
     elif action in ["DISMISS_UNIQUE", "RESOLVE"]:
         q.duplicate_status = "RESOLVED"
     else:
