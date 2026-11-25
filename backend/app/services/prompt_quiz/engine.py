@@ -449,9 +449,9 @@ def _brief_from_regex(prompt: str, count: Optional[int],
         star_marked = True
         filters["star_marked"] = True
 
-    m_yr = re.search(r"\b(?:from\s+)?(20[12]\d)\s+(?:decks?|archive|prelims?|finals?|questions?|sets?)\b|\b(?:archive|decks?)\s+(?:from\s+)?(20[12]\d)\b", p_lower)
+    m_yr = re.search(r"\b(?:questions?|decks?|archive|quizzes?|sets?)\s+(?:from|in|of)\s+(?:the\s+)?(20[12]\d)(?!s\b)\b|\b(?:from|in)\s+(?:the\s+)?(20[12]\d)\s+(?:decks?|archive|prelims?|finals?|questions?|sets?)\b|\b(?:archive|decks?)\s+(?:from\s+)?(20[12]\d)\b", p_lower)
     if m_yr:
-        source_year = int(m_yr.group(1) or m_yr.group(2))
+        source_year = int(m_yr.group(1) or m_yr.group(2) or m_yr.group(3))
         filters["year"] = source_year
 
     if re.search(r"\b(audio|video|sound\s+clips?|listen)\b", p_lower) and not re.search(r"\b(no|without|not|avoid|skip|zero|exclude|except|nothing)\b.*\b(?:audio|video|clip|clips|sound)\b", p_lower) and not filters.get("exclude_image"):
@@ -1368,7 +1368,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         if getattr(brief, "source_deck", None):
             deck_target = brief.source_deck.lower().strip()
         elif brief.source == "regex":
-            if re.search(r"\b(?:from|in)\s+(?:the\s+)?[a-z0-9]{3,}\b|\bset\s*#?\s*\d+\b|\b(?:deck|presentation|archive)\b|\bzvq\b", p_lower):
+            if re.search(r"\b(?:from|in|for)\s+(?:the\s+)?[a-z0-9]{3,}\b|\bset\s*#?\s*\d+\b|\b(?:quiz|deck|presentation|archive)\b|\bzvq\b", p_lower):
                 deck_target = p_lower
 
         if deck_target:
@@ -1759,7 +1759,7 @@ def swap_one(db: Session, prompt: str, question_id: str, keep_ids: List[str],
         if getattr(brief, "source_deck", None):
             deck_target = brief.source_deck.lower().strip()
         elif brief.source == "regex":
-            if re.search(r"\b(?:from|in)\s+(?:the\s+)?[a-z0-9]{3,}\b|\bset\s*#?\s*\d+\b|\b(?:deck|presentation|archive)\b|\bzvq\b", p_lower):
+            if re.search(r"\b(?:from|in|for)\s+(?:the\s+)?[a-z0-9]{3,}\b|\bset\s*#?\s*\d+\b|\b(?:quiz|deck|presentation|archive)\b|\bzvq\b", p_lower):
                 deck_target = p_lower
 
         if deck_target:

@@ -460,9 +460,9 @@ def parse_prompt(prompt: str):
     if re.search(r"\b(starred|star\s+marked)\b", p):
         filters["star_marked"] = True
 
-    m_yr = re.search(r"\b(?:from\s+)?(20[12]\d)\s+(?:decks?|archive|prelims?|finals?|questions?|sets?)\b|\b(?:archive|decks?)\s+(?:from\s+)?(20[12]\d)\b", p)
+    m_yr = re.search(r"\b(?:questions?|decks?|archive|quizzes?|sets?)\s+(?:from|in|of)\s+(?:the\s+)?(20[12]\d)(?!s\b)\b|\b(?:from|in)\s+(?:the\s+)?(20[12]\d)\s+(?:decks?|archive|prelims?|finals?|questions?|sets?)\b|\b(?:archive|decks?)\s+(?:from\s+)?(20[12]\d)\b", p)
     if m_yr:
-        filters["year"] = int(m_yr.group(1) or m_yr.group(2))
+        filters["year"] = int(m_yr.group(1) or m_yr.group(2) or m_yr.group(3))
 
     if re.search(r"\b(audio|video|sound\s+clips?|listen)\b", p) and not re.search(r"\b(no|without|not|avoid|skip|zero|exclude|except|nothing)\b.*\b(?:audio|video|clip|clips|sound)\b", p) and not filters.get("exclude_image"):
         filters["audio_or_video"] = True
