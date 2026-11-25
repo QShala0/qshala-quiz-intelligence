@@ -22,6 +22,8 @@ export interface DocumentItem {
   question_count: number;
   processing_status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
   processing_error?: string | null;
+  uploaded_by_user_id?: string | null;
+  uploaded_by_name?: string | null;
   uploaded_at: string;
 }
 

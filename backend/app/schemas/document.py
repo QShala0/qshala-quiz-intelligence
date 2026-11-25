@@ -36,6 +36,8 @@ class DocumentListItem(DocumentBase):
     question_count: int
     processing_status: str
     processing_error: Optional[str] = None
+    uploaded_by_user_id: Optional[str] = None
+    uploaded_by_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class DocumentResponse(DocumentListItem):

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, BigInteger, Text, DateTime, Index, Boolean, UniqueConstraint
+from sqlalchemy import Column, String, Integer, BigInteger, Text, DateTime, Index, Boolean, UniqueConstraint, ForeignKey
 from backend.app.database import Base
 
 class SharePointSyncState(Base):
@@ -40,6 +40,8 @@ class SharePointFile(Base):
     match_document_id = Column(String(36), nullable=True)     # existing document this file duplicates, when found
     batch_id = Column(String(36), nullable=True)               # one importer click = one batch
     selected_at = Column(DateTime(timezone=True), nullable=True)
+    importer_user_id = Column(String(36), ForeignKey("auth_users.id", ondelete="SET NULL"), nullable=True)
+    importer_name = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("ix_sharepoint_files_batch_id", "batch_id"), Index("ix_sharepoint_files_sync_status", "sync_status"))
