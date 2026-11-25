@@ -172,7 +172,7 @@ export default function QuizzesLibraryPage() {
       {/* Clean Table List of Quizzes */}
       <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden">
         {loading ? (
-          <TableSkeleton columns={7} />
+          <TableSkeleton columns={8} />
         ) : (
           <table className="w-full text-left text-[13px] border-collapse">
             <thead>
@@ -182,6 +182,7 @@ export default function QuizzesLibraryPage() {
                 <th className="py-3 px-4">Format</th>
                 <th className="py-3 px-4">Questions</th>
                 <th className="py-3 px-4">Difficulty</th>
+                <th className="py-3 px-4">Created by</th>
                 <th className="py-3 px-4">Created</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -257,6 +258,7 @@ export default function QuizzesLibraryPage() {
                     {quiz.question_count} Qs
                   </td>
                   <td className="py-3.5 px-4 text-slate-600">{quiz.difficulty}</td>
+                  <td className="py-3.5 px-4 text-slate-600">{quiz.created_by_name || '-'}</td>
                   <td className="py-3.5 px-4 text-slate-400 text-[12px] font-normal">
                     {quiz.created_at ? new Date(quiz.created_at).toLocaleDateString() : 'Recent'}
                   </td>
@@ -311,7 +313,7 @@ export default function QuizzesLibraryPage() {
 
               {quizzes.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-[13px] text-slate-400 font-normal">
+                  <td colSpan={8} className="py-12 text-center text-[13px] text-slate-400 font-normal">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <QT
                         pose="box-yellow"

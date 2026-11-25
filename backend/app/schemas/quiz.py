@@ -165,6 +165,8 @@ class QuizResponse(BaseModel):
     style: Optional[str] = "QSHALA_HISTORICAL"
     raw_prompt: Optional[str] = None
     status: Optional[str] = "COMPLETED"
+    created_by_user_id: Optional[str] = None
+    created_by_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     questions: List[GeneratedQuestionResponse] = []

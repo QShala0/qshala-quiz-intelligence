@@ -419,6 +419,8 @@ export interface Quiz {
   style: string;
   raw_prompt?: string | null;
   status: string;
+  created_by_user_id?: string | null;
+  created_by_name?: string | null;
   created_at: string;
   updated_at: string;
   questions: GeneratedQuestion[];

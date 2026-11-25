@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, Body
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, noload, selectinload
 from backend.app.database import get_db
+from backend.app.models.auth import AuthUser
 from backend.app.models.quiz import Quiz, GeneratedQuestion
+from backend.app.services.auth.dependencies import get_current_user_optional
 from backend.app.schemas.quiz import (
     QuizGenerateRequest,
     QuizResponse,
@@ -72,11 +74,16 @@ def _pptx_export_response(pptx_bytes: bytes, filename: str, clean_id: str):
 @router.post("/generate", response_model=QuizResponse)
 async def generate_quiz(
     req: QuizGenerateRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         generator = QuizGenerator(db)
-        quiz = await generator.generate_quiz(req)
+        quiz = await generator.generate_quiz(
+            req,
+            created_by_user_id=current_user.id if current_user else None,
+            created_by_name=current_user.display_name if current_user else None,
+        )
         return quiz
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

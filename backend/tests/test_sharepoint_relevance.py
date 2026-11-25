@@ -466,30 +466,39 @@ def test_endpoint_not_imported_classification_and_filters(db, monkeypatch):
     assert len(data_p2["files"]) == 1
     assert data_p2["files"][0]["id"] == f_other_deck.id
 
-    # 8. Hide folder escape valve
-    hide_res = client.post(
-        "/api/v1/sharepoint/not-imported/hide-folder",
-        json={"folder_id": f_sub.id, "drive_id": drive_id, "path": "Quizzes/2026 Finals"},
+    # 8. Hide folder escape valve (requires admin)
+    from backend.app.main import app as _app
+    from backend.app.models.auth import AuthUser
+    from backend.app.services.auth.dependencies import require_admin
+    _app.dependency_overrides[require_admin] = lambda: AuthUser(
+        id="adm1", display_name="Admin", role="admin", status="active", provider="microsoft"
     )
-    assert hide_res.status_code == 200
-    db._test_hidden_folder_ids.append(f_sub.id)
+    try:
+        hide_res = client.post(
+            "/api/v1/sharepoint/not-imported/hide-folder",
+            json={"folder_id": f_sub.id, "drive_id": drive_id, "path": "Quizzes/2026 Finals"},
+        )
+        assert hide_res.status_code == 200
+        db._test_hidden_folder_ids.append(f_sub.id)
 
-    # After hiding f_sub, f_likely is excluded!
-    res_after_hide = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&view=likely")
-    assert res_after_hide.status_code == 200
-    data_after_hide = res_after_hide.json()
-    assert data_after_hide["buckets"]["likely"] == 0
-    assert data_after_hide["buckets"]["excluded"] == 4
-    assert len(data_after_hide["files"]) == 0
+        # After hiding f_sub, f_likely is excluded!
+        res_after_hide = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&view=likely")
+        assert res_after_hide.status_code == 200
+        data_after_hide = res_after_hide.json()
+        assert data_after_hide["buckets"]["likely"] == 0
+        assert data_after_hide["buckets"]["excluded"] == 4
+        assert len(data_after_hide["files"]) == 0
 
-    # 9. Unhide folder
-    unhide_res = client.delete(f"/api/v1/sharepoint/not-imported/hide-folder/{f_sub.id}")
-    assert unhide_res.status_code == 200
-    res_after_unhide = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&view=likely")
-    assert res_after_unhide.status_code == 200
-    data_after_unhide = res_after_unhide.json()
-    assert data_after_unhide["buckets"]["likely"] == 1
-    assert len(data_after_unhide["files"]) == 1
+        # 9. Unhide folder
+        unhide_res = client.delete(f"/api/v1/sharepoint/not-imported/hide-folder/{f_sub.id}")
+        assert unhide_res.status_code == 200
+        res_after_unhide = client.get(f"/api/v1/sharepoint/not-imported?drive_id={drive_id}&view=likely")
+        assert res_after_unhide.status_code == 200
+        data_after_unhide = res_after_unhide.json()
+        assert data_after_unhide["buckets"]["likely"] == 1
+        assert len(data_after_unhide["files"]) == 1
+    finally:
+        _app.dependency_overrides.pop(require_admin, None)
 
 
 def test_relevance_cbse_tightened_rules(monkeypatch):

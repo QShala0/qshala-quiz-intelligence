@@ -9,10 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, H
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from backend.app.database import get_db
+from backend.app.models.auth import AuthUser
 from backend.app.models.sharepoint import SharePointSyncState, SharePointFile, SharePointAllowedFolder
 from backend.app.models.sharepoint_index import SharePointHiddenFolder, SharePointIndexItem
 from backend.app.models.job import IngestionJob
 from backend.app.config import settings
+from backend.app.services.auth.dependencies import require_admin
 from backend.app.services.sharepoint import importer
 from backend.app.services.sharepoint.graph_client import get_sharepoint_client
 
@@ -204,7 +206,10 @@ class AdminFolderRequest(BaseModel):
 
 
 @router.post("/admin/verify")
-def admin_verify(req: AdminVerifyRequest):
+def admin_verify(
+    req: AdminVerifyRequest,
+    _admin: AuthUser = Depends(require_admin),
+):
     expected_pw = (settings.SHAREPOINT_ADMIN_PASSWORD or "qshala-admin").strip()
     if not hmac.compare_digest(req.password.strip().encode(), expected_pw.encode()):
         raise HTTPException(status_code=401, detail="Incorrect admin password")
@@ -217,7 +222,7 @@ async def admin_browse(
     drive_id: str,
     folder_id: Optional[str] = None,
     next_url: Optional[str] = None,
-    _auth: bool = Depends(require_admin_auth),
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Admin full-drive SharePoint browser without scope restrictions.
@@ -295,7 +300,7 @@ async def admin_search(
     drive_id: str,
     q: str = Query(..., min_length=1),
     folder_id: Optional[str] = None,
-    _auth: bool = Depends(require_admin_auth),
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Keyword search across file and folder names in SharePoint.
@@ -379,7 +384,7 @@ async def admin_search(
 @router.get("/admin/allowed-folders")
 def admin_get_allowed_folders(
     drive_id: Optional[str] = None,
-    _auth: bool = Depends(require_admin_auth),
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     query = db.query(SharePointAllowedFolder)
@@ -408,7 +413,7 @@ def admin_get_allowed_folders(
 @router.post("/admin/allowed-folders")
 async def admin_save_allowed_folder(
     req: AdminFolderRequest,
-    _auth: bool = Depends(require_admin_auth),
+    admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     client = get_sharepoint_client()
@@ -451,7 +456,7 @@ async def admin_save_allowed_folder(
             folder_path=folder_path,
             display_name=req.display_name,
             is_active=req.is_active,
-            added_by="admin",
+            added_by=admin.display_name or admin.email or "admin",
         )
         db.add(row)
 
@@ -475,7 +480,7 @@ async def admin_save_allowed_folder(
 def admin_delete_allowed_folder(
     folder_id: str,
     drive_id: str = Query(...),
-    _auth: bool = Depends(require_admin_auth),
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     row = db.query(SharePointAllowedFolder).filter(
@@ -695,7 +700,11 @@ class HideFolderRequest(BaseModel):
 
 
 @router.post("/not-imported/hide-folder")
-def hide_sharepoint_folder(req: HideFolderRequest, db: Session = Depends(get_db)):
+def hide_sharepoint_folder(
+    req: HideFolderRequest,
+    _admin: AuthUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     """Hide a folder and all its items from not-imported queries."""
     if not req.folder_id:
         raise HTTPException(status_code=400, detail="folder_id is required")
@@ -732,7 +741,11 @@ def hide_sharepoint_folder(req: HideFolderRequest, db: Session = Depends(get_db)
 
 
 @router.delete("/not-imported/hide-folder/{folder_id}")
-def unhide_sharepoint_folder(folder_id: str, db: Session = Depends(get_db)):
+def unhide_sharepoint_folder(
+    folder_id: str,
+    _admin: AuthUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     """Unhide a previously hidden folder."""
     existing = db.query(SharePointHiddenFolder).filter(
         SharePointHiddenFolder.folder_id == folder_id
