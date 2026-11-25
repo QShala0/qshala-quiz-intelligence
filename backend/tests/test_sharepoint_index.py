@@ -376,7 +376,7 @@ async def test_not_imported_duplicate_and_sorting_and_paging(db):
     db.add_all([item_dupe, item_newer, item_older, item_undated, state])
     db.commit()
 
-    with patch("backend.app.config.settings.SHAREPOINT_ROOT_FOLDERS", ""):
+    with patch("backend.app.config.settings.SHAREPOINT_ROOT_FOLDERS", ""), patch("backend.app.config.settings.SHAREPOINT_ROOT_FOLDER", ""):
         # Full list: dupe excluded -> 3 files
         full = await sp_index.get_not_imported_from_index(db, client=None, drive_id=drive_id, limit=200, offset=0)
         assert full["total"] == 3

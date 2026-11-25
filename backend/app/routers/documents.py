@@ -924,24 +924,13 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
     if doc.processing_status == "COMPLETED":
         raise HTTPException(status_code=409, detail="Ingestion already completed; delete the document instead.")
 
-    # Cancel any queued or processing ingestion jobs for this document
-    from backend.app.models.job import IngestionJob
-    jobs = db.query(IngestionJob).filter(
-        IngestionJob.document_id == document_id,
-        IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
-    ).all()
-    for j in jobs:
-        j.status = "CANCELLED"
-        j.current_step = "CANCELLED"
-        j.cancel_requested = True
-        j.error_message = "Cancelled by user"
-
     request_doc_cancel(document_id)
     # Also set the DB flag: if ingestion is running in a separate worker process (Cloud Run Job
     # mode), the in-memory CANCELLED_DOCS set above is invisible to it -- the worker's cancel
     # poller picks this up instead. Harmless no-op for the in-process path.
     doc.cancel_requested = True
     db.commit()
+
     reg = INGESTION_STATUS_REGISTRY.get(document_id)
     if reg and reg.get("status") == "PROCESSING":
         reg["current_step"] = "Cancelling..."
@@ -954,7 +943,28 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
     # row and leave orphaned uploads. Leave cancel_requested set; the worker's poller sees it, stops at its next
     # checkpoint and purges the document itself.
     if worker_is_alive(db, document_id):
+        from backend.app.models.job import IngestionJob
+        jobs = db.query(IngestionJob).filter(
+            IngestionJob.document_id == document_id,
+            IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
+        ).all()
+        for j in jobs:
+            j.cancel_requested = True
+        db.commit()
         return {"status": "CANCELLING", "document_id": document_id}
+
+    # Cancel any queued or processing ingestion jobs for this document
+    from backend.app.models.job import IngestionJob
+    jobs = db.query(IngestionJob).filter(
+        IngestionJob.document_id == document_id,
+        IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
+    ).all()
+    for j in jobs:
+        j.status = "CANCELLED"
+        j.current_step = "CANCELLED"
+        j.cancel_requested = True
+        j.error_message = "Cancelled by user"
+    db.commit()
 
     # Nothing is actively running for this id (e.g. server restarted mid-ingest): clean up now.
     purge_document(db, document_id)
@@ -1091,6 +1101,21 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     if reg and reg.get("status") == "PROCESSING":
         request_doc_cancel(document_id)  # stop the running pipeline instead of orphaning it
 
+    # A Cloud Run Job worker in another container owns this deck: deleting the rows now would pull them out from
+    # under it. Flag it; the worker stops at its next checkpoint and removes the document itself.
+    if worker_is_alive(db, document_id):
+        request_doc_cancel(document_id)
+        doc.cancel_requested = True
+        from backend.app.models.job import IngestionJob
+        jobs = db.query(IngestionJob).filter(
+            IngestionJob.document_id == document_id,
+            IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
+        ).all()
+        for j in jobs:
+            j.cancel_requested = True
+        db.commit()
+        return {"message": "Deletion requested: the running worker is being stopped and will remove the document"}
+
     # Cancel any queued or processing ingestion jobs for this document
     from backend.app.models.job import IngestionJob
     jobs = db.query(IngestionJob).filter(
@@ -1102,14 +1127,7 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
         j.current_step = "CANCELLED"
         j.cancel_requested = True
         j.error_message = "Document deleted"
-
-    # A Cloud Run Job worker in another container owns this deck: deleting the rows now would pull them out from
-    # under it. Flag it; the worker stops at its next checkpoint and removes the document itself.
-    if worker_is_alive(db, document_id):
-        request_doc_cancel(document_id)
-        doc.cancel_requested = True
-        db.commit()
-        return {"message": "Deletion requested: the running worker is being stopped and will remove the document"}
+    db.commit()
 
     if os.path.exists(doc.storage_path):
         try:
