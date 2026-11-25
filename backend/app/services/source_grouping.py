@@ -35,6 +35,13 @@ _GENERIC_DECK_WORDS: Set[str] = {
     "edition", "archive", "upload", "uploaded", "source", "sources", "based", "related",
     "topic", "topics", "subtopic", "foundation", "challenge", "championship", "contest",
     "bowl", "fest", "megaquiz", "master", "masters", "junior", "senior", "kids", "family",
+    # Stop words, prepositions, common modifiers that must never act as distinctive deck tokens:
+    "with", "from", "that", "this", "have", "will", "about", "into", "over", "after", "before",
+    "only", "also", "more", "some", "like", "just", "make", "give", "need", "want", "keep",
+    "avoid", "stuff", "they", "them", "their", "there", "what", "which", "when", "where",
+    "word", "words", "quick", "quirky", "smart", "south", "north", "east", "west",
+    "hindi", "hindu", "english", "reserve", "commerce", "sustainability", "diwali",
+    "academic", "academy",
 }
 
 _FILE_EXT_RE = re.compile(r"\.(?:pptx|ppt|pdf|docx?|xlsx?)$", re.IGNORECASE)

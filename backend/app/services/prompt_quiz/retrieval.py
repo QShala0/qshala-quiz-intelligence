@@ -418,9 +418,9 @@ def parse_prompt(prompt: str):
             break
     if re.search(r"\bevergreen|timeless|any year\b", p):
         filters["evergreen_only"] = True
-    if re.search(r"\bschool|kids|children|family|safe|non-?political|no politics\b", p):
+    if re.search(r"(?<!b-)\b(?:school|kids|children|family|safe|non-?political|no politics)\b", p) and not re.search(r"\b(?:no|not|without|avoid)\s+(?:basic\s+)?(?:school|school-level)\b", p):
         filters["school_safe"] = True
-    if re.search(r"\bno image|text only|without images?|non-?image\b", p):
+    if re.search(r"\b(?:no|without|zero|non-?visual|text-?only)\s*(?:of\s+)?(?:images?|pics?|visuals?|photos?|clues?)\b|\bnon-?images?\b|\btext\s+only\b|\bvoice\s+call\b|\bread\s+out\s+loud\b", p):
         filters["exclude_image"] = True
     if re.search(r"\bindia|indian\b", p):
         filters["india_international"] = "IN"
@@ -460,11 +460,11 @@ def parse_prompt(prompt: str):
     if re.search(r"\b(starred|star\s+marked)\b", p):
         filters["star_marked"] = True
 
-    m_yr = re.search(r"\b(20[12]\d)\b", p)
+    m_yr = re.search(r"\b(?:from\s+)?(20[12]\d)\s+(?:decks?|archive|prelims?|finals?|questions?|sets?)\b|\b(?:archive|decks?)\s+(?:from\s+)?(20[12]\d)\b", p)
     if m_yr:
-        filters["year"] = int(m_yr.group(1))
+        filters["year"] = int(m_yr.group(1) or m_yr.group(2))
 
-    if re.search(r"\b(audio|video|clip|clips|sound)\b", p):
+    if re.search(r"\b(audio|video|sound\s+clips?|listen)\b", p) and not re.search(r"\b(no|without|not|avoid|skip|zero|exclude|except|nothing)\b.*\b(?:audio|video|clip|clips|sound)\b", p) and not filters.get("exclude_image"):
         filters["audio_or_video"] = True
 
     # Remove explicit grade/class ranges before extracting requested question count

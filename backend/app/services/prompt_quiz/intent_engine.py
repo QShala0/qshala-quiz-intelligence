@@ -164,6 +164,11 @@ INTENT_SCHEMA: Dict[str, Any] = {
             "enum": ["images_only", "audio_or_video", "text_only", "any"],
             "description": "'images_only' if asked for questions with images/pictures/visual clues; 'audio_or_video' if asked for audio/video clips; 'text_only' if asked for no images/text-only; else 'any'."
         },
+        "source_deck": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Specific named quiz deck, presentation, or series if the user explicitly asks for questions FROM a specific source/deck (e.g. 'Agastya', 'aghtya', 'Set 2 Prelims', 'ZVQ', 'AmiQuiz Curiae'). Leave null for general topics, themes, or conversational prose."
+        },
         "year": {
             "type": "INTEGER",
             "nullable": True,
@@ -218,7 +223,9 @@ def _build_system_prompt(taxonomy: Dict[str, List[str]]) -> str:
         "     * Set round_stage: 'prelims' for 'prelims', 'finals' for 'finals', 'warmup' for 'warm-up'.\n"
         "     * Set play_mode: 'BUZZER' for 'buzzer', 'TIEBREAK' for 'tiebreak' or 'tiebreaker'.\n"
         "     * Set star_marked: true for 'starred' or 'star questions'.\n"
-        "     * Set year: integer if a 4-digit year is requested (e.g. 2024).\n"
+        "     * Set year: integer ONLY if an archive/deck year is explicitly requested (e.g. 'from 2024 decks'). Never set year when it is part of the topic itself (e.g. 'events in 2026', 'founded after 2020').\n"
+        "     * Set source_deck: string ONLY if a specific named deck/source is asked for (e.g. 'from Agastya Prelims'). Leave null for normal topics or conversational text.\n"
+        "     * Set media_filter: 'text_only' if asked for no images, text only, without pictures, or for voice call/read aloud; 'images_only' if questions with images requested; 'audio_or_video' if audio/video requested; else 'any'.\n"
         "   - Output strictly valid JSON conforming to the schema."
     )
 
@@ -449,35 +456,51 @@ def deconstruct_prompt(
             # but keep universal science questions (NA/INTL) eligible unless India-only is explicitly asked.
             filters["india_focused"] = True
 
-        has_no_images = bool(parsed.get("no_images")) or bool(
-            re.search(r"\b(no|without|zero|non-?visual|text-?only)\s*(?:of\s+)?(?:images?|pics?|visuals?|photos?)\b|\btext\s+only\b", p_lower)
+        media_pref = parsed.get("media_filter")
+        has_no_images = bool(parsed.get("no_images")) or (media_pref == "text_only") or bool(
+            re.search(r"\b(no|without|zero|non-?visual|text-?only)\s*(?:of\s+)?(?:images?|pics?|visuals?|photos?)\b|\bnon-?images?\b|\btext\s+only\b|\bvoice\s+call\b|\bread\s+(?:them\s+)?out\s+loud\b", p_lower)
         )
-        wants_images = bool(
+        wants_images = (media_pref == "images_only") or (bool(
             re.search(r"\b(?:only|with)\s+(?:questions?\s+with\s+)?(?:images?|pics?|visuals?|photos?)\b", p_lower)
-        ) and not has_no_images
+        ) and not has_no_images)
+        wants_av = (media_pref == "audio_or_video") or (
+            bool(re.search(r"\b(audio|video|sound\s+clips?|listen)\b", p_lower))
+            and not re.search(r"\b(no|without|not|avoid|skip|zero|exclude|except|nothing)\b.*\b(?:audio|video|clip|clips|sound)\b", p_lower)
+            and not has_no_images
+        )
+
         if has_no_images:
             filters["no_images"] = True
             filters["exclude_image"] = True
             filters.pop("require_images", None)
+            filters.pop("audio_or_video", None)
         elif wants_images:
             filters.pop("no_images", None)
             filters.pop("exclude_image", None)
             filters["require_images"] = True
+        elif wants_av:
+            filters["audio_or_video"] = True
+            filters.pop("no_images", None)
+            filters.pop("exclude_image", None)
 
         if re.search(r"\b(evergreen|timeless|any year)\b", p_lower):
             filters["evergreen"] = True
             filters["evergreen_only"] = True
 
-        is_family_or_school = target_aud == "school" or any(
-            w in p_lower for w in ("school", "kid", "child", "family", "student", "assembly")
-        )
-        if is_family_or_school:
-            filters["school_safe"] = True
+        # Trust Gemini's target_audience calibration
+        if target_aud == "school":
             filters["audience"] = "school"
+            filters["school_safe"] = True
         elif target_aud in ("college", "corporate"):
             filters["audience"] = target_aud
-        elif not filters.get("audience") and target_aud:
-            filters["audience"] = target_aud
+        else:
+            filters["audience"] = target_aud or "general"
+
+        # Explicit family/all-ages request implies clean/safe content without necessarily dumbing down to elementary school
+        if re.search(r"\b(family|all[-\s]ages|cousins?)\b", p_lower):
+            filters["school_safe"] = True
+            if filters.get("audience") == "school" and not re.search(r"\b(kids?|children|elementary|primary|class\s*\d+|assembly)\b", p_lower):
+                filters["audience"] = "general"
 
         explicit_diff = bool(re.search(
             r"\b(hard(?:er)?|tough(?:er)?|difficult|finals?|killer|spicy|spicier|easy|easier|warm-?up|beginner|gentle|balanced|medium)\b",
@@ -498,7 +521,8 @@ def deconstruct_prompt(
                 elif re.search(r"\b(balanced|medium)\b", p_lower):
                     hard_bias = "medium"
             if filters.get("audience") == "school" and not hard_bias and not is_constraint_refinement:
-                hard_bias = "easy"
+                if re.search(r"\b(kids?|children|elementary|primary|class\s*[1-5])\b", p_lower):
+                    hard_bias = "easy"
 
         fmt_filter = parsed.get("format_filter")
         if fmt_filter in ("STANDARD_QA", "STANDARD", "", "NONE", None):
@@ -580,14 +604,6 @@ def deconstruct_prompt(
             star_marked = True
             filters["star_marked"] = True
 
-        m_yr = re.search(r"\b(20[12]\d)\b", p_lower)
-        if m_yr:
-            year = int(m_yr.group(1))
-            filters["year"] = year
-
-        if re.search(r"\b(audio|video|clip|clips|sound)\b", p_lower):
-            filters["audio_or_video"] = True
-
         if corpus_series:
             filters["corpus_series"] = corpus_series
             if corpus_series == "ZVQ":
@@ -604,6 +620,14 @@ def deconstruct_prompt(
             filters["star_marked"] = star_marked
         if year is not None:
             filters["year"] = year
+
+        raw_source_deck = parsed.get("source_deck")
+        source_deck = str(raw_source_deck).strip() if raw_source_deck and str(raw_source_deck).strip().lower() not in ("null", "none", "") else None
+        if not source_deck and is_constraint_refinement and previous_brief:
+            source_deck = previous_brief.get("source_deck")
+
+        if subject:
+            subject = re.sub(r"\b(?:and|or|after|before|with|from|for|in|on|of|to|by)\s*$", "", subject, flags=re.I).strip()
 
         framing = (
             (previous_brief or {}).get("framing")
@@ -666,6 +690,7 @@ def deconstruct_prompt(
                 star_marked=star_marked,
                 repeat_filter=repeat_filter,
                 source_year=year,
+                source_deck=source_deck,
         )
         logger.info(
                 f"Dynamic Intent parsed: subject='{subject}', expansions={len(expansions)}, aud='{target_aud}', l1={brief.topics_l1}"

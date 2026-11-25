@@ -77,11 +77,14 @@ class Brief:
     star_marked: Optional[bool] = None
     repeat_filter: Optional[str] = "all"
     source_year: Optional[int] = None
+    source_deck: Optional[str] = None
 
     def public(self) -> Dict[str, Any]:
         d = asdict(self)
         if d.get("must_match_criteria") is None:
             d.pop("must_match_criteria", None)
+        if d.get("source_deck") is None:
+            d.pop("source_deck", None)
         return d
 
 
@@ -202,6 +205,7 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
     repeat_filter = gem.get("repeat_filter") or (previous_brief or {}).get("repeat_filter") or "all"
     star_marked = gem.get("star_marked") if gem.get("star_marked") is not None else (previous_brief or {}).get("star_marked")
     source_year = gem.get("year") or (previous_brief or {}).get("source_year")
+    source_deck = gem.get("source_deck") or (previous_brief or {}).get("source_deck")
     if sort_by != "relevance":
         filters["sort_by"] = sort_by
     if corpus_series:
@@ -245,6 +249,7 @@ def _brief_from_gemini(prompt: str, gem: Dict[str, Any], count: Optional[int],
         star_marked=star_marked,
         repeat_filter=repeat_filter,
         source_year=source_year,
+        source_deck=source_deck,
     )
 
 
@@ -320,7 +325,7 @@ def _brief_from_regex(prompt: str, count: Optional[int],
         filters["india_international"] = "INTL"
 
     # Regex audience hints
-    if re.search(r"\b(school|kids?|class\s*\d+|assembly|children)\b", p):
+    if re.search(r"(?<!b-)\b(school|kids?|class\s*\d+|assembly|children)\b", p, re.I) and not re.search(r"\b(?:no|not|without|avoid)\s+(?:basic\s+)?(?:school|school-level)\b", p, re.I):
         filters["audience"] = "school"
         filters["school_safe"] = True
     elif re.search(r"\b(college|fest|hostel|campus)\b", p):
@@ -404,6 +409,7 @@ def _brief_from_regex(prompt: str, count: Optional[int],
     repeat_filter = (previous_brief or {}).get("repeat_filter") or "all"
     star_marked = (previous_brief or {}).get("star_marked")
     source_year = (previous_brief or {}).get("source_year")
+    source_deck = (previous_brief or {}).get("source_deck")
 
     if re.search(r"\b(most\s+(?:frequently\s+)?asked|most\s+repeated|frequently\s+asked|popular|top\s+asked)\b", p_lower):
         sort_by = "most_asked"
@@ -443,12 +449,12 @@ def _brief_from_regex(prompt: str, count: Optional[int],
         star_marked = True
         filters["star_marked"] = True
 
-    m_yr = re.search(r"\b(20[12]\d)\b", p_lower)
+    m_yr = re.search(r"\b(?:from\s+)?(20[12]\d)\s+(?:decks?|archive|prelims?|finals?|questions?|sets?)\b|\b(?:archive|decks?)\s+(?:from\s+)?(20[12]\d)\b", p_lower)
     if m_yr:
-        source_year = int(m_yr.group(1))
+        source_year = int(m_yr.group(1) or m_yr.group(2))
         filters["year"] = source_year
 
-    if re.search(r"\b(audio|video|clip|clips|sound)\b", p_lower):
+    if re.search(r"\b(audio|video|sound\s+clips?|listen)\b", p_lower) and not re.search(r"\b(no|without|not|avoid|skip|zero|exclude|except|nothing)\b.*\b(?:audio|video|clip|clips|sound)\b", p_lower) and not filters.get("exclude_image"):
         filters["audio_or_video"] = True
 
     if corpus_series:
@@ -495,6 +501,7 @@ def _brief_from_regex(prompt: str, count: Optional[int],
         star_marked=star_marked,
         repeat_filter=repeat_filter,
         source_year=source_year,
+        source_deck=source_deck,
     )
 
 
@@ -844,6 +851,15 @@ def _load_bank_uncached(db: Session, slots: tuple = LIVE_ONLY) -> List[Dict[str,
         q_text_clean = (q.question_text or "").strip()
         has_img = bool(getattr(q, 'question_images', None) or getattr(q, 'image_refs', None))
         if len(q_text_clean) < 8 and not has_img:
+            continue
+        # Exclude non-playable slide stubs and non-question slides
+        if re.match(r"^\s*\([+-]?\d+\s*/\s*[+-]?\d+\)\s*$", q_text_clean) and not has_img:
+            continue
+        if re.match(r"^slide\s+\d+$", (q.answer or "").strip().lower()) and not has_img:
+            continue
+        if re.match(r"^(?:topic:\s*recap\b|instructions?\s+one\s+team\b)", q_text_clean.lower()):
+            continue
+        if re.search(r"\bpiqued\s+curiosity\s+of\s+\d+.*children\b", q_text_clean.lower()):
             continue
         t = tags.get(q.id)
         m = meta.get(q.id)
@@ -1348,14 +1364,22 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     # (e.g. "Agastya", "aghtya", or "Agastya Set 2 Prelims"), restrict retrieval to matching decks.
     matched_source_input_tokens: Set[str] = set()
     if not brief.filters.get("deck_filter") and not brief.filters.get("document_ids"):
-        detected_scope = _detect_deck_scope(p_lower, bank)
-        if detected_scope.get("tokens"):
-            brief.filters["deck_filter"] = detected_scope["tokens"]
-        if detected_scope.get("doc_ids"):
-            brief.filters["document_ids"] = detected_scope["doc_ids"]
-        if detected_scope.get("labels"):
-            brief.filters["source_labels"] = detected_scope["labels"]
-        matched_source_input_tokens = set(detected_scope.get("matched_input_tokens") or [])
+        deck_target = None
+        if getattr(brief, "source_deck", None):
+            deck_target = brief.source_deck.lower().strip()
+        elif brief.source == "regex":
+            if re.search(r"\b(?:from|in)\s+(?:the\s+)?[a-z0-9]{3,}\b|\bset\s*#?\s*\d+\b|\b(?:deck|presentation|archive)\b|\bzvq\b", p_lower):
+                deck_target = p_lower
+
+        if deck_target:
+            detected_scope = _detect_deck_scope(deck_target, bank)
+            if detected_scope.get("tokens"):
+                brief.filters["deck_filter"] = detected_scope["tokens"]
+            if detected_scope.get("doc_ids"):
+                brief.filters["document_ids"] = detected_scope["doc_ids"]
+            if detected_scope.get("labels"):
+                brief.filters["source_labels"] = detected_scope["labels"]
+            matched_source_input_tokens = set(detected_scope.get("matched_input_tokens") or [])
     elif brief.filters.get("document_ids") and not brief.filters.get("source_labels"):
         from backend.app.services.source_grouping import derive_source_series
         sel_ids = {str(x) for x in (brief.filters.get("document_ids") or [])}
@@ -1731,12 +1755,20 @@ def swap_one(db: Session, prompt: str, question_id: str, keep_ids: List[str],
     p_lower = normalize_compound_typos(prompt or "").lower().strip()
     matched_source_toks: Set[str] = set()
     if not brief.filters.get("deck_filter") and not brief.filters.get("document_ids"):
-        detected_scope = _detect_deck_scope(p_lower, bank)
-        if detected_scope.get("tokens"):
-            brief.filters["deck_filter"] = detected_scope["tokens"]
-        if detected_scope.get("doc_ids"):
-            brief.filters["document_ids"] = detected_scope["doc_ids"]
-        matched_source_toks = set(detected_scope.get("matched_input_tokens") or [])
+        deck_target = None
+        if getattr(brief, "source_deck", None):
+            deck_target = brief.source_deck.lower().strip()
+        elif brief.source == "regex":
+            if re.search(r"\b(?:from|in)\s+(?:the\s+)?[a-z0-9]{3,}\b|\bset\s*#?\s*\d+\b|\b(?:deck|presentation|archive)\b|\bzvq\b", p_lower):
+                deck_target = p_lower
+
+        if deck_target:
+            detected_scope = _detect_deck_scope(deck_target, bank)
+            if detected_scope.get("tokens"):
+                brief.filters["deck_filter"] = detected_scope["tokens"]
+            if detected_scope.get("doc_ids"):
+                brief.filters["document_ids"] = detected_scope["doc_ids"]
+            matched_source_toks = set(detected_scope.get("matched_input_tokens") or [])
     source_drop = matched_source_toks | {str(t).strip().lower() for t in (brief.filters.get("deck_filter") or []) if str(t).strip()}
     if source_drop and brief.query:
         brief.query = " ".join(w for w in tokenize(brief.query) if w not in source_drop).strip()

@@ -47,15 +47,20 @@ _SYSTEM = (
     "   - Verify EVERY candidate against USER REQUEST, CRITERIA, and LOCALITY before selecting its ID.\n"
     "   - Reject surface-keyword traps (e.g. matching a year or broad category word when the core subject does not match).\n"
     "   - If the candidate pool contains genuine matches (even if only 2, 3, or 5 exist), select all valid matches. Returning [] is always better than returning off-topic trivia.\n"
-    "3. HIGH-ORDER HUMAN CURATION:\n"
+    "3. SLIDE HYGIENE & QUALITY (Crucial):\n"
+    "   - NEVER select slides that are instructions, rules, recap slides (e.g. 'Topic: Recap'), platform promotional slides, or incomplete scoring stubs without a clear question stem.\n"
+    "4. MULTI-TOPIC BALANCE & ANTI-CLUSTERING:\n"
+    "   - When USER REQUEST mentions multiple topics (e.g. 'AI, space, electric vehicles, and semiconductors' or 'cricket, food, festivals'), distribute selections across all requested topics rather than over-indexing on just one.\n"
+    "   - NEVER select 3+ questions with the same narrow motif (e.g. prison/inmates) unless specifically requested by the user.\n"
+    "5. HIGH-ORDER HUMAN CURATION:\n"
     "   - Look beyond surface keywords. Match the user's requested tone, audience psychology, and subtle themes.\n"
     "   - When an audience like 'school students' or 'kids' in India is requested, prioritize inspiring figures, scientists, space pioneers, educators, national icons, and achievers that school students study, relate to, and find educational, rather than adult corporate finance, tax avoidance, or adult satire.\n"
     "   - REFINEMENT CONTINUITY: When refining an existing quiz (e.g. 'Make it for middle school kids', 'Focus on India', 'Only with images'), ALWAYS honor the Core Topic, Locality, and Source Deck from ACTIVE QUIZ CONTEXT, and keep top-matching questions from CURRENTLY DISPLAYED QUIZ (especially Slot 1) when they still fit the active topic and filters rather than dropping relevant questions unnecessarily.\n"
     "   - Build a narrative arc: start with an engaging icebreaker/hook, explore the theme with increasing depth, and finish with a memorable climax or tie-breaker.\n"
-    "4. DIVERSITY & ZERO DUPLICATE ENTITIES (Crucial):\n"
+    "6. DIVERSITY & ZERO DUPLICATE ENTITIES (Crucial):\n"
     "   - NEVER select two questions that ask about or have the same answer/entity (e.g. do NOT pick two questions about Dadabhai Naoroji, or two about Ramanujan).\n"
     "   - Every selected question must feature a distinct person, mission, invention, or concept.\n"
-    "5. Output JSON strictly adhering to the schema."
+    "7. Output JSON strictly adhering to the schema."
 )
 
 
