@@ -1,6 +1,6 @@
 """PPTX export v1 for format-aware questions: STATIC expansion, no animation authoring.
 
-    IMAGE_REVEAL   4 progressive slides (all covers -> one more lifted each slide) + ANSWER + answer slide
+    IMAGE_REVEAL   1 animated slide (4 click-triggered fade-exit covers in mainSeq) + ANSWER + answer slide
     LIST_IT        question slide (9 options) + ANSWER + answer slide with ticks and crosses
     CONNECT        grid slide (up to 9 pictures, hint) + ANSWER + answer slide
     STEPPED_CLUE   one slide per clue + ANSWER + answer slide
@@ -103,10 +103,11 @@ def _rgb(h: str):
     return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 
-def _text(slide, x, y, w, h, text, size=20, bold=False, color="0F172A", align="left", font="Inter", name=None):
+def _text(slide, x, y, w, h, text, size=20, bold=False, color="0F172A", align="left", font="Causten Round", name=None, shapes=None):
     from pptx.util import Inches, Pt
     from pptx.enum.text import PP_ALIGN
-    tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+    target = shapes if shapes is not None else slide.shapes
+    tb = target.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
     if name:
         tb.name = name
     tf = tb.text_frame
@@ -118,7 +119,7 @@ def _text(slide, x, y, w, h, text, size=20, bold=False, color="0F172A", align="l
         p.alignment = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT}[align]
         p.font.size = Pt(size)
         p.font.bold = bold
-        p.font.name = font
+        p.font.name = "Causten Round Bold" if bold and font == "Causten Round" else font
         p.font.color.rgb = _rgb(color)
     return tb
 
@@ -201,39 +202,111 @@ def _notes(slide, text: str) -> None:
 
 # ------------------------------------------------------------------------------------------------ per-format slides
 
+def _add_reveal_exit_timing(slide, spids: List[int]) -> None:
+    """Write <p:timing> with click-triggered fade exit (presetID=10) animations in mainSeq for each cover spid."""
+    if not spids:
+        return
+    from lxml import etree
+
+    ns_p = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    ids = iter(range(3, 1000))
+    pars_xml = []
+    for spid in spids:
+        pars_xml.append(
+            f'<p:par><p:cTn id="{next(ids)}" fill="hold">'
+            f'<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>'
+            f'<p:childTnLst><p:par><p:cTn id="{next(ids)}" fill="hold">'
+            f'<p:stCondLst><p:cond delay="0"/></p:stCondLst>'
+            f'<p:childTnLst><p:par><p:cTn id="{next(ids)}" presetID="10" presetClass="exit" '
+            f'presetSubtype="0" fill="hold" grpId="0" nodeType="clickEffect">'
+            f'<p:stCondLst><p:cond delay="0"/></p:stCondLst>'
+            f'<p:childTnLst>'
+            f'<p:animEffect transition="out" filter="fade"><p:cBhvr>'
+            f'<p:cTn id="{next(ids)}" dur="500"/><p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl>'
+            f'</p:cBhvr></p:animEffect>'
+            f'<p:set><p:cBhvr><p:cTn id="{next(ids)}" dur="1" fill="hold">'
+            f'<p:stCondLst><p:cond delay="499"/></p:stCondLst></p:cTn>'
+            f'<p:tgtEl><p:spTgt spid="{spid}"/></p:tgtEl>'
+            f'<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>'
+            f'</p:cBhvr><p:to><p:strVal val="hidden"/></p:to></p:set>'
+            f'</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>'
+        )
+    timing_xml = (
+        f'<p:timing xmlns:p="{ns_p}"><p:tnLst><p:par>'
+        f'<p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>'
+        f'<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq">'
+        f'<p:childTnLst>{"".join(pars_xml)}</p:childTnLst></p:cTn>'
+        f'<p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst>'
+        f'<p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst>'
+        f'</p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>'
+    )
+    sld = slide._element
+    for old in sld.findall(f"{{{ns_p}}}timing"):
+        sld.remove(old)
+    el = etree.fromstring(timing_xml)
+    ext = sld.find(f"{{{ns_p}}}extLst")
+    if ext is not None:
+        ext.addprevious(el)
+    else:
+        sld.append(el)
+
+
 def _reveal_slides(prs, blank, d: Dict[str, Any], P: Dict[str, Any], resolve: Callable[[str], Optional[Path]], blob: str, idx: int):
+    from pptx.util import Inches
+
     bg = d.get("question_bg")
-    steps = P["reveal_steps"]
+    steps = sorted(P["reveal_steps"], key=lambda st: st.get("step", 0))
     full = resolve(P.get("full_image")) if P.get("full_image") else None
     X, Y, W, H = 1.0, 1.6, 5.8, 5.0
     cells = {"top-left": (0, 0), "top-right": (1, 0), "bottom-left": (0, 1), "bottom-right": (1, 1)}
-    for k in range(len(steps)):
-        s = prs.slides.add_slide(blank)
-        _backdrop(s, bg)
-        _text(s, 1.0, 0.6, 11.3, 0.9, P.get("prompt") or d["question_text"], size=26, bold=True, name="Title 1")
-        pic = _picture(s, full, X, Y, W, H, name="Full Image")
-        # the covers sit on the picture as placed (scaled to fit, centred), not on the box it was fitted into
-        X0, Y0, W0, H0 = (X, Y, W, H) if pic is None else (pic.left / 914400.0, pic.top / 914400.0, pic.width / 914400.0, pic.height / 914400.0)
-        for i, st in enumerate(steps):
-            if i < k:
-                continue                                    # this cover is already lifted on this slide
-            cx, cy = cells.get(st.get("position"), (i % 2, i // 2))
-            c, w_ = st.get("correct"), st.get("wrong")
-            ladder = f"+{c} / {MINUS}{abs(w_)}" if w_ else f"+{c} / 0"
-            _box(s, X0 + cx * W0 / 2, Y0 + cy * H0 / 2, W0 / 2, H0 / 2, "1E293B", "475569", f"{st['step']}\n{ladder}", size=20,
-                 name=f"Cover {st['step']}")
-            if st.get("cover"):                                  # the deck's own cover tile, when it has one
-                _picture(s, resolve(st["cover"]), X0 + cx * W0 / 2, Y0 + cy * H0 / 2, W0 / 2, H0 / 2, name=f"Cover Tile {st['step']}")
-        lines = "\n".join(f"{st['step']}.  +{st['correct']} / {MINUS}{abs(st['wrong'])}" if st.get("wrong") else f"{st['step']}.  +{st['correct']} / 0"
-                          for st in steps)
+
+    s = prs.slides.add_slide(blank)
+    _backdrop(s, bg)
+    _text(s, 1.0, 0.55, 11.3, 0.9, P.get("prompt") or d["question_text"], size=26, bold=True, name="Title 1")
+    pic = _picture(s, full, X, Y, W, H, name="Full Image")
+    # Covers sit directly over the placed full picture (scaled to fit, centred)
+    X0, Y0, W0, H0 = (X, Y, W, H) if pic is None else (pic.left / 914400.0, pic.top / 914400.0, pic.width / 914400.0, pic.height / 914400.0)
+
+    cover_spids: List[int] = []
+    for i, st in enumerate(steps):
+        cx, cy = cells.get(st.get("position"), (i % 2, i // 2))
+        qx, qy, qw, qh = X0 + cx * W0 / 2, Y0 + cy * H0 / 2, W0 / 2, H0 / 2
+        cover_path = resolve(st["cover"]) if st.get("cover") else None
+        c, w_ = st.get("correct"), st.get("wrong")
+        if cover_path:
+            grp = s.shapes.add_group_shape()
+            grp.name = f"QSHALA Group {st['step']}"
+            cpic = _picture(s, cover_path, qx, qy, qw, qh, shapes=grp.shapes, name=f"Cover {st['step']}")
+            if cpic is not None:
+                cpic.left, cpic.top, cpic.width, cpic.height = Inches(qx), Inches(qy), Inches(qw), Inches(qh)
+            badge_txt = f"{st['step']} | +{c}/{MINUS}{abs(w_)}" if c is not None and w_ is not None else str(st["step"])
+            _text(s, qx + qw * 0.15, qy + qh * 0.3, qw * 0.7, qh * 0.4, badge_txt,
+                  size=18, bold=True, align="center", color="FFFFFF", shapes=grp.shapes, name=f"Badge {st['step']}")
+            cover_spids.append(grp.shape_id)
+        else:
+            box = _box(s, qx, qy, qw, qh, "1E293B", "475569", str(st["step"]), size=28,
+                       name=f"Cover {st['step']}")
+            cover_spids.append(box.shape_id)
+
+    _add_reveal_exit_timing(s, cover_spids)
+
+    has_scores = any(st.get("correct") is not None for st in steps)
+    if has_scores:
+        lines = "\n".join(
+            f"{st['step']}.  +{st['correct']} / {MINUS}{abs(st['wrong'])}"
+            if st.get("wrong") else f"{st['step']}.  +{st.get('correct', 0)} / 0"
+            for st in steps
+        )
         _text(s, 7.3, 1.7, 5.0, 3.0, "Points if answered after cover\n" + lines, size=18, color="334155")
-        _text(s, 7.3, 5.6, 5.0, 0.8, f"Covers lifted: {k} of {len(steps)}", size=14, color="64748B")
-        if k == 0:
-            _notes(s, blob)
+
+    if P.get("timer_seconds"):
+        _text(s, 7.3, 5.0, 5.0, 0.8, f"Timer: {P['timer_seconds']}s", size=16, bold=True, color="475569", name="Timer")
+
+    _notes(s, blob)
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
-    _text(sa, 1.0, 0.6, 11.3, 1.0, d["answer"], size=34, bold=True, color="059669", name="Title 1")
+    _text(sa, 1.0, 0.6, 11.3, 1.0, d["answer"], size=34, bold=True, color="000000", name="Title 1")
     _picture(sa, full, 3.2, 1.7, 6.9, 4.8, name="Full Image")
 
 

@@ -168,12 +168,13 @@ def test_slide_counts_per_format_and_the_file_opens(media_dir):
     prs = Presentation(io.BytesIO(export(qs)))                       # the exported file opens
     texts = [" | ".join(sh.text_frame.text for sh in s.shapes if sh.has_text_frame) for s in prs.slides]
     n_clues = len(qs[3]["format_payload"]["clues"])
-    # cover + reveal(4 + ANSWER + answer) + list it(3) + connect(3) + stepped(clues + 2) + arrange(3) + mcq(3)
-    assert len(prs.slides) == 1 + 6 + 3 + 3 + (n_clues + 2) + 3 + 3
+    # cover + reveal(1 animated + ANSWER + answer) + list it(3) + connect(3) + stepped(clues + 2) + arrange(3) + mcq(3)
+    assert len(prs.slides) == 1 + 3 + 3 + 3 + (n_clues + 2) + 3 + 3
     assert sum(t.strip().startswith("ANSWER") for t in texts) == 6
-    reveal = [s for s in prs.slides if any(sh.name.startswith("Cover") for sh in s.shapes)]
-    assert [sum(sh.name.startswith("Cover") for sh in s.shapes) for s in reveal] == [4, 3, 2, 1]     # progressive: one more lifted each slide
-    arrange = next(s for s in prs.slides if any(sh.shape_type == 6 for sh in s.shapes))
+    reveal = [s for s in prs.slides if any(sh.name.startswith("Cover") or sh.name.startswith("QSHALA Group") for sh in s.shapes)]
+    assert len(reveal) == 1
+    assert sum(sh.name.startswith("Cover") or sh.name.startswith("QSHALA Group") for sh in reveal[0].shapes) == 4
+    arrange = next(s for s in prs.slides if s not in reveal and any(sh.shape_type == 6 for sh in s.shapes))
     assert sum(sh.shape_type == 6 for sh in arrange.shapes) == 4                                     # four grouped items
     li = next(s for s in prs.slides if "Correct answers are ticked" in " ".join(sh.text_frame.text for sh in s.shapes if sh.has_text_frame))
     marks = " ".join(sh.text_frame.text for sh in li.shapes if sh.has_text_frame)

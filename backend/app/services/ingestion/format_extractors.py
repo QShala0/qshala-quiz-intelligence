@@ -420,16 +420,76 @@ def _reveal_groups(slide: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
+def _agastya_covers(slide: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Agastya layout: 4 top-level numbered rectangles ("1".."4") covering a single picture."""
+    shapes = slide.get("shapes") or []
+    by_num: Dict[int, Dict[str, Any]] = {}
+    for s in shapes:
+        if s.get("path") or is_timer_shape(s):
+            continue
+        t = (s.get("text") or "").strip()
+        if t in ("1", "2", "3", "4") and int(t) not in by_num:
+            by_num[int(t)] = s
+    if len(by_num) != 4:
+        return []
+    return [{"id": s["id"], "group": s, "number": n, "correct": None, "wrong": None, "cover": None}
+            for n, s in sorted(by_num.items())]
+
+
+def _reveal_covers(slide: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], str]:
+    """Return (covers, layout_kind) for DSU ('dsu') or Agastya ('agastya') Image Reveal slides."""
+    dsu = _reveal_groups(slide)
+    if len(dsu) >= 3:
+        return dsu, "dsu"
+    ag = _agastya_covers(slide)
+    if len(ag) == 4:
+        # Confirm it's an Image Reveal slide: has exit animations OR at least one non-timer picture
+        anims = list(slide.get("animations") or []) + list(slide.get("interactive_animations") or [])
+        cids = {c["id"] for c in ag}
+        has_exits = any(a.get("cls") == "exit" and a.get("preset") == 10 and a.get("target_id") in cids for a in anims)
+        has_pic = any(s.get("type") == "PICTURE" and not is_timer_shape(s) and s.get("media_url")
+                      for s in slide.get("shapes") or [])
+        if has_exits or has_pic:
+            return ag, "agastya"
+    return [], ""
+
+
 def is_image_reveal(slide: Dict[str, Any]) -> bool:
-    return len(_reveal_groups(slide)) >= 3
+    covers, _ = _reveal_covers(slide)
+    return len(covers) >= 3
+
+
+_REVEAL_SCORE_PAIR_RE = re.compile(r"([+\-]\s*\d+)\s*/\s*([+\-\u2013]?\s*\d+)")
+
+
+def _parse_reveal_scores_from_title(text: str) -> Tuple[str, List[Tuple[int, int]]]:
+    """Extract scoring pairs like '+5/-0 +20/-15 +15/-10 +10/-5' from title text and strip them."""
+    matches = list(_REVEAL_SCORE_PAIR_RE.finditer(text or ""))
+    if len(matches) < 3:
+        return (text or "").strip(), []
+    scores = []
+    for m in matches:
+        c = int(m.group(1).replace(" ", ""))
+        w_raw = m.group(2).replace(" ", "").replace("\u2013", "-")
+        w = -abs(int(w_raw))
+        scores.append((c, w))
+    cleaned = _REVEAL_SCORE_PAIR_RE.sub(" ", text or "")
+    cleaned = re.sub(r"[\[\]()|,;]+(?=\s*$)", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -|:,;")
+    return cleaned.strip(), scores
 
 
 def extract_image_reveal(ctx: Ctx) -> Dict[str, Any]:
     slide = next(s for s in ctx.slides if is_image_reveal(s))
-    groups = _reveal_groups(slide)
+    groups, layout_kind = _reveal_covers(slide)
     by_gid = {g["id"]: g for g in groups}
-    pics = [s for s in slide.get("shapes") or [] if s.get("type") == "PICTURE" and not s.get("path") and s.get("media_url")
-            and not is_timer_shape(s)]
+    gids = {g["id"] for g in groups}
+    # Full picture: prefer top-level non-timer PICTURE not inside a cover group; fall back to any non-cover PICTURE
+    # (handles slides like Agastya slide 80 where the full picture is inside a separate non-cover group)
+    all_pics = [s for s in slide.get("shapes") or [] if s.get("type") == "PICTURE" and s.get("media_url")
+                and not is_timer_shape(s) and not (gids & set(s.get("path_ids") or [])) and s["id"] not in gids]
+    top_pics = [s for s in all_pics if not s.get("path")]
+    pics = top_pics or all_pics
     full = max(pics, key=lambda s: absolute_box(s)[2] * absolute_box(s)[3]) if pics else None
     if full is not None:
         fx, fy, fw, fh = absolute_box(full)
@@ -442,15 +502,23 @@ def extract_image_reveal(ctx: Ctx) -> Dict[str, Any]:
             fh = max(b[1] + b[3] for b in boxes) - fy
         else:
             fx = fy = fw = fh = 0.0
-    # reveal order = the exit effects of the MAIN sequence (interactive-sequence effects are ignored)
-    exits = [a for a in slide.get("animations") or [] if a.get("cls") == "exit" and a.get("preset") == 10
-             and a.get("target_id") in by_gid]
+    # reveal order = exit effects of MAIN sequence; for Agastya interactive-seq decks, use numbered 1..4 order
+    main_exits = [a for a in slide.get("animations") or [] if a.get("cls") == "exit" and a.get("preset") == 10
+                  and a.get("target_id") in by_gid]
+    inter_exits = [a for a in slide.get("interactive_animations") or [] if a.get("cls") == "exit" and a.get("preset") == 10
+                   and a.get("target_id") in by_gid]
     conf = 0.97
-    if exits:
-        ordered = [by_gid[a["target_id"]] for a in sorted(exits, key=lambda a: a["order"])]
+    if main_exits:
+        ordered = [by_gid[a["target_id"]] for a in sorted(main_exits, key=lambda a: a["order"])]
         if len(ordered) != len(groups):
             ctx.reasons.append(f"{len(ordered)} exit effects for {len(groups)} covers")
             conf = 0.6
+    elif inter_exits and layout_kind == "agastya":
+        # Agastya decks trigger each quarter independently via interactiveSeq; presenter clicks 1..4 in numbered order
+        ordered = sorted(groups, key=lambda g: g["number"])
+        if len(inter_exits) != len(groups):
+            ctx.reasons.append(f"{len(inter_exits)} interactive exit effects for {len(groups)} covers")
+            conf = 0.75
     else:
         ordered = sorted(groups, key=lambda g: g["number"])
         ctx.reasons.append("no animation data in this upload (re-upload the deck); reveal order taken from the badge numbers")
@@ -458,32 +526,50 @@ def extract_image_reveal(ctx: Ctx) -> Dict[str, Any]:
     if [g["number"] for g in ordered] != list(range(1, len(ordered) + 1)):
         ctx.reasons.append("animation order does not match the badge numbers 1..4")
         conf = min(conf, 0.6)
+    prompt_lines = []
+    for s in _text_shapes(slide):
+        if s["id"] in gids or (gids & set(s.get("path_ids") or [])) or _NUMBER_BADGE_RE.match(s["text"].strip()):
+            continue
+        prompt_lines.append(" ".join(_lines(s["text"])))
+    raw_prompt = " ".join(prompt_lines).strip()
+    raw_prompt = re.sub(r"^\s*(?:Q\.?\s*)?\d+\s*[.):]\s*", "", raw_prompt).strip()
+    prompt, title_scores = _parse_reveal_scores_from_title(raw_prompt)
     steps = []
     for k, g in enumerate(ordered, start=1):
         gx, gy, gw, gh = absolute_box(g["group"])
         cx, cy = gx + gw / 2.0, gy + gh / 2.0
         pos = ("top" if cy < fy + fh / 2.0 else "bottom") + "-" + ("left" if cx < fx + fw / 2.0 else "right")
-        steps.append({"step": k, "cover": g["cover"], "position": pos, "correct": g["correct"], "wrong": g["wrong"]})
+        c_val, w_val = g["correct"], g["wrong"]
+        if c_val is None and k - 1 < len(title_scores):
+            c_val, w_val = title_scores[k - 1]
+        step_dict: Dict[str, Any] = {"step": k, "cover": g["cover"], "position": pos}
+        if c_val is not None:
+            step_dict["correct"] = c_val
+        if w_val is not None:
+            step_dict["wrong"] = w_val
+        steps.append(step_dict)
     if len({s["position"] for s in steps}) != len(steps):
         ctx.reasons.append("two covers share a position")
         conf = min(conf, 0.6)
-    prompt_lines = []
-    gids = {g["id"] for g in groups}
-    for s in _text_shapes(slide):
-        if gids & set(s.get("path_ids") or []) or _NUMBER_BADGE_RE.match(s["text"].strip()):
-            continue
-        prompt_lines.append(" ".join(_lines(s["text"])))
-    prompt = " ".join(prompt_lines).strip()
     answer, expl = ctx.answer()
     if not answer:
         ctx.reasons.append("no answer found")
         conf = min(conf, 0.5)
-    payload = {"type": FMT_IMAGE_REVEAL, "prompt": prompt, "full_image": full.get("media_url") if full else None,
+    full_url = full.get("media_url") if full else None
+    payload = {"type": FMT_IMAGE_REVEAL, "prompt": prompt, "full_image": full_url,
                "timer_seconds": ctx.timer_seconds(), "reveal_steps": steps, "answer": answer}
-    if full is None or not full.get("media_url"):
+    if full is None or not full_url:
         ctx.reasons.append("no full image found")
         conf = min(conf, 0.6)
-    return _result(ctx, FMT_IMAGE_REVEAL, payload, conf, prompt, answer, expl)
+    q_urls = [full_url] if full_url else []
+    a_urls = _urls(ctx.answer_images())
+    all_imgs = list(dict.fromkeys(q_urls + a_urls))
+    res = _result(ctx, FMT_IMAGE_REVEAL, payload, conf, prompt, answer, expl)
+    # Exclude cover artwork and timer poster from question_images / image_refs (only full picture belongs to question)
+    res["question_images"] = q_urls
+    res["image_refs"] = all_imgs
+    res["raw_media_refs"] = list(dict.fromkeys(all_imgs + res.get("video_refs", []) + res.get("audio_refs", [])))
+    return res
 
 
 # ------------------------------------------------------------------------------------------------ CONNECT
@@ -913,6 +999,14 @@ def restore_from_export(ctx: Ctx) -> Optional[Dict[str, Any]]:
     ctx.reasons.append("restored from a QShala export")
     d = _result(ctx, blob["format"], payload, 1.0, blob.get("question_text") or "", blob.get("answer") or "",
                 blob.get("explanation") or "", options=blob.get("options"))
+    if blob["format"] == FMT_IMAGE_REVEAL:
+        full_url = payload.get("full_image")
+        q_urls = [full_url] if full_url else []
+        a_urls = d.get("answer_images") or []
+        all_imgs = list(dict.fromkeys(q_urls + a_urls))
+        d["question_images"] = q_urls
+        d["image_refs"] = all_imgs
+        d["raw_media_refs"] = list(dict.fromkeys(all_imgs + d.get("video_refs", []) + d.get("audio_refs", [])))
     d["format_payload"].update(saved)                    # the deck being re-read has no rounds of its own
     d["format_payload"]["extraction"]["source"] = "qshala_export"
     for k in ("play_mode", "slot", "topic_label"):
