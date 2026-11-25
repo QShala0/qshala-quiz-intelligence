@@ -88,6 +88,7 @@ type Draft = {
   fulfillment?: Fulfillment;
   stages?: string[];
   narrative_arc?: string | null;
+  curator_status?: 'curated' | 'fallback' | 'empty' | 'disabled';
 };
 
 const GREETINGS = [
@@ -824,6 +825,12 @@ export default function QuizzerHome() {
           )}
 
           <p className="text-[15px] text-slate-600">{draft.message}</p>
+
+          {draft.curator_status === 'fallback' && qs.length > 0 && (
+            <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-[12.5px] text-amber-900">
+              <span>AI curation timed out — showing keyword matches. Try regenerating for full AI curation.</span>
+            </div>
+          )}
 
           {draft.narrative_arc && (
             <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-purple-200 bg-purple-50/70 p-3 text-[13px] text-purple-950 shadow-xs">

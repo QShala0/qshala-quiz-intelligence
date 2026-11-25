@@ -20,7 +20,7 @@ from backend.app.services.prompt_quiz.retrieval import normalize_compound_typos,
 
 logger = logging.getLogger(__name__)
 
-INTENT_TIMEOUT_S = float(os.getenv("INTENT_TIMEOUT_S", "4.0"))
+INTENT_TIMEOUT_S = float(os.getenv("INTENT_TIMEOUT_S", "7.0"))
 
 _TAXONOMY_CACHE: Dict[str, Any] = {"at": 0.0, "taxonomy": None}
 _TAXONOMY_TTL_S = 120.0  # refresh from DB every 2 minutes

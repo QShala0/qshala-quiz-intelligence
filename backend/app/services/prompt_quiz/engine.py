@@ -1637,22 +1637,8 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                             seen_cur_ents.add(ent)
                         seen_picked_ids.add(qid)
                         deduped_cur_picked.append(c)
-                # Replenish only slots lost to duplicate-entity filtering (preserves honest 0/partial counts).
-                target_after_dedup = min(brief.count, matched_before_dedup)
-                if len(deduped_cur_picked) < target_after_dedup:
-                    for c in cands:
-                        cid = c.get("id")
-                        if not cid or cid in seen_picked_ids:
-                            continue
-                        ent = _normalize_answer_entity(c.get("answer") or "")
-                        if ent and ent not in common_geo and ent in seen_cur_ents:
-                            continue
-                        if ent:
-                            seen_cur_ents.add(ent)
-                        seen_picked_ids.add(cid)
-                        deduped_cur_picked.append(c)
-                        if len(deduped_cur_picked) >= target_after_dedup:
-                            break
+                # Never blindly replenish duplicate-filtered slots from uncurated BM25 candidates;
+                # only keep genuinely curated, unique-entity questions.
                 picked = deduped_cur_picked
                 narrative_arc = cur_res.get("narrative_arc")
         except Exception as e:
@@ -1701,12 +1687,21 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     _timer.mark("finish")
     timings = {**_timer.stages, "total": _timer.total_ms()}
+    curator_enabled = os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes")
+    if not curator_enabled or not has_topical_query or is_analytical_sort:
+        curator_status = "disabled"
+    elif narrative_arc and picked:
+        curator_status = "curated"
+    elif cur_res is not None and not picked:
+        curator_status = "empty"
+    else:
+        curator_status = "fallback"
+
     try:
         _metrics.record({
             "at": time.time(), "total_ms": timings["total"], "stages": _timer.stages, "bank_size": len(bank),
             "interpreter": brief.source, "short": bool(fulfillment.get("short")),
-            "curator": "none" if cur_res is None and not narrative_arc and not os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes")
-                       else ("used" if narrative_arc else ("fallback" if cur_res is None else "empty")),
+            "curator": "used" if curator_status == "curated" else curator_status,
         })
     except Exception:
         pass
@@ -1719,6 +1714,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         "stages": stages,
         "fulfillment": fulfillment,
         "narrative_arc": narrative_arc,
+        "curator_status": curator_status,
         "timings_ms": timings,
     }
 

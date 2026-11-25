@@ -21,7 +21,7 @@ def _l2_names(c: Candidate) -> set:
     return names
 
 
-def is_on_topic(c: Candidate, l1s: Sequence[str], l2s: Sequence[str], min_semantic_score: float = 1.2) -> bool:
+def is_on_topic(c: Candidate, l1s: Sequence[str], l2s: Sequence[str], min_semantic_score: float = 1.8) -> bool:
     score = float(c.get("score") or 0.0)
     if score < MIN_RELEVANCE_SCORE:
         return False

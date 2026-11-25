@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
-CURATOR_TIMEOUT_S = float(os.getenv("CURATOR_TIMEOUT_S", "4.0"))
+CURATOR_TIMEOUT_S = float(os.getenv("CURATOR_TIMEOUT_S", "10.0"))
 
 CURATION_SCHEMA: Dict[str, Any] = {
     "type": "OBJECT",
@@ -245,17 +245,8 @@ def curate_quiz_with_gemini(
                 "narrative_arc": parsed.get("narrative_arc") or "No questions in the candidate pool match the requested topic."
             }
 
-        # If Gemini attempted to select questions but some were hallucinated,
-        # backfill only if Gemini originally selected at least target_count
-        if len(selected_ids) >= target_count and len(deduped_ids) < target_count:
-            for c in candidates:
-                cid = c.get("id")
-                if cid and cid not in seen:
-                    seen.add(cid)
-                    deduped_ids.append(cid)
-                if len(deduped_ids) == target_count:
-                    break
-
+        # Never blindly backfill unverified BM25 candidates when fewer than target_count
+        # genuine matches survived zero-hallucination validation.
         return {
             "selected_ids": deduped_ids[:target_count],
             "narrative_arc": parsed.get("narrative_arc") or "Curated for narrative flow and topical alignment."

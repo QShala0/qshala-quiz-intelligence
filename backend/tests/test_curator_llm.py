@@ -64,7 +64,8 @@ def test_curator_validation_gate_rejects_hallucinated_ids(mock_candidates):
 
     assert res is not None
     selected = res["selected_ids"]
-    assert len(selected) == 5
+    # Zero-hallucination gate: drop fake IDs and never blindly backfill unverified candidates
+    assert selected == ["q_1", "q_3", "q_4"]
 
     # Check: hallucinated IDs MUST NOT be present
     assert "hallucinated_fake_id_999" not in selected
@@ -218,6 +219,42 @@ def test_curator_honest_rejection_delivers_zero_and_preserves_short_fulfillment(
         assert draft["fulfillment"]["delivered"] == 0
         assert draft["narrative_arc"] == "No questions in the candidate pool match quantum computing breakthroughs."
         assert any(s.get("action") == "add_adjacent" for s in draft["fulfillment"]["suggestions"])
+    finally:
+        engine.invalidate_bank_cache()
+        db.close()
+
+
+def test_build_draft_reports_curator_fallback_status_on_timeout():
+    """When Gemini curator returns None (timeout), build_draft surfaces curator_status='fallback'."""
+    db_engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=db_engine)
+    TestingSession = sessionmaker(bind=db_engine)
+    db = TestingSession()
+
+    try:
+        doc = Document(id="doc_fb", filename="startups.pptx", title="Bangalore Startups", file_type="pptx", storage_path="/tmp")
+        db.add(doc)
+        db.add(Question(
+            id="q_fb_1",
+            document_id="doc_fb",
+            question_text="Which Bengaluru-based startup pioneered quick-commerce deliveries?",
+            answer="Zepto",
+            topic="Business",
+            subtopic="Startups",
+            difficulty="Medium",
+            difficulty_score=0.50,
+        ))
+        db.commit()
+
+        engine.invalidate_bank_cache()
+        with patch("backend.app.services.prompt_quiz.curator_llm.curate_quiz_with_gemini", return_value=None):
+            draft = engine.build_draft(
+                db=db,
+                prompt="startups in bangalore",
+                count=5,
+            )
+
+        assert draft["curator_status"] == "fallback"
     finally:
         engine.invalidate_bank_cache()
         db.close()
