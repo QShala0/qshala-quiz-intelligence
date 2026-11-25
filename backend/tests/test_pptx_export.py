@@ -397,7 +397,7 @@ def test_zvq_school_quiz_paragraphs_and_source_link_notes():
     """
     Verify ZVQ School Quiz PPT export:
     1. Question text is broken into readable paragraphs on sentence boundaries.
-    2. Slide notes replace old presenter boilerplate with question source links on both Q and A slides.
+    2. Question slides carry no notes; answer slides carry only the source deck's original notes.
     3. Accepts quiz_type='zvq' as an alias for school export.
     """
     q_multiline = (
@@ -452,21 +452,17 @@ def test_zvq_school_quiz_paragraphs_and_source_link_notes():
     # Verify paragraph spacing
     assert paras[1].space_before is not None and paras[1].space_before.pt >= 6
 
-    # 2. Question Slide Notes: Must NOT leak answer, presenter clues, or source links
-    assert q_slide.has_notes_slide
-    q_notes = q_slide.notes_slide.notes_text_frame.text
-    assert "Source:" not in q_notes
-    assert "★ Important:" not in q_notes
-    assert "Official Answer:" not in q_notes
+    # 2. Question Slide Notes: none at all (the answer must never sit in question notes)
+    q_notes = q_slide.notes_slide.notes_text_frame.text if q_slide.has_notes_slide else ""
+    assert q_notes == ""
 
-    # 3. Answer Slide Notes: Must also have source links, NO old presenter talking points
+    # 3. Answer Slide Notes: only the source deck's original notes, never generated boilerplate
     a_slide = prs.slides[3]
-    assert a_slide.has_notes_slide
-    a_notes = a_slide.notes_slide.notes_text_frame.text
-    assert "Source: Potpourri Aug to Dec ZVQ College Reserve.pptx (Slide 14)" in a_notes
-    assert "Link: https://qshala.sharepoint.com/:p:/s/Quizzes/Potpourri_ZVQ.pptx" in a_notes
+    a_notes = a_slide.notes_slide.notes_text_frame.text if a_slide.has_notes_slide else ""
+    assert "Official Answer:" not in a_notes
     assert "Presenter Talking Points:" not in a_notes
     assert "Award +10 points" not in a_notes
+    assert "Source:" not in a_notes
 
 
 def test_zvq_and_zsv_quiz_type_endpoint_variants():

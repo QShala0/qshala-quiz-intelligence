@@ -276,6 +276,7 @@ def deconstruct_prompt(
             "response_schema": INTENT_SCHEMA,
             "temperature": 0.1,
             "maxOutputTokens": 800,
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -288,6 +289,11 @@ def deconstruct_prompt(
             return None
 
         data = res.json()
+        try:
+            from backend.app.services.costs.quiz_tracking import track_quiz_llm_call
+            track_quiz_llm_call("quiz_intent", model, usage_metadata=data.get("usageMetadata"))
+        except Exception:
+            pass
         cands = data.get("candidates") or []
         if not cands:
             return None
@@ -654,5 +660,10 @@ def deconstruct_prompt(
 
     except Exception as e:
         logger.warning(f"Intent engine attempt failed: {e}")
+        try:
+            from backend.app.services.costs.quiz_tracking import track_quiz_llm_call
+            track_quiz_llm_call("quiz_intent", model, is_timeout=True, note=f"fallback:{type(e).__name__}")
+        except Exception:
+            pass
 
     return None

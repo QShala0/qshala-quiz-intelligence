@@ -281,18 +281,23 @@ def _best_effort_dispatch_next() -> None:
         logger.debug("[WORKER] best-effort dispatch next skipped: %s", e)
 
 async def _run(document_id: str) -> None:
+    import time
     from backend.app.services.ingestion.pipeline import IngestionPipeline
+    from backend.app.services.costs.ledger import cost_scope
 
     stop_event = asyncio.Event()
     job_id = await asyncio.to_thread(_find_processing_job_id, document_id)
     poller = asyncio.create_task(_poll_cancel(document_id, stop_event))
     syncer = asyncio.create_task(_sync_progress_to_db(document_id, stop_event))
+    t0 = time.perf_counter()
     try:
         logger.info("[WORKER] starting ingestion for doc_id=%s", document_id)
-        await asyncio.to_thread(_fetch_raw_deck, document_id)
-        await IngestionPipeline().run(document_id)
+        with cost_scope(document_id=document_id, job_id=job_id):
+            await asyncio.to_thread(_fetch_raw_deck, document_id)
+            await IngestionPipeline().run(document_id)
         logger.info("[WORKER] finished ingestion for doc_id=%s", document_id)
     finally:
+        duration_s = max(0.1, time.perf_counter() - t0)
         stop_event.set()
         poller.cancel()
         syncer.cancel()
@@ -304,6 +309,28 @@ async def _run(document_id: str) -> None:
             await syncer
         except asyncio.CancelledError:
             pass
+        # Record Cloud Run Job compute cost
+        try:
+            from backend.app.services.costs.ledger import record_event
+            vcpu = float(os.getenv("CLOUD_RUN_JOB_VCPU", "2.0"))
+            gib = float(os.getenv("CLOUD_RUN_JOB_GIB", "8.0"))
+            effective_job_id = job_id or f"job_{document_id}"
+            record_event(
+                category="cloud_run_job",
+                operation="job_compute",
+                units={
+                    "duration_s": duration_s,
+                    "vcpu": vcpu,
+                    "gib": gib,
+                },
+                document_id=document_id,
+                job_id=job_id,
+                source="measured",
+                dedupe_key=f"job:{effective_job_id}",
+            )
+        except Exception as _ce:
+            logger.warning("[WORKER] failed to record job compute cost: %s", _ce)
+
         # One last sync so the final "Finishing up" / completion detail and activity log entries
         # the pipeline wrote in its last moments aren't lost to the PROGRESS_SYNC_INTERVAL_S gap.
         await asyncio.to_thread(_sync_progress_once, document_id)

@@ -1017,6 +1017,35 @@ def _get_hist_q_media(q: Any) -> Dict[str, Any]:
         "image_refs": direct_img_refs,
     }
 
+def _source_notes(q: Any) -> str:
+    """The speaker notes from the question's original deck slides (question slide, then answer slide)."""
+    sources = _get_val(q, "retrieval_sources", []) or _get_val(q, "sources", [])
+    hist_id = _get_val(sources[0], "historical_question_id") if sources else None
+    target_ids = [str(i) for i in [hist_id, _get_val(q, "id")] if i]
+    if not target_ids:
+        return ""
+    db = None
+    try:
+        from backend.app.database import SessionLocal
+        from backend.app.models.question import Question
+        db = SessionLocal()
+        hq = db.query(Question).filter(Question.id.in_(target_ids)).first()
+        if not hq:
+            return ""
+        parts: List[str] = []
+        for slide in (hq.slide, hq.answer_slide):
+            text = ((slide.speaker_notes if slide else "") or "").strip()
+            if text and text not in parts:
+                parts.append(text)
+        return "\n\n".join(parts)
+    except Exception as e:
+        logger.warning(f"Error fetching original speaker notes: {e}")
+        return ""
+    finally:
+        if db is not None:
+            db.close()
+
+
 def _clean_quiz_title(raw_title: str, topic: str) -> str:
     """Sanitizes raw prompt text into a clean presentation title."""
     if not raw_title or raw_title.lower() in ("qshala tournament quiz", "custom", "untitled quiz"):
@@ -2210,16 +2239,6 @@ class QuizExporter:
                         po.font.size = Pt(20)
                         po.font.color.rgb = C_TEXT_BODY
 
-            # Speaker Notes for Question Slide: only original question-slide notes (if any).
-            # Presenter Clues, Media Refs, Source Links, and Answer must NEVER be on the Question slide notes!
-            orig_q_notes, orig_a_notes = _get_original_slide_notes(q)
-            if orig_q_notes:
-                sq.notes_slide.notes_text_frame.text = _strip_answer_from_notes(f"Original Notes:\n{orig_q_notes}")
-            else:
-                sq.notes_slide.notes_text_frame.text = ""
-            if 'sq_img' in locals() and sq_img is not None:
-                sq_img.notes_slide.notes_text_frame.text = sq.notes_slide.notes_text_frame.text
-
             # ---------------------------------------------------------
             # (B) ANSWER TRANSITION SLIDE (Divider)
             # ---------------------------------------------------------
@@ -2465,26 +2484,9 @@ class QuizExporter:
                     pa_head.font.bold = True
                     pa_head.font.color.rgb = C_TEXT_DARK
 
-            # Speaker Notes for Answer Slide: Context, Original Answer Slide Notes, Presenter Clues, Media Refs, and Source Links
-            source_notes = _format_question_source_notes(q)
-            a_notes_parts = []
-            if explanation:
-                a_notes_parts.append(f"Context: {explanation}")
-            if orig_a_notes:
-                a_notes_parts.append(f"Original Answer Slide Notes:\n{orig_a_notes}")
-            v_clue = _get_val(q, "visual_clues") or _get_val(q, "clue")
-            if v_clue:
-                a_notes_parts.append(f"Presenter Clues: {v_clue}")
-            if video_path:
-                a_notes_parts.append(f"Media Reference (Video): {video_path.name}")
-            elif resolved_q_imgs:
-                a_notes_parts.append(f"Media Reference (Image): {resolved_q_imgs[0].name}")
-            if is_starred:
-                a_notes_parts.append("★ Important: Star tie-breaker question!")
-            if source_notes:
-                a_notes_parts.append(source_notes)
-
-            sa.notes_slide.notes_text_frame.text = "\n\n".join(p for p in a_notes_parts if p)
+            original_notes = _source_notes(q)
+            if original_notes:
+                sa.notes_slide.notes_text_frame.text = original_notes
 
         if divider_src is not None:
             drop_slide(prs, divider_src)   # exemplar only: each divider above is a copy of it

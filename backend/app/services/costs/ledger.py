@@ -149,7 +149,9 @@ def _execute_insert(session: Session, data: Dict[str, Any]) -> Optional[CostEven
             .values(**data)
             .on_conflict_do_nothing(index_elements=["dedupe_key"])
         )
-        session.execute(stmt)
+        res = session.execute(stmt)
+        if res.rowcount == 0:
+            return None
         return CostEvent(**data)
 
     elif dialect_name == "sqlite" and dedupe_key:
@@ -160,7 +162,9 @@ def _execute_insert(session: Session, data: Dict[str, Any]) -> Optional[CostEven
                 .values(**data)
                 .on_conflict_do_nothing(index_elements=["dedupe_key"])
             )
-            session.execute(stmt)
+            res = session.execute(stmt)
+            if res.rowcount == 0:
+                return None
             return CostEvent(**data)
         except IntegrityError:
             session.rollback()
@@ -183,6 +187,8 @@ class CostScope:
     Accumulates units per (category, operation, model) in memory to avoid writing
     individual database rows on high-frequency calls (e.g. 76 vision calls in one deck).
     Flushes all accumulated usage on scope exit (even if an exception or cancellation occurs).
+    Dedupe keys include run_id so re-ingestions of the same deck create new ledger rows
+    while retries within the same run are protected against duplicates.
     """
 
     def __init__(
@@ -191,11 +197,13 @@ class CostScope:
         quiz_id: Optional[str] = None,
         job_id: Optional[str] = None,
         batch_id: Optional[str] = None,
+        run_id: Optional[str] = None,
     ):
         self.document_id = document_id
         self.quiz_id = quiz_id
         self.job_id = job_id
         self.batch_id = batch_id
+        self.run_id = run_id or uuid.uuid4().hex[:8]
         self._lock = threading.Lock()
         # Key: (category, operation, model, is_batch) -> Dict of units
         self._accumulated: Dict[Tuple[str, str, Optional[str], bool], Dict[str, Any]] = defaultdict(
@@ -211,6 +219,7 @@ class CostScope:
         )
         self._token: Optional[contextvars.Token] = None
         self._flushed = False
+        self._depth = 0
 
     def add_gemini_usage(
         self,
@@ -278,14 +287,14 @@ class CostScope:
             if not units.get("calls", 0) and not units.get("bytes", 0) and not units.get("objects", 0):
                 continue
 
-            # Generate deterministic dedupe key for scoped flush if document_id or job_id is present
+            # Generate deterministic dedupe key for scoped flush per run (including run_id)
             dedupe_key = None
             if self.document_id and category == "gemini":
-                dedupe_key = f"scope:{self.document_id}:{self.job_id or 'none'}:{operation}:{model or 'default'}:{is_batch}"
+                dedupe_key = f"scope:{self.document_id}:{self.run_id}:{self.job_id or 'none'}:{operation}:{model or 'default'}:{is_batch}"
             elif self.document_id and category == "r2":
-                dedupe_key = f"scope:{self.document_id}:{self.job_id or 'none'}:{operation}"
+                dedupe_key = f"scope:{self.document_id}:{self.run_id}:{self.job_id or 'none'}:{operation}"
             elif self.job_id:
-                dedupe_key = f"scope:job:{self.job_id}:{category}:{operation}:{model or 'default'}"
+                dedupe_key = f"scope:job:{self.job_id}:{self.run_id}:{category}:{operation}:{model or 'default'}"
 
             ev = record_event(
                 category=category,
@@ -306,16 +315,20 @@ class CostScope:
         return events
 
     def __enter__(self) -> CostScope:
-        self._token = _CURRENT_COST_SCOPE.set(self)
+        self._depth += 1
+        if self._token is None:
+            self._token = _CURRENT_COST_SCOPE.set(self)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        try:
-            self.flush()
-        finally:
-            if self._token is not None:
-                _CURRENT_COST_SCOPE.reset(self._token)
-                self._token = None
+        self._depth -= 1
+        if self._depth <= 0:
+            try:
+                self.flush()
+            finally:
+                if self._token is not None:
+                    _CURRENT_COST_SCOPE.reset(self._token)
+                    self._token = None
 
 
 def cost_scope(
@@ -323,13 +336,23 @@ def cost_scope(
     quiz_id: Optional[str] = None,
     job_id: Optional[str] = None,
     batch_id: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> CostScope:
-    """Context manager for cost attribution."""
+    """Context manager for cost attribution. Re-entrant if matching scope active."""
+    current = get_current_cost_scope()
+    if current is not None and (document_id is None or current.document_id == document_id):
+        if job_id and not current.job_id:
+            current.job_id = job_id
+        if batch_id and not current.batch_id:
+            current.batch_id = batch_id
+        return current
+
     return CostScope(
         document_id=document_id,
         quiz_id=quiz_id,
         job_id=job_id,
         batch_id=batch_id,
+        run_id=run_id,
     )
 
 
