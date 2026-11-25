@@ -891,11 +891,13 @@ def restore_from_export(ctx: Ctx) -> Optional[Dict[str, Any]]:
     the question's slides show, in order. None when the unit is not such an export, or its pictures do not line up (then
     the structural readers below take over)."""
     from backend.app.services.export.format_slides import parse_blob, detokenize_payload
-    start = next((i for i, s in enumerate(ctx.slides) if parse_blob(s.get("speaker_notes"))), None)
-    if start is None:
+    all_candidate_slides = ctx.slides + ([ctx.ans] if ctx.ans else []) + ctx.extras
+    blob_slide = next((s for s in all_candidate_slides if parse_blob(s.get("speaker_notes"))), None)
+    if blob_slide is None:
         return None
+    blob = parse_blob(blob_slide.get("speaker_notes"))
+    start = next((i for i, s in enumerate(ctx.slides) if parse_blob(s.get("speaker_notes"))), 0)
     slides = ctx.slides[start:]
-    blob = parse_blob(slides[0].get("speaker_notes"))
     urls: List[str] = []
     for s in slides + ([ctx.ans] if ctx.ans else []):
         for sh in s.get("shapes") or []:

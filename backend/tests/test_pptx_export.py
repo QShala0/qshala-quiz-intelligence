@@ -736,3 +736,74 @@ def test_add_movie_on_reopened_deck_with_existing_media(tmp_path):
     out = tmp_path / "reexported.pptx"
     prs2.save(str(out))
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_format_question_notes_on_answer_slide_only():
+    """Format-aware questions (CONNECT, IMAGE_REVEAL, etc.) must put speaker notes and QSHALA-FORMAT payloads
+    exclusively on the Answer slide, never on Question slides."""
+    import uuid
+    from backend.app.database import SessionLocal
+    from backend.app.models.document import Document, Slide
+    from backend.app.models.question import Question
+
+    db = SessionLocal()
+    doc_id, qs_id, as_id, q_id = (str(uuid.uuid4()) for _ in range(4))
+    try:
+        db.add(Document(id=doc_id, filename="connect_test.pptx", title="connect", file_type="pptx", storage_path="x"))
+        db.flush()
+        db.add(Slide(id=qs_id, document_id=doc_id, slide_number=1, speaker_notes="Secret Clue Notes: Maruti Suzuki"))
+        db.add(Slide(id=as_id, document_id=doc_id, slide_number=2, speaker_notes="Answer Details: Ignis means fire."))
+        db.flush()
+        db.add(Question(
+            id=q_id,
+            document_id=doc_id,
+            slide_id=qs_id,
+            answer_slide_id=as_id,
+            question_text="Connect these 4 clues",
+            answer="Maruti Suzuki",
+            topic="Automobiles",
+            question_format="CONNECT",
+            format_payload={"type": "CONNECT", "items": [{"order": 1, "image": ""}], "text_hint": "Car Models", "extraction": {"confidence": 1.0}}
+        ))
+        db.commit()
+
+        quiz = {
+            "id": "quiz_fmt_notes",
+            "title": "Connect Test",
+            "questions": [{
+                "id": q_id,
+                "slide_id": qs_id,
+                "answer_slide_id": as_id,
+                "order_index": 1,
+                "question_text": "Connect these 4 clues",
+                "answer": "Maruti Suzuki",
+                "question_format": "CONNECT",
+                "format_payload": {"type": "CONNECT", "items": [{"order": 1, "image": ""}], "text_hint": "Car Models", "extraction": {"confidence": 1.0}},
+                "is_approved": True,
+            }]
+        }
+
+        # Test across both standard and custom/school export modes
+        for q_type in ["minimalist", "qshala_school"]:
+            pptx_bytes = QuizExporter.to_pptx(quiz, quiz_type=q_type, show_answer_divider=True)
+            prs = Presentation(io.BytesIO(pptx_bytes))
+
+            # The question slide (slide 1 after cover) must have NO notes
+            q_slide = prs.slides[1]
+            q_notes = q_slide.notes_slide.notes_text_frame.text if q_slide.has_notes_slide else ""
+            assert q_notes == "", f"Question slide notes must be empty, but got: {q_notes!r}"
+            assert "Maruti Suzuki" not in q_notes
+            assert "QSHALA-FORMAT" not in q_notes
+
+            # The answer slide (final slide for this question) must contain the notes & format payload
+            ans_slide = prs.slides[-1]
+            assert ans_slide.has_notes_slide
+            a_notes = ans_slide.notes_slide.notes_text_frame.text
+            assert "Secret Clue Notes: Maruti Suzuki" in a_notes or "Original Notes:" in a_notes
+            assert "QSHALA-FORMAT v1" in a_notes
+    finally:
+        db.query(Question).filter(Question.id == q_id).delete()
+        db.query(Slide).filter(Slide.document_id == doc_id).delete()
+        db.query(Document).filter(Document.id == doc_id).delete()
+        db.commit()
+        db.close()

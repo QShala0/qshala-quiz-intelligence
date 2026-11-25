@@ -1749,20 +1749,23 @@ class QuizExporter:
                 ):
                     orig_q_notes, orig_a_notes = _get_original_slide_notes(q)
                     fmt_src_notes = _format_question_source_notes(q)
-                    if orig_q_notes and len(prs.slides) > before_fmt:
-                        first_s = prs.slides[before_fmt]
-                        existing_blob = first_s.notes_slide.notes_text_frame.text or ""
-                        first_s.notes_slide.notes_text_frame.text = f"Original Notes:\n{orig_q_notes}" + ("\n\n" + existing_blob if existing_blob else "")
-                    if len(prs.slides) > before_fmt + 1:
+                    if len(prs.slides) > before_fmt:
                         last_s = prs.slides[-1]
                         a_parts = []
+                        # Presenter notes on answer slide only: original notes, clues, and format payloads
+                        # sit exclusively on the answer reveal slide, never on question slides.
+                        if orig_q_notes:
+                            a_parts.append(f"Original Notes:\n{orig_q_notes}")
                         v_clue_fmt = _get_val(q, "visual_clues") or _get_val(q, "clue")
                         if v_clue_fmt:
                             a_parts.append(f"Presenter Clues: {v_clue_fmt}")
-                        if orig_a_notes:
+                        if orig_a_notes and orig_a_notes != orig_q_notes:
                             a_parts.append(f"Original Answer Slide Notes:\n{orig_a_notes}")
                         if fmt_src_notes:
                             a_parts.append(fmt_src_notes)
+                        existing_blob = last_s.notes_slide.notes_text_frame.text or ""
+                        if existing_blob:
+                            a_parts.append(existing_blob)
                         if a_parts:
                             last_s.notes_slide.notes_text_frame.text = "\n\n".join(a_parts)
                     continue
