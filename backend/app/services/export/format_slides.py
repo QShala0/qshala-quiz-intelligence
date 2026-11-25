@@ -231,13 +231,12 @@ def _reveal_slides(prs, blank, d: Dict[str, Any], P: Dict[str, Any], resolve: Ca
                           for st in steps)
         _text(s, 7.3, 1.7, 5.0, 3.0, "Points if answered after cover\n" + lines, size=18, color="334155")
         _text(s, 7.3, 5.6, 5.0, 0.8, f"Covers lifted: {k} of {len(steps)}", size=14, color="64748B")
-        if k == 0:
-            _notes(s, blob)
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
     _text(sa, 1.0, 0.6, 11.3, 1.0, d["answer"], size=34, bold=True, color="059669", align="center", name="Title 1")
     _picture(sa, full, 3.2, 1.7, 6.9, 4.8, name="Full Image")
+    _notes(sa, blob)
 
 
 def _list_it_slides(prs, blank, d, P, resolve, blob, idx):
@@ -264,12 +263,12 @@ def _list_it_slides(prs, blank, d, P, resolve, blob, idx):
         title += f"\nTeam {P['team']}"
     _text(s, 1.0, 0.55, 11.3, 1.5, title, size=26, bold=True, name="Title 1")
     grid(s, False)
-    _notes(s, blob)
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
     _text(sa, 1.0, 0.55, 11.3, 1.5, "Correct answers are ticked", size=26, bold=True, color="059669", name="Title 1")
     grid(sa, True)
+    _notes(sa, blob)
 
 
 def _connect_slides(prs, blank, d, P, resolve, blob, idx):
@@ -287,11 +286,11 @@ def _connect_slides(prs, blank, d, P, resolve, blob, idx):
     for i, it in enumerate(items):
         col, row = i % cols, i // cols
         _picture(s, resolve(it.get("image")), 1.1 + col * (cw + 0.3), 2.3 + row * (ch + 0.15), cw, ch, name=f"Picture {i + 1}")
-    _notes(s, blob)
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
     _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
+    _notes(sa, blob)
 
 
 def _stepped_slides(prs, blank, d, P, resolve, blob, idx):
@@ -308,12 +307,11 @@ def _stepped_slides(prs, blank, d, P, resolve, blob, idx):
         imgs = c.get("images") or []
         for j, u in enumerate(imgs[:3]):
             _picture(s, resolve(u), 8.2, 1.7 + j * 1.5, 4.2, 1.4, name=f"Picture {j + 1}")
-        if i == 0:
-            _notes(s, blob)
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
     _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
+    _notes(sa, blob)
 
 
 def _arrange_slides(prs, blank, d, P, resolve, blob, idx):
@@ -344,7 +342,6 @@ def _arrange_slides(prs, blank, d, P, resolve, blob, idx):
     _backdrop(s, bg)
     _text(s, 1.0, 0.55, 11.3, 1.3, P.get("prompt") or d["question_text"], size=26, bold=True, name="Title 1")
     draw(s, False)
-    _notes(s, blob)
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
@@ -352,6 +349,7 @@ def _arrange_slides(prs, blank, d, P, resolve, blob, idx):
     head = ("Correct order: " + " – ".join(str(x) for x in order)) if order else "Correct order not recorded"
     _text(sa, 1.0, 0.55, 11.3, 1.3, head, size=26, bold=True, color="059669", name="Title 1")
     draw(sa, True)
+    _notes(sa, blob)
 
 
 def _mcq_slides(prs, blank, d, P, resolve, blob, idx):
@@ -361,11 +359,11 @@ def _mcq_slides(prs, blank, d, P, resolve, blob, idx):
     _text(s, 1.0, 0.55, 11.3, 0.8, f"{idx}.*" if P.get("star") else f"{idx}.", size=26, bold=True, color="64748B", name="Title 1")
     _text(s, 1.0, 1.4, 11.3, 2.3, P.get("prompt") or d["question_text"], size=26, bold=True)
     _text(s, 1.1, 3.8, 9.3, 2.5, "\n".join(o["text"] for o in P["options"]), size=24, color="334155")
-    _notes(s, blob)
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
     _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="059669", align="center", name="Title 1")
+    _notes(sa, blob)
 
 
 _BUILDERS = {
