@@ -15,9 +15,9 @@ _state = {"consecutive": 0, "open_until": 0.0, "total_failures": 0}
 
 def _threshold() -> int:
     try:
-        return max(1, int(os.getenv("PROMPT_QUIZ_BREAKER_FAILS", "5")))
+        return max(1, int(os.getenv("PROMPT_QUIZ_BREAKER_FAILS", "3")))
     except ValueError:
-        return 5
+        return 3
 
 
 def _cooldown() -> float:
