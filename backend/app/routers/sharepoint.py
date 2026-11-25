@@ -14,7 +14,7 @@ from backend.app.models.sharepoint import SharePointSyncState, SharePointFile, S
 from backend.app.models.sharepoint_index import SharePointHiddenFolder, SharePointIndexItem
 from backend.app.models.job import IngestionJob
 from backend.app.config import settings
-from backend.app.services.auth.dependencies import require_admin
+from backend.app.services.auth.dependencies import get_current_user_optional, require_admin
 from backend.app.services.sharepoint import importer
 from backend.app.services.sharepoint.graph_client import get_sharepoint_client
 
@@ -122,7 +122,8 @@ def list_sharepoint_files(
 @router.post("/files/{file_id}/re-queue")
 def requeue_sharepoint_file(
     file_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     """
     Re-queues a failed or pending SharePoint file for ingestion.
@@ -142,7 +143,11 @@ def requeue_sharepoint_file(
         blob_url=sp_file.blob_url,
         status="PENDING",
         current_step="DOWNLOAD",
-        step_data={"sharepoint_item_id": sp_file.id}
+        step_data={
+            "sharepoint_item_id": sp_file.id,
+            "uploaded_by_user_id": current_user.id if current_user else None,
+            "uploaded_by_name": current_user.display_name if current_user else None,
+        }
     )
     sp_file.sync_status = "QUEUED"
     sp_file.error_message = None
@@ -634,10 +639,20 @@ async def sharepoint_plan(sel: importer.Selection, db: Session = Depends(get_db)
 
 
 @router.post("/import")
-async def sharepoint_import(sel: importer.Selection, db: Session = Depends(get_db)):
+async def sharepoint_import(
+    sel: importer.Selection,
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
     """Mark the wanted files for import (one batch). Files move in short steps via /transfer-next."""
     try:
-        return await importer.stage_import(db, get_sharepoint_client(), sel)
+        return await importer.stage_import(
+            db,
+            get_sharepoint_client(),
+            sel,
+            importer_user_id=current_user.id if current_user else None,
+            importer_name=current_user.display_name if current_user else None,
+        )
     except Exception as e:
         raise _graph_error(e)
 
@@ -648,11 +663,19 @@ async def sharepoint_transfer_next(
     limit: int = Query(3, ge=1, le=settings.SHAREPOINT_BATCH_MAX),
     batch_id: Optional[str] = None,
     db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     """Download and queue up to `limit` selected files. Call repeatedly until `remaining` is 0. Queued decks are
     processed by the normal ingestion worker, exactly like manual uploads."""
     try:
-        res = await importer.transfer_next(db, get_sharepoint_client(), limit=limit, batch_id=batch_id)
+        res = await importer.transfer_next(
+            db,
+            get_sharepoint_client(),
+            limit=limit,
+            batch_id=batch_id,
+            fallback_user_id=current_user.id if current_user else None,
+            fallback_user_name=current_user.display_name if current_user else None,
+        )
     except Exception as e:
         raise _graph_error(e)
     if res.get("queued"):

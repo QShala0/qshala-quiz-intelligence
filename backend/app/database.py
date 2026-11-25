@@ -326,6 +326,8 @@ def _expected_extra_columns(eng_is_postgres: bool) -> dict[str, list[tuple[str, 
             ("progress_detail", "JSON"),
             ("file_sha256", "VARCHAR(64)"),
             ("duplicate_report", "JSON"),
+            ("uploaded_by_user_id", "VARCHAR(36) DEFAULT NULL"),
+            ("uploaded_by_name", "VARCHAR(255) DEFAULT NULL"),
         ],
         "qshala_question_metadata": [
             ("round_number", "INTEGER"),
@@ -350,6 +352,8 @@ def _expected_extra_columns(eng_is_postgres: bool) -> dict[str, list[tuple[str, 
             ("match_document_id", "VARCHAR(36)"),
             ("batch_id", "VARCHAR(36)"),
             ("selected_at", "TIMESTAMP WITH TIME ZONE" if eng_is_postgres else "DATETIME"),
+            ("importer_user_id", "VARCHAR(36) DEFAULT NULL"),
+            ("importer_name", "VARCHAR(255) DEFAULT NULL"),
         ],
     }
 

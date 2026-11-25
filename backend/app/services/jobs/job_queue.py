@@ -96,7 +96,9 @@ class JobQueueService:
                 source=job.source_type or "SHAREPOINT",
                 sharepoint_file_id=job.source_file_id,
                 file_size_bytes=os.path.getsize(local_path) if os.path.exists(local_path) else 0,
-                processing_status="PROCESSING"
+                processing_status="PROCESSING",
+                uploaded_by_user_id=step_data.get("uploaded_by_user_id"),
+                uploaded_by_name=step_data.get("uploaded_by_name"),
             )
             db.add(doc)
             db.commit()

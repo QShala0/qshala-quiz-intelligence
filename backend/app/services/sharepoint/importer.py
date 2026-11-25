@@ -452,7 +452,13 @@ async def plan_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
     return _summarise(got["candidates"], sel, got["truncated"])
 
 
-async def stage_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
+async def stage_import(
+    db: Session,
+    client,
+    sel: Selection,
+    importer_user_id: Optional[str] = None,
+    importer_name: Optional[str] = None,
+) -> Dict[str, Any]:
     """Mark the wanted files SELECTED under one new batch id. Downloads nothing."""
     batch_max = int(os.getenv("SHAREPOINT_BATCH_MAX", getattr(settings, "SHAREPOINT_BATCH_MAX", 25)))
     got = await collect_candidates(client, sel, db=db)
@@ -483,6 +489,8 @@ async def stage_import(db: Session, client, sel: Selection) -> Dict[str, Any]:
         row.error_message = None
         row.batch_id = batch_id
         row.selected_at = now
+        row.importer_user_id = importer_user_id
+        row.importer_name = importer_name
         staged += 1
     db.commit()
     summary = _summarise(cands, sel, got["truncated"])
@@ -508,6 +516,8 @@ async def _hand_off_to_pipeline(
     sha: Optional[str] = None,
     *,
     pre_staged: Optional[Tuple[str, Optional[str], int, str]] = None,
+    fallback_user_id: Optional[str] = None,
+    fallback_user_name: Optional[str] = None,
 ) -> Dict[str, Optional[str]]:
     """Hand a downloaded deck to the SAME ingestion path a manual upload uses: a Document row, the raw deck staged in R2 where
     the Cloud Run worker fetches it (raw-uploads/<document id><ext>), and a queued upload job. Progress then shows on the
@@ -542,6 +552,8 @@ async def _hand_off_to_pipeline(
         year=None, file_type=ext.lstrip("."), storage_path=storage_path, blob_url=raw_url,       # the deck's own year comes from its name; the import year is not it
         source="SHAREPOINT", sharepoint_file_id=row.id, file_size_bytes=size_bytes, file_sha256=file_sha,
         processing_status="PROCESSING",
+        uploaded_by_user_id=row.importer_user_id if row.importer_user_id is not None else fallback_user_id,
+        uploaded_by_name=row.importer_name if row.importer_name is not None else fallback_user_name,
     )
     db.add(doc)
     db.commit()
@@ -556,7 +568,14 @@ def _remaining(db: Session, batch_id: Optional[str]) -> int:
     return int(q.scalar() or 0)
 
 
-async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[str] = None) -> Dict[str, Any]:
+async def transfer_next(
+    db: Session,
+    client,
+    limit: int = 3,
+    batch_id: Optional[str] = None,
+    fallback_user_id: Optional[str] = None,
+    fallback_user_name: Optional[str] = None,
+) -> Dict[str, Any]:
     """Transfer up to `limit` SELECTED files concurrently (bounded by SHAREPOINT_MAX_INFLIGHT). Safe to call from several tabs at once."""
     batch_max = int(os.getenv("SHAREPOINT_BATCH_MAX", getattr(settings, "SHAREPOINT_BATCH_MAX", 25)))
     limit = max(1, min(int(limit), batch_max))
@@ -634,7 +653,11 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
                         return {"status": "skipped_duplicate"}
                     else:
                         handoff = await _hand_off_to_pipeline(
-                            db, row, pre_staged=(doc_id, raw_url, size_bytes, sha)
+                            db,
+                            row,
+                            pre_staged=(doc_id, raw_url, size_bytes, sha),
+                            fallback_user_id=fallback_user_id,
+                            fallback_user_name=fallback_user_name,
                         )
                         row.blob_url = handoff["raw_url"]
                         row.sync_status = "QUEUED"
@@ -683,7 +706,14 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
                         db.commit()
                         return {"status": "skipped_duplicate"}
                     else:
-                        handoff = await _hand_off_to_pipeline(db, row, data=data, sha=sha)
+                        handoff = await _hand_off_to_pipeline(
+                            db,
+                            row,
+                            data=data,
+                            sha=sha,
+                            fallback_user_id=fallback_user_id,
+                            fallback_user_name=fallback_user_name,
+                        )
                         row.blob_url = handoff["raw_url"]
                         row.sync_status = "QUEUED"
                         row.error_message = None

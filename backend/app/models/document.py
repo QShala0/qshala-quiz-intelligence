@@ -48,6 +48,8 @@ class Document(Base):
     # back after the run, in every ingestion mode -- progress_detail itself is only persisted by
     # the Cloud Run Job worker's cross-process mirror and stays null for in-process ingestion.
     duplicate_report = Column(JSON, nullable=True)
+    uploaded_by_user_id = Column(String(36), ForeignKey("auth_users.id", ondelete="SET NULL"), nullable=True, index=True)
+    uploaded_by_name = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

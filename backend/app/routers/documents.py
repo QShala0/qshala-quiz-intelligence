@@ -12,7 +12,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks, HTTPException, Query
 from sqlalchemy.orm import Session, noload
 from backend.app.database import get_db
+from backend.app.models.auth import AuthUser
 from backend.app.models.document import Document, Slide
+from backend.app.services.auth.dependencies import get_current_user_optional
 from backend.app.services.deck_names import find_deck_by_name
 from backend.app.schemas.document import DocumentResponse, DocumentListItem, IngestionStatusResponse, SlideResponse
 from backend.app.services.ingestion.pipeline import IngestionPipeline, INGESTION_STATUS_REGISTRY
@@ -210,7 +212,8 @@ async def upload_document(
     year: Optional[int] = Form(None),
     batch_id: Optional[str] = Form(None),
     client_item_id: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     logger.info(f"[UPLOAD] request received: filename={file.filename}, content_type={file.content_type}")
 
@@ -284,7 +287,9 @@ async def upload_document(
             file_type=ext.replace(".", ""),
             storage_path=storage_path,
             file_size_bytes=file_size,
-            processing_status="PROCESSING"
+            processing_status="PROCESSING",
+            uploaded_by_user_id=current_user.id if current_user else None,
+            uploaded_by_name=current_user.display_name if current_user else None,
         )
         db.add(doc)
         db.commit()
@@ -335,6 +340,7 @@ async def _upload_chunk_direct_to_r2_locked(
     ext: str, filename: str, title: Optional[str], year: Optional[int],
     r2, db: Session, background_tasks: BackgroundTasks,
     batch_id: Optional[str] = None, client_item_id: Optional[str] = None,
+    uploaded_by_user_id: Optional[str] = None, uploaded_by_name: Optional[str] = None,
 ):
     """The cloud_run_job+R2 path for /upload-chunk using DB-backed upload_sessions table.
     Every slice goes straight into an R2 multipart upload. Serializes concurrent writes
@@ -606,6 +612,8 @@ async def _upload_chunk_direct_to_r2_locked(
             storage_path=storage_path,
             file_size_bytes=session_rec.total_bytes,
             processing_status="PROCESSING",
+            uploaded_by_user_id=uploaded_by_user_id,
+            uploaded_by_name=uploaded_by_name,
         )
         db.add(doc)
         session_rec.status = "COMPLETED"
@@ -654,7 +662,8 @@ async def upload_document_chunk(
     year: Optional[int] = Form(None),
     batch_id: Optional[str] = Form(None),
     client_item_id: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     """
     Receives one slice of a presentation file (the frontend sends 20 MB slices).
@@ -705,6 +714,8 @@ async def upload_document_chunk(
                 ext=ext, filename=filename, title=title, year=year,
                 r2=r2, db=db, background_tasks=background_tasks,
                 batch_id=batch_id, client_item_id=client_item_id,
+                uploaded_by_user_id=current_user.id if current_user else None,
+                uploaded_by_name=current_user.display_name if current_user else None,
             )
         except HTTPException:
             raise
@@ -832,7 +843,9 @@ async def upload_document_chunk(
             file_type=ext.replace(".", ""),
             storage_path=storage_path,
             file_size_bytes=file_size,
-            processing_status="PROCESSING"
+            processing_status="PROCESSING",
+            uploaded_by_user_id=current_user.id if current_user else None,
+            uploaded_by_name=current_user.display_name if current_user else None,
         )
         db.add(doc)
         db.commit()

@@ -18,6 +18,7 @@ import { api } from '../../lib/api';
 import LoadErrorBanner from '../../components/LoadErrorBanner';
 import { DocumentItem, Slide, UploadDuplicateReport, IngestionStatus, cleanSteps, getActiveStageIndex } from '../../lib/types';
 import SlideViewerModal from '../../components/SlideViewerModal';
+import TableSkeleton from '../../components/TableSkeleton';
 import UploadReportDialog from '../../components/UploadReportDialog';
 import SharePointSyncManager from '../../components/SharePointSyncManager';
 import { useUpload } from '../../context/UploadContext';
@@ -1051,143 +1052,169 @@ export default function UploadPage() {
           </span>
         </div>
 
-        <div className="divide-y divide-slate-100">
-          {documents.map((doc) => (
-            <div
-              key={doc.id}
-              className="flex items-center justify-between px-6 py-4 hover:bg-slate-50/60 transition-colors"
-            >
-              <div className="flex items-center gap-3.5 min-w-0">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <h4
-                    className="truncate text-[14px] font-medium text-slate-900"
-                    title={doc.filename}
-                  >
-                    {doc.filename}
-                  </h4>
-                  <p className="text-[12px] text-slate-400 font-normal">
-                    {doc.slide_count} slides · {doc.question_count} questions extracted
-                    {fmtIngested(doc.uploaded_at) ? ` · Ingested ${fmtIngested(doc.uploaded_at)}` : ''}
-                  </p>
-                  {isActive(doc) && (
-                    <div className="mt-2.5 space-y-1.5 max-w-lg" aria-live="polite">
-                      <div className="flex items-center justify-between text-[11.5px]">
-                        <span className="font-semibold text-blue-600 flex items-center gap-1.5 truncate">
-                          <Loader2 className="h-3 w-3 animate-spin text-blue-600 shrink-0" />
-                          <span className="truncate">
-                            {progressById[doc.id]?.step ||
-                              (doc.processing_status === 'PENDING'
-                                ? 'Queued in platform'
-                                : 'Processing presentation...')}
-                          </span>
-                        </span>
-                        <span className="font-bold text-blue-600 tabular-nums ml-2 shrink-0">
-                          {progressById[doc.id]?.pct ?? 0}%
-                        </span>
+        {loading ? (
+          <TableSkeleton columns={4} />
+        ) : (
+          <table className="w-full text-left text-[13px] border-collapse">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/60 font-semibold text-[12px] uppercase tracking-wider text-slate-600">
+                <th className="py-3 px-6">Deck</th>
+                <th className="py-3 px-4">Uploaded by</th>
+                <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-6 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {documents.map((doc) => (
+                <tr key={doc.id} className="hover:bg-slate-50/60 transition-colors">
+                  <td className="py-4 px-6">
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                        <FileText className="h-4 w-4" />
                       </div>
-
-                      {/* 5 Clean Steps Bar for every stage */}
-                      <div className="grid grid-cols-5 gap-1.5 pt-0.5">
-                        {cleanSteps.map((stepName, sIdx) => {
-                          const pct = progressById[doc.id]?.pct ?? 0;
-                          const stText = progressById[doc.id]?.step ?? '';
-                          const activeStage = getActiveStageIndex(pct, stText);
-                          const isDone = pct >= 100 || sIdx < activeStage;
-                          const isCur = pct < 100 && sIdx === activeStage;
-                          return (
-                            <div
-                              key={stepName}
-                              className="space-y-0.5"
-                              title={`${stepName}: ${
-                                isDone ? 'Done' : isCur ? 'In progress' : 'Pending'
-                              }`}
-                            >
-                              <div
-                                className={`h-1.5 rounded-full transition-all duration-300 ${
-                                  isDone
-                                    ? 'bg-emerald-500'
-                                    : isCur
-                                    ? 'bg-blue-600 animate-pulse'
-                                    : 'bg-slate-200'
-                                }`}
-                              />
-                              <span
-                                className={`block text-[10px] truncate leading-none pt-0.5 ${
-                                  isDone
-                                    ? 'text-emerald-700 font-medium'
-                                    : isCur
-                                    ? 'text-blue-600 font-bold'
-                                    : 'text-slate-400'
-                                }`}
-                              >
-                                {stepName}
+                      <div className="min-w-0">
+                        <h4
+                          className="truncate text-[14px] font-medium text-slate-900 max-w-md"
+                          title={doc.filename}
+                        >
+                          {doc.filename}
+                        </h4>
+                        <p className="text-[12px] text-slate-400 font-normal">
+                          {doc.slide_count} slides · {doc.question_count} questions extracted
+                          {fmtIngested(doc.uploaded_at) ? ` · Ingested ${fmtIngested(doc.uploaded_at)}` : ''}
+                        </p>
+                        {isActive(doc) && (
+                          <div className="mt-2.5 space-y-1.5 max-w-lg" aria-live="polite">
+                            <div className="flex items-center justify-between text-[11.5px]">
+                              <span className="font-semibold text-blue-600 flex items-center gap-1.5 truncate">
+                                <Loader2 className="h-3 w-3 animate-spin text-blue-600 shrink-0" />
+                                <span className="truncate">
+                                  {progressById[doc.id]?.step ||
+                                    (doc.processing_status === 'PENDING'
+                                      ? 'Queued in platform'
+                                      : 'Processing presentation...')}
+                                </span>
+                              </span>
+                              <span className="font-bold text-blue-600 tabular-nums ml-2 shrink-0">
+                                {progressById[doc.id]?.pct ?? 0}%
                               </span>
                             </div>
-                          );
-                        })}
+
+                            {/* 5 Clean Steps Bar for every stage */}
+                            <div className="grid grid-cols-5 gap-1.5 pt-0.5">
+                              {cleanSteps.map((stepName, sIdx) => {
+                                const pct = progressById[doc.id]?.pct ?? 0;
+                                const stText = progressById[doc.id]?.step ?? '';
+                                const activeStage = getActiveStageIndex(pct, stText);
+                                const isDone = pct >= 100 || sIdx < activeStage;
+                                const isCur = pct < 100 && sIdx === activeStage;
+                                return (
+                                  <div
+                                    key={stepName}
+                                    className="space-y-0.5"
+                                    title={`${stepName}: ${
+                                      isDone ? 'Done' : isCur ? 'In progress' : 'Pending'
+                                    }`}
+                                  >
+                                    <div
+                                      className={`h-1.5 rounded-full transition-all duration-300 ${
+                                        isDone
+                                          ? 'bg-emerald-500'
+                                          : isCur
+                                          ? 'bg-blue-600 animate-pulse'
+                                          : 'bg-slate-200'
+                                      }`}
+                                    />
+                                    <span
+                                      className={`block text-[10px] truncate leading-none pt-0.5 ${
+                                        isDone
+                                          ? 'text-emerald-700 font-medium'
+                                          : isCur
+                                          ? 'text-blue-600 font-bold'
+                                          : 'text-slate-400'
+                                      }`}
+                                    >
+                                      {stepName}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  )}
-                </div>
-              </div>
+                  </td>
 
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5 text-[12px]">
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      doc.processing_status === 'COMPLETED'
-                        ? 'bg-emerald-500'
-                        : doc.processing_status === 'FAILED'
-                        ? 'bg-red-500'
-                        : 'bg-blue-500 animate-pulse'
-                    }`}
-                  />
-                  <span className="text-[12px] font-medium text-slate-600">
-                    {doc.processing_status === 'COMPLETED' ? 'Completed' : doc.processing_status}
-                  </span>
-                </div>
+                  <td className="py-4 px-4 text-[13px] text-slate-600 whitespace-nowrap">
+                    {doc.uploaded_by_name || '-'}
+                  </td>
 
-                {doc.processing_status === 'COMPLETED' && (
-                  <button
-                    onClick={() => handleViewUploadReport(doc)}
-                    className="text-[12px] font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
-                    title="See duplicates found and reconciliation numbers for this upload"
-                  >
-                    View upload report
-                  </button>
-                )}
+                  <td className="py-4 px-4 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5 text-[12px]">
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          doc.processing_status === 'COMPLETED'
+                            ? 'bg-emerald-500'
+                            : doc.processing_status === 'FAILED'
+                            ? 'bg-red-500'
+                            : 'bg-blue-500 animate-pulse'
+                        }`}
+                      />
+                      <span className="text-[12px] font-medium text-slate-600">
+                        {doc.processing_status === 'COMPLETED' ? 'Completed' : doc.processing_status}
+                      </span>
+                    </div>
+                  </td>
 
-                <button
-                  onClick={() => handleDelete(doc.id)}
-                  className="rounded-lg p-1.5 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
-                  title="Delete Document"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
+                  <td className="py-4 px-6 text-right whitespace-nowrap">
+                    <div className="inline-flex items-center gap-3">
+                      {doc.processing_status === 'COMPLETED' && (
+                        <button
+                          onClick={() => handleViewUploadReport(doc)}
+                          className="text-[12px] font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                          title="See duplicates found and reconciliation numbers for this upload"
+                        >
+                          View upload report
+                        </button>
+                      )}
 
-          {loadError && !loading && (
-            <div className="p-4">
-              <LoadErrorBanner title="Could not load your decks." message={loadError} onRetry={retryLoadDocs} />
-            </div>
-          )}
-          {deleteError && (
-            <div className="p-4">
-              <LoadErrorBanner title="Something went wrong." message={deleteError} />
-            </div>
-          )}
-          {documents.length === 0 && !loading && !loadError && (
-            <div className="py-10 flex flex-col items-center text-center text-[13px] text-slate-500 font-normal">
-              <QTAnim anim="lets-get-started" fallbackPose="fishbowl" height={84} alt="QT ready for your first deck" />
-              <p className="mt-2">No decks yet. Drop your first one above and the quest begins.</p>
-            </div>
-          )}
-        </div>
+                      <button
+                        onClick={() => handleDelete(doc.id)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                        title="Delete Document"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+
+              {documents.length === 0 && !loadError && (
+                <tr>
+                  <td colSpan={4} className="py-10 text-center text-[13px] text-slate-500 font-normal">
+                    <div className="flex flex-col items-center">
+                      <QTAnim anim="lets-get-started" fallbackPose="fishbowl" height={84} alt="QT ready for your first deck" />
+                      <p className="mt-2">No decks yet. Drop your first one above and the quest begins.</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+
+        {loadError && !loading && (
+          <div className="p-4 border-t border-slate-100">
+            <LoadErrorBanner title="Could not load your decks." message={loadError} onRetry={retryLoadDocs} />
+          </div>
+        )}
+        {deleteError && (
+          <div className="p-4 border-t border-slate-100">
+            <LoadErrorBanner title="Something went wrong." message={deleteError} />
+          </div>
+        )}
       </div>
         </>
       ) : (
