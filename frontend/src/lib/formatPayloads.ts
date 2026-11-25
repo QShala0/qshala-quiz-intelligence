@@ -38,7 +38,7 @@ export interface ImageRevealPayload extends PayloadBase {
   prompt: string;
   full_image: string | null;
   timer_seconds: number | null;
-  reveal_steps: { step: number; cover: string | null; position: RevealPosition | string; correct: number; wrong: number }[];
+  reveal_steps: { step: number; cover: string | null; position: RevealPosition | string; correct?: number | null; wrong?: number | null }[];
   answer: string;
 }
 
