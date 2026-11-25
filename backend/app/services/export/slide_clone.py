@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 from typing import Any, Optional
 
 from pptx.enum.shapes import MSO_SHAPE_TYPE, PP_PLACEHOLDER
@@ -114,20 +115,44 @@ def _ph_type(sh) -> Optional[Any]:
         return None
 
 
+def _is_credit_or_badge(text: str) -> bool:
+    """Checks if text is a partner, sponsor, or credit badge (e.g. 'Presented by', 'Knowledge Partner')."""
+    clean = re.sub(r"[^\w\s]", " ", text).strip().lower()
+    badge_prefixes = (
+        "presented by", "powered by", "supported by", "hosted by",
+        "organized by", "curated by", "brought to you by",
+        "in association with", "in collaboration with",
+    )
+    if any(clean.startswith(p) for p in badge_prefixes):
+        return True
+    if any(w in clean.split() for w in ("partner", "partners", "sponsor", "sponsors")):
+        return True
+    return False
+
+
 def find_title_and_subtitle(slide) -> tuple[Optional[Any], Optional[Any]]:
     """Title = title placeholder, else the text shape with the biggest font; subtitle = the next text shape below it."""
     shapes = _text_shapes(slide)
     title = next((s for s in shapes if _ph_type(s) in (PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE)), None)
     if title is None:
-        with_text = [s for s in shapes if s.text_frame.text.strip()]
-        if with_text:
-            title = max(with_text, key=lambda s: (_first_size_pt(s), s.width * s.height if s.width and s.height else 0))
+        cand_titles = [s for s in shapes if s.text_frame.text.strip() and not _is_credit_or_badge(s.text_frame.text)]
+        if cand_titles:
+            title = max(cand_titles, key=lambda s: (_first_size_pt(s), s.width * s.height if s.width and s.height else 0))
     if title is None:
         return None, None
     sub = next((s for s in shapes if _ph_type(s) == PP_PLACEHOLDER.SUBTITLE and s is not title), None)
     if sub is None:
         t_top = title.top or 0
-        below = [s for s in shapes if s is not title and s.text_frame.text.strip() and (s.top or 0) >= t_top]
+        t_size = _first_size_pt(title)
+        min_sub_size = max(18.0, t_size * 0.30) if t_size else 18.0
+        below = [
+            s for s in shapes
+            if s is not title
+            and s.text_frame.text.strip()
+            and (s.top or 0) >= t_top
+            and not _is_credit_or_badge(s.text_frame.text)
+            and (_first_size_pt(s) >= min_sub_size)
+        ]
         if below:
             sub = min(below, key=lambda s: ((s.top or 0), -(_first_size_pt(s))))
     return title, sub

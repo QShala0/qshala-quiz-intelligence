@@ -333,7 +333,7 @@ export default function ExportQuizModal({
                 </p>
                 <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-600">
                   <span className="bg-slate-100 px-1.5 py-0.5 rounded font-mono">
-                    {templateCategory === 'qshala' ? 'Causten Round' : 'Poppins / Roboto'}
+                    {templateCategory === 'qshala' ? 'Causten Round' : 'Inter'}
                   </span>
                   <span>•</span>
                   <span className="bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded">
