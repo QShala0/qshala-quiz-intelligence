@@ -357,10 +357,14 @@ export function useVaultQuestions(
     }
   };
 
-  const handleResolveDuplicate = async (questionId: string, action: 'CONFIRM_DUPLICATE' | 'DISMISS_UNIQUE') => {
+  const handleResolveDuplicate = async (
+    questionId: string,
+    action: 'CONFIRM_DUPLICATE' | 'DISMISS_UNIQUE',
+    keep: 'EXISTING' | 'CANDIDATE' = 'EXISTING'
+  ) => {
     setResolvingId(questionId);
     try {
-      await api.resolveDuplicate(questionId, action);
+      await api.resolveDuplicate(questionId, action, undefined, keep);
       clearVaultCache();
       setQuestions((prev) => prev.filter((q) => q.id !== questionId));
       setDuplicateCount((prev) => Math.max(0, prev - 1));

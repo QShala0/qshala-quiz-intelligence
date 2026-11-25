@@ -170,3 +170,66 @@ def test_repeated_entries_can_be_fixed_and_removed_and_confirmed_duplicates_beco
             if d:
                 purge_document(db, d)
         db.close()
+
+
+def test_duplicate_resolve_keep_candidate():
+    tag = uuid.uuid4().hex[:8]
+    doc1 = _ingest("2022-05-10 PES University Bengaluru Prelims ZVQ History Quiz.pptx", tag)
+    extra_doc = None
+    try:
+        q1 = _first_questions(doc1)[0]
+        db = SessionLocal()
+        orig_obj = db.query(Question).filter(Question.id == q1).one()
+        orig_text = orig_obj.question_text
+        orig_answer = orig_obj.answer
+
+        extra_doc = str(uuid.uuid4())
+        db.add(Document(id=extra_doc, filename="2024-05-20 Candidate Deck.pptx", title="Candidate Deck 2024", year=2024,
+                        file_type="pptx", storage_path="y", processing_status="COMPLETED"))
+        db.flush()
+        cand = Question(
+            document_id=extra_doc,
+            question_text="New Candidate Question Text (Better formatted)?",
+            answer="Better Candidate Answer",
+            topic="Finance",
+            duplicate_status="POSSIBLE_DUPLICATE",
+            duplicate_of_id=q1,
+            source_slide_range="Slide 5-6"
+        )
+        db.add(cand)
+        db.commit()
+        cand_id = cand.id
+        db.close()
+
+        # Resolve with keep="CANDIDATE"
+        r = client.post(f"{API}/questions/{cand_id}/resolve-duplicate", json={
+            "action": "CONFIRM_DUPLICATE",
+            "keep": "CANDIDATE"
+        })
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["id"] == q1  # ID is preserved
+        assert body["question_text"] == "New Candidate Question Text (Better formatted)?"
+        assert body["answer"] == "Better Candidate Answer"
+        assert body["document_id"] == extra_doc
+
+        db = SessionLocal()
+        # Candidate row should be deleted
+        assert db.query(Question).filter(Question.id == cand_id).first() is None
+        # Original row updated in place
+        updated_orig = db.query(Question).filter(Question.id == q1).one()
+        assert updated_orig.question_text == "New Candidate Question Text (Better formatted)?"
+        assert updated_orig.answer == "Better Candidate Answer"
+        assert updated_orig.document_id == extra_doc
+        assert updated_orig.occurrence_count >= 2
+        # Previous deck recorded as repeat
+        from backend.app.models.question_meta import QuestionRepeat
+        assert db.query(QuestionRepeat).filter(QuestionRepeat.question_id == q1, QuestionRepeat.document_id == doc1).first() is not None
+        db.close()
+    finally:
+        db = SessionLocal()
+        for d in (doc1, extra_doc):
+            if d:
+                purge_document(db, d)
+        db.close()
+

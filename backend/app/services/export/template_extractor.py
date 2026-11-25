@@ -215,9 +215,11 @@ def _normalise_image(blob_bytes: bytes) -> Optional[Tuple[bytes, str]]:
 
 
 def _short_answer_slide(slide) -> bool:
-    """A divider slide: the only text is the word 'Answer' (or 'Answers')."""
+    """A divider slide: the slide's sole purpose is announcing the answer (e.g. 'Answer', 'Answers', 'ಉತ್ತರ! Answer!')."""
     txt = " ".join(s.text_frame.text for s in slide.shapes if s.has_text_frame).strip().lower()
-    return bool(txt) and len(txt) <= 30 and txt.startswith("answer")
+    if not txt or len(txt) > 40:
+        return False
+    return bool(re.search(r"\banswers?\b", txt, re.I))
 
 
 class TemplateExtractor:

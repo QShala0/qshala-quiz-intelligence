@@ -937,12 +937,13 @@ export const api = {
   resolveDuplicate: async (
     questionId: string,
     action: 'CONFIRM_DUPLICATE' | 'DISMISS_UNIQUE' | 'MERGE',
-    notes?: string
+    notes?: string,
+    keep?: 'EXISTING' | 'CANDIDATE'
   ): Promise<HistoricalQuestion> => {
     const res = await fetch(`${getApiBase()}/questions/${questionId}/resolve-duplicate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, notes }),
+      body: JSON.stringify({ action, notes, keep }),
     });
     return handleResponse<HistoricalQuestion>(res);
   },
