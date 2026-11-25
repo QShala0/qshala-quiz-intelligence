@@ -1668,6 +1668,23 @@ export async function changePassword(oldPassword: string, newPassword: string): 
   return res.json();
 }
 
+export interface DirectoryUser {
+  display_name: string;
+  email: string;
+}
+
+export async function getDirectoryUsers(q?: string): Promise<DirectoryUser[]> {
+  const base = getApiBase();
+  const qs = new URLSearchParams();
+  if (q && q.trim()) qs.set('q', q.trim());
+  const res = await fetch(`${base}/auth/directory${qs.toString() ? `?${qs.toString()}` : ''}`);
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Failed to fetch directory users');
+  }
+  return res.json();
+}
+
 export async function listUsers(params: { team?: string; page?: number; limit?: number } = {}): Promise<ListUsersResponse> {
   const base = getApiBase();
   const qs = new URLSearchParams();

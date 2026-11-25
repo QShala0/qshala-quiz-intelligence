@@ -25,7 +25,9 @@ import {
   Clock,
   History,
   X,
+  Building2,
 } from 'lucide-react';
+import DirectoryAddModal from './DirectoryAddModal';
 
 const TEAMS = ['School', 'Corporate', 'QShala', 'Consultant'] as const;
 
@@ -42,6 +44,7 @@ export default function AccessTab() {
 
   // Modals state
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showDirectoryModal, setShowDirectoryModal] = useState(false);
   const [resetPasswordTarget, setResetPasswordTarget] = useState<AuthUser | null>(null);
 
   // Add User Form State
@@ -337,6 +340,15 @@ export default function AccessTab() {
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loadingUsers ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowDirectoryModal(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-[#E9DFC9] bg-[#FFFCF5] px-3.5 py-1.5 text-[12.5px] font-semibold text-[#1E222D] shadow-xs transition-colors hover:bg-slate-50 focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20"
+            >
+              <Building2 className="h-3.5 w-3.5 text-amber-600" />
+              <span>Add from directory</span>
             </button>
 
             <button
@@ -856,6 +868,17 @@ export default function AccessTab() {
           </div>
         </div>
       )}
+
+      {/* Microsoft 365 Directory Add Modal */}
+      <DirectoryAddModal
+        isOpen={showDirectoryModal}
+        onClose={() => setShowDirectoryModal(false)}
+        onUsersAdded={loadData}
+        onOpenManualAdd={() => {
+          setShowDirectoryModal(false);
+          setShowAddUserModal(true);
+        }}
+      />
     </div>
   );
 }
