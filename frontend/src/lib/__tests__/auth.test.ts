@@ -7,6 +7,7 @@ import {
   createUser,
   resetUserPassword,
   listAuditLogs,
+  getDirectoryUsers,
 } from '../api';
 
 const jsonRes = (status: number, body: unknown) =>
@@ -192,5 +193,18 @@ describe('auth api client', () => {
 
     const [url] = spy.mock.calls[0];
     expect(String(url)).toContain('/auth/audit?page=1&limit=20');
+  });
+
+  it('getDirectoryUsers queries /auth/directory with optional search query', async () => {
+    const mockUsers = [
+      { display_name: 'Fake Alice', email: 'alice@walnuts.co.in' },
+      { display_name: 'Fake Bob', email: 'bob@walnuts.co.in' },
+    ];
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonRes(200, mockUsers));
+
+    const res = await getDirectoryUsers('alice');
+    expect(res).toEqual(mockUsers);
+    const [url] = spy.mock.calls[0];
+    expect(String(url)).toContain('/auth/directory?q=alice');
   });
 });

@@ -1,7 +1,7 @@
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ from backend.app.services.auth.dependencies import (
     get_current_user_optional,
     require_admin,
 )
+from backend.app.services.auth.directory import get_directory_users
 from backend.app.services.auth.microsoft import (
     OAUTH_STATE_COOKIE_NAME,
     OAUTH_STATE_MAX_AGE,
@@ -472,6 +473,27 @@ def change_password(
 
 
 # ---------------------------------------------------------------------- Admin Only Endpoints
+
+class DirectoryUserOut(BaseModel):
+    display_name: str
+    email: str
+
+
+@router.get(
+    "/directory",
+    response_model=List[DirectoryUserOut],
+    summary="List available Microsoft 365 directory users for account creation",
+)
+async def list_directory_users(
+    q: Optional[str] = Query(None, description="Optional search term to filter users"),
+    _admin: AuthUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: fetch eligible directory users from Microsoft Graph.
+    Filters out existing users, disabled accounts, and non-allowed domains.
+    Results are cached for 5 minutes."""
+    return await get_directory_users(db=db, q=q)
+
 
 @router.get("/users")
 def list_users(
