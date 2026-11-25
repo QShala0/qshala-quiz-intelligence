@@ -7,12 +7,16 @@ import {
   Cloud,
   Layers,
   ArrowRight,
+  Shield,
 } from 'lucide-react';
 import { getApiBase } from '@/lib/api';
+import { useIsAdmin } from '@/context/AuthContext';
 import CustomTemplateManager from '@/components/CustomTemplateManager';
+import AccessTab from '@/components/settings/AccessTab';
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'platform' | 'templates'>('platform');
+  const isAdmin = useIsAdmin();
+  const [activeTab, setActiveTab] = useState<'platform' | 'templates' | 'access'>('platform');
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -60,6 +64,21 @@ export default function SettingsPage() {
             <Layers className="h-3.5 w-3.5" />
             <span>PPT Templates</span>
           </button>
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('access')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[13px] font-semibold transition-all cursor-pointer ${
+                activeTab === 'access'
+                  ? 'bg-[#1E222D] text-[#FFFCF5] shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Shield className="h-3.5 w-3.5" />
+              <span>Access & Team</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -121,8 +140,10 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : activeTab === 'templates' ? (
         <CustomTemplateManager />
+      ) : (
+        <AccessTab />
       )}
     </div>
   );

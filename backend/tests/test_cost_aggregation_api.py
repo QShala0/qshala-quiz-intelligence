@@ -8,8 +8,10 @@ os.environ["REQUIRE_POSTGRES"] = "0"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 from backend.app.database import Base, SessionLocal
+from backend.app.models.auth import AuthUser
 from backend.app.models.cost import CostEvent, CostFxRate, CostRateCard, CostRefreshRun
 from backend.app.models.document import Document
+from backend.app.services.auth.dependencies import require_admin
 from backend.app.services.costs.aggregation import (
     invalidate_costs_cache,
     resolve_no_double_counting,
@@ -23,6 +25,8 @@ from backend.app.main import app
 def clean_db():
     invalidate_rate_card_cache()
     invalidate_costs_cache()
+    mock_admin = AuthUser(id="test-admin-override", role="admin", status="active", display_name="Admin Override")
+    app.dependency_overrides[require_admin] = lambda: mock_admin
     db = SessionLocal()
     try:
         Base.metadata.create_all(bind=db.get_bind())
@@ -30,6 +34,7 @@ def clean_db():
     finally:
         db.close()
     yield
+    app.dependency_overrides.pop(require_admin, None)
     invalidate_rate_card_cache()
     invalidate_costs_cache()
     db = SessionLocal()

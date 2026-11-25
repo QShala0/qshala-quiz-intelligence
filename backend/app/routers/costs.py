@@ -26,7 +26,9 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import settings
 from backend.app.database import get_db
+from backend.app.models.auth import AuthUser
 from backend.app.models.cost import CostRateCard, CostRefreshRun
+from backend.app.services.auth.dependencies import require_admin
 from backend.app.services.costs.aggregation import (
     get_documents_costs,
     get_events_ledger,
@@ -84,6 +86,7 @@ def _verify_cron_secret(x_cron_secret: Optional[str] = Header(None, alias="X-Cro
 @router.get("/simple")
 def get_costs_simple(
     period: Optional[str] = Query(None, description="Period in YYYY-MM format, or default to current month"),
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Tiny 6-line summary for the dashboard panel. Cached 30s."""
@@ -92,6 +95,7 @@ def get_costs_simple(
 
 @router.get("/summary")
 def get_costs_summary(
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Comprehensive MTD, last month, and all-time summary with Gemini stage breakdown. Cached 30s."""
@@ -101,6 +105,7 @@ def get_costs_summary(
 @router.get("/timeline")
 def get_costs_timeline(
     granularity: str = Query("month", description="Timeline granularity: month or day"),
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """Historical timeline of costs grouped by period and category. Cached 30s."""
@@ -112,6 +117,7 @@ def get_costs_by_documents(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     sort: str = Query("cost_desc", description="Sort order: cost_desc, date_desc, title_asc"),
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Per-deck cost breakdown including vision, tagging, embedding, job compute, and R2. Cached 30s."""
@@ -122,6 +128,7 @@ def get_costs_by_documents(
 def get_costs_by_quizzes(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Cost breakdown per quiz prompt session, plus overall average per prompt. Cached 30s."""
@@ -137,6 +144,7 @@ def get_costs_events(
     to_date: Optional[datetime] = Query(None, description="Filter occurred_at <= to_date"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Paginated raw cost ledger rows for auditing."""
@@ -155,6 +163,7 @@ def get_costs_events(
 @router.post("/invoices")
 def create_invoice_entry(
     req: InvoiceCreateRequest,
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Record an owner invoice figure.
@@ -184,6 +193,7 @@ def create_invoice_entry(
 
 @router.get("/rate-card")
 def get_rate_card(
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Get active rate card and all historical versions."""
@@ -211,6 +221,7 @@ def get_rate_card(
 @router.put("/rate-card")
 def update_rate_card(
     req: RateCardUpdateRequest,
+    _admin: AuthUser = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Create a new rate card version and mark it active.
