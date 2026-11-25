@@ -292,7 +292,7 @@ function QuestionRow({
               title={q.video_transcript || "Click to watch embedded video clue"}
             >
               <Video className="h-2.5 w-2.5 flex-shrink-0" />
-              <span className="truncate">{q.video_transcript ? `Video: ${q.video_transcript}` : 'Video Clue'}</span>
+              <span className="truncate">{q.video_transcript ? `Video: ${q.video_transcript}` : 'Text + Video'}</span>
             </button>
           )}
 
@@ -304,7 +304,7 @@ function QuestionRow({
               title="Click to play audio clue"
             >
               <Volume2 className="h-2.5 w-2.5" />
-              Audio Clue
+              Text + Audio
             </button>
           )}
           {q.answer_audio && q.answer_audio.length > 0 && (

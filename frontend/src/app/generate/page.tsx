@@ -1042,7 +1042,7 @@ export default function QuizzerHome() {
                               loading="lazy"
                             />
                             <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                              Visual Clue
+                              Text + Image
                             </span>
                           </div>
                         )}

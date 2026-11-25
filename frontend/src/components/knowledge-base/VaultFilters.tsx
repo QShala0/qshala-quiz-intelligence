@@ -243,9 +243,9 @@ export default function VaultFilters({
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
           <option value="BUZZER">Buzzer (Closing Bell)</option>
-          <option value="VISUAL_CLUE">Visual Clue</option>
-          <option value="VIDEO_CLUE">Video Clue</option>
-          <option value="AUDIO_CLUE">Audio Clue</option>
+          <option value="VISUAL_CLUE">Text + Image</option>
+          <option value="VIDEO_CLUE">Text + Video</option>
+          <option value="AUDIO_CLUE">Text + Audio</option>
         </select>
 
         {/* Slot: live questions, reserve spares, or the example slides */}

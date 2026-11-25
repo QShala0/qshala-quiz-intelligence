@@ -132,7 +132,7 @@ export default function QuestionCard({
               <span className="text-slate-300">•</span>
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded">
                 <Volume2 className="h-3 w-3 text-teal-600" />
-                Audio Clue
+                Text + Audio
               </span>
             </>
           )}
@@ -145,7 +145,7 @@ export default function QuestionCard({
               <span className="text-slate-300">•</span>
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded">
                 <Video className="h-3 w-3 text-violet-600" />
-                Video Clue
+                Text + Video
               </span>
             </>
           )}
