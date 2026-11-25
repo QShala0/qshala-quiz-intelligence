@@ -201,9 +201,11 @@ def test_sliding_session_lifecycle():
         assert verified_user is not None
         assert verified_user.id == user.id
 
-        # Fast forward last_seen_at past throttle (e.g. 10 minutes)
+        # Fast forward last_seen_at past throttle (e.g. 10 minutes) and simulate initial expiration
+        session_record.expires_at = session_record.expires_at - timedelta(minutes=15)
         session_record.last_seen_at = datetime.now(timezone.utc) - timedelta(minutes=10)
         db.commit()
+        initial_expires = session_record.expires_at
 
         # Sliding should update expires_at
         verify_and_slide_session(db, raw_token)

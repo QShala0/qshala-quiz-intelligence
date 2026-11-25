@@ -193,20 +193,31 @@ def test_duplicate_resolution_workflow(test_db):
     test_db.add_all([orig_q, dup_candidate])
     test_db.commit()
 
-    # Action 1: Confirm duplicate
+    # Action 1: Confirm duplicate (merges candidate into existing question and cleans up candidate)
     req_confirm = DuplicateResolveRequest(action="CONFIRM_DUPLICATE")
     res1 = resolve_question_duplicate(dup_candidate.id, req_confirm, test_db)
 
-    assert res1.duplicate_status == "CONFIRMED_DUPLICATE"
+    assert res1.id == orig_q.id
     test_db.refresh(orig_q)
     assert orig_q.occurrence_count == 2
+    assert test_db.query(Question).filter(Question.id == dup_candidate.id).first() is None
 
     # Action 2: Dismiss as unique
-    dup_candidate.duplicate_status = "POSSIBLE_DUPLICATE"
+    dup_candidate_2 = Question(
+        id="dup_candidate_02",
+        document_id=doc_id,
+        question_text="Name another Prime Minister.",
+        answer="Barton",
+        topic="Australian History",
+        duplicate_status="POSSIBLE_DUPLICATE",
+        duplicate_similarity=0.93,
+        duplicate_of_id="orig_q_01"
+    )
+    test_db.add(dup_candidate_2)
     test_db.commit()
 
     req_dismiss = DuplicateResolveRequest(action="DISMISS_UNIQUE")
-    res2 = resolve_question_duplicate(dup_candidate.id, req_dismiss, test_db)
+    res2 = resolve_question_duplicate(dup_candidate_2.id, req_dismiss, test_db)
 
     assert res2.duplicate_status == "RESOLVED"
 
