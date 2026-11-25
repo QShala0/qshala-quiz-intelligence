@@ -164,14 +164,18 @@ def question_style(text: str, answer: str = "", image_dependent: bool = False) -
         return "NUMERIC"
     return "STANDARD"
 
-def expand(tokens: List[str]) -> Counter:
+def expand(tokens: List[str], known=None) -> Counter:
     """Return a weighted bag of query terms: originals weight 1.0, expansions 0.4.
-    Includes fuzzy matching for common typos against domain vocabulary."""
-    return Counter(_expand_cached(tuple(tokens)))
+    Includes fuzzy matching for common typos against domain vocabulary.
+
+    `known` is the vocabulary of the bank being searched. A word that appears in it is a real word, not a typo, so
+    it is never fuzzy-corrected ("history" would otherwise be "corrected" to "chemistry")."""
+    skip = tuple(t for t in tokens if known is not None and t in known)
+    return Counter(_expand_cached(tuple(tokens), skip))
 
 
 @lru_cache(maxsize=2048)
-def _expand_cached(tokens: tuple) -> Counter:
+def _expand_cached(tokens: tuple, no_fuzzy: tuple = ()) -> Counter:
     tokens = list(tokens)
     bag: Counter = Counter()
     expanded_tokens = list(tokens)
@@ -179,7 +183,7 @@ def _expand_cached(tokens: tuple) -> Counter:
     # Check for close matches in SYNONYMS keys for any token not directly matched
     known_keys = list(SYNONYMS.keys())
     for t in tokens:
-        if t not in SYNONYMS and len(t) >= 4:
+        if t not in SYNONYMS and len(t) >= 4 and t not in no_fuzzy:
             close = difflib.get_close_matches(t, known_keys, n=1, cutoff=0.75)
             if close:
                 matched_key = close[0]
@@ -255,7 +259,7 @@ class Index:
     def search(self, query: str, filters: Optional[Dict[str, Any]] = None,
                top_k: int = 20) -> List[Dict[str, Any]]:
         filters = filters or {}
-        qbag = expand(tokenize(query))
+        qbag = expand(tokenize(query), known=self.df)
         # --- structured filters: hard gates that a keyword match can't override ---
         def passes(idx: int, item: Dict[str, Any]) -> bool:
             if filters.get("exclude_image") and item.get("image_dependent"):
