@@ -98,12 +98,14 @@ export default function UploadPage() {
   const [autoReports, setAutoReports] = useState<FoundReport[]>([]);
   const [progressById, setProgressById] = useState<Record<string, { pct: number; step: string }>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadSource, setUploadSource] = useState<'local' | 'sharepoint'>('local');
+  const [uploadSource, setUploadSource] = useState<'local' | 'sharepoint'>('sharepoint');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('tab') === 'sharepoint' || window.location.hash === '#sharepoint') {
+      if (params.get('tab') === 'local' || window.location.hash === '#local') {
+        setUploadSource('local');
+      } else if (params.get('tab') === 'sharepoint' || window.location.hash === '#sharepoint') {
         setUploadSource('sharepoint');
       }
     }
@@ -447,8 +449,20 @@ export default function UploadPage() {
         </p>
       </div>
 
-      {/* Source Mode Switcher: Upload Files vs SharePoint Library */}
+      {/* Source Mode Switcher: SharePoint Library vs Upload Files */}
       <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 w-fit">
+        <button
+          type="button"
+          onClick={() => setUploadSource('sharepoint')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-semibold transition-all cursor-pointer ${
+            uploadSource === 'sharepoint'
+              ? 'bg-white text-slate-900 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Cloud className="h-4 w-4 text-blue-600" />
+          <span>SharePoint Library</span>
+        </button>
         <button
           type="button"
           onClick={() => setUploadSource('local')}
@@ -463,18 +477,6 @@ export default function UploadPage() {
           {(hasActiveItems || hasActive) && uploadSource !== 'local' && (
             <span className="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse ml-0.5" title="Deck processing on platform" />
           )}
-        </button>
-        <button
-          type="button"
-          onClick={() => setUploadSource('sharepoint')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13.5px] font-semibold transition-all cursor-pointer ${
-            uploadSource === 'sharepoint'
-              ? 'bg-white text-slate-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Cloud className="h-4 w-4 text-blue-600" />
-          <span>SharePoint Library</span>
         </button>
       </div>
 

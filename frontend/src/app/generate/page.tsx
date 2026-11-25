@@ -104,18 +104,7 @@ const GREETINGS = [
   'No Googling in the back, please. What\u2019s the quiz?',
   'Tell me the vibe. I\u2019ll bring the buzzer.',
 ];
-const PLACEHOLDERS = [
-  '12 tough questions on fintech for a college finals',
-  'A gentle warm-up on brands and logos, no images',
-  'Family quiz night: food, festivals and cricket, 15 questions',
-  'Something fiendish on banking, for people who think they know money',
-];
 const STAGES = ['Reading your brief', 'Searching the archive', 'Weeding out repeats', 'Shaping the order', 'Writing the intro'];
-const FALLBACK_STARTERS = [
-  '10 evergreen questions on Indian startups',
-  'A tough 15-question finals round on banking and money',
-  'Warm-up quiz on brands and logos, no images',
-];
 
 // (format counts: see components/FormatCounts.tsx)
 async function apiFetch<T>(path: string, body?: unknown): Promise<T> {
@@ -156,8 +145,6 @@ export default function QuizzerHome() {
   const router = useRouter();
   const [greeting, setGreeting] = useState(GREETINGS[0]);
   const [prompt, setPrompt] = useState('');
-  const [ph, setPh] = useState(PLACEHOLDERS[0]);
-  const [starters, setStarters] = useState<string[]>(FALLBACK_STARTERS);
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState(0);
   const [error, setError] = useState('');
@@ -230,8 +217,6 @@ export default function QuizzerHome() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- random pick must run after hydration
     setGreeting(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
-    setPh(PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
-    apiFetch<{ starters: string[] }>('/prompt-quiz/starters').then((d) => setStarters(d.starters.slice(0, 4))).catch(() => {});
     apiFetch<SourceCatalog>('/documents/sources').then(setSourceCatalog).catch(() => setSourceCatalog(null));
   }, []);
 
@@ -574,7 +559,7 @@ export default function QuizzerHome() {
             onBlur={() => setIsFocused(false)}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); } }}
-            placeholder={ph}
+            placeholder="Describe your quiz..."
             aria-label="Describe your quiz"
             className="w-full resize-none bg-transparent px-5 pt-4 text-[16px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none focus-none"
           />
@@ -1254,7 +1239,7 @@ export default function QuizzerHome() {
                   value={refineText}
                   onChange={(e) => setRefineText(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleRefine(); }}
-                  placeholder="Adjust this quiz… (e.g. make it harder, add 1 question based on Bengaluru)"
+                  placeholder="Adjust this quiz…"
                   className="w-full rounded-xl border border-slate-200 bg-white pl-4 pr-10 py-2.5 text-[14px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                 />
                 <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">
