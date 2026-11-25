@@ -14,6 +14,33 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
+def _patch_pptx_media_parts() -> None:
+    """Work around a python-pptx bug where loaded audio/video parts are Part (no .sha1) rather than MediaPart,
+    which causes shapes.add_movie() to raise AttributeError: 'Part' object has no attribute 'sha1'."""
+    try:
+        import hashlib
+        from pptx.package import _MediaParts
+
+        if getattr(_MediaParts._find_by_sha1, "_qshala_patched", False):
+            return
+
+        def _safe_find_by_sha1(self, sha1):
+            for media_part in self:
+                part_sha1 = getattr(media_part, "sha1", None)
+                if part_sha1 is None:
+                    blob = getattr(media_part, "blob", None)
+                    if blob is not None:
+                        part_sha1 = hashlib.sha1(blob).hexdigest()
+                if part_sha1 == sha1:
+                    return media_part
+            return None
+
+        _safe_find_by_sha1._qshala_patched = True  # type: ignore[attr-defined]
+        _MediaParts._find_by_sha1 = _safe_find_by_sha1  # type: ignore[method-assign]
+    except Exception as e:
+        logger.debug("Could not patch python-pptx _MediaParts._find_by_sha1: %s", e)
+
+
 # ---------------------------------------------------------------------------------------------- media safety
 # POST /quizzes/export takes media references straight from the request body, so the exporter must not be a way
 # to make the server fetch internal URLs or embed arbitrary local files into the returned deck.
@@ -1216,6 +1243,7 @@ class QuizExporter:
         5. Inter typography strictly retained with WCAG AAA contrast (#0F172A / #059669)
         """
         from pptx import Presentation
+        _patch_pptx_media_parts()
         from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN
@@ -1281,6 +1309,7 @@ class QuizExporter:
         **kwargs: Any,
     ) -> bytes:
         from pptx import Presentation
+        _patch_pptx_media_parts()
         from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
         from pptx.enum.text import PP_ALIGN, MSO_ANCHOR

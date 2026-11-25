@@ -337,7 +337,7 @@ export default function ExportQuizModal({
                   </span>
                   <span>•</span>
                   <span className="bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded">
-                    28pt Uniform Body
+                    44pt Title • 28pt Body
                   </span>
                 </div>
               </div>
