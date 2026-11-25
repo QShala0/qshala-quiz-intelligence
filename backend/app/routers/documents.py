@@ -930,7 +930,11 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
         IngestionJob.document_id == document_id,
         IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
     ).all()
+    # Read this before the loop: worker_is_alive looks for a PROCESSING job row, and the loop rewrites them.
+    worker_alive = worker_is_alive(db, document_id)
     for j in jobs:
+        if worker_alive and j.status == "PROCESSING":
+            continue  # the live worker stops at its next checkpoint and closes its own job row
         j.status = "CANCELLED"
         j.current_step = "CANCELLED"
         j.cancel_requested = True
@@ -953,7 +957,7 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
     # the document and its media out from under it: it would keep calling Gemini, then fail on the missing
     # row and leave orphaned uploads. Leave cancel_requested set; the worker's poller sees it, stops at its next
     # checkpoint and purges the document itself.
-    if worker_is_alive(db, document_id):
+    if worker_alive:
         return {"status": "CANCELLING", "document_id": document_id}
 
     # Nothing is actively running for this id (e.g. server restarted mid-ingest): clean up now.

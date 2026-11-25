@@ -141,8 +141,8 @@ def test_quizzes_export_api_router_qshala_school():
 
 
 def test_qshala_school_causten_regular_bold_headings_black_answer_and_media_fit(tmp_path):
-    """Style rules: Causten Round (standard weight) for body text, Bold only on headings (cover title, question and
-    answer number, the Answer divider),
+    """Style rules: Causten Round (standard weight) for body text, Bold only on headings (cover title, question
+    number, the Answer divider),
     answers in black (never green), and images sized to the card without leaving the safe area."""
     from PIL import Image
     from pptx.util import Inches
@@ -185,7 +185,8 @@ def test_qshala_school_causten_regular_bold_headings_black_answer_and_media_fit(
                     if r.font.color and r.font.color.type is not None:
                         assert str(r.font.color.rgb).upper() != "059669"  # answers are black, not green
     assert pics == 4  # question + answer image for both questions
-    assert set(bold_texts) == {"Quiz Hobby Class!", "Question 1", "Answer 1", "Question 2", "Answer 2", "Answer"}
+    # answer slides carry only the answer: the Answer divider already says "Answer", so there is no "Answer N" heading
+    assert set(bold_texts) == {"Quiz Hobby Class!", "Question 1", "Question 2", "Answer"}
 
 
 def test_qshala_school_answer_image_never_on_question_slide(tmp_path):
@@ -227,7 +228,7 @@ def test_qshala_school_answer_image_never_on_question_slide(tmp_path):
 
     # Q1: answer image dropped from the question, present on the answer
     assert len(content_pics(slide_with("Question 1"))) == 0
-    assert len(content_pics(slide_with("Answer 1"))) >= 1
+    assert len(content_pics(slide_with("Cornetto"))) >= 1   # the answer slide, found by its answer text
     # Q2: distinct clue image stays on the question
     assert len(content_pics(slide_with("Question 2"))) >= 1
 
