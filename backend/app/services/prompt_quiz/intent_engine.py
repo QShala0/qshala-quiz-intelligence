@@ -267,20 +267,24 @@ def deconstruct_prompt(
 
     user_text = json.dumps(user_payload)
 
-    from backend.app.services.ai.model_config import intent_model
+    from backend.app.services.ai.model_config import intent_model, thinking_config_rest
     model = intent_model()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+    gen_cfg: Dict[str, Any] = {
+        "response_mime_type": "application/json",
+        "response_schema": INTENT_SCHEMA,
+        "temperature": 0.1,
+        "maxOutputTokens": 800,
+    }
+    tc = thinking_config_rest(model, "minimal")
+    if tc:
+        gen_cfg["thinkingConfig"] = tc
 
     payload = {
         "contents": [{"parts": [{"text": user_text}]}],
         "system_instruction": {"parts": [{"text": system_text}]},
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "response_schema": INTENT_SCHEMA,
-            "temperature": 0.1,
-            "maxOutputTokens": 800,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": gen_cfg,
     }
 
     try:

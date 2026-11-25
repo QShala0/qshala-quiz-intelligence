@@ -160,7 +160,7 @@ def curate_quiz_with_gemini(
     if not key:
         return None
 
-    from backend.app.services.ai.model_config import curator_model
+    from backend.app.services.ai.model_config import curator_model, thinking_config_rest
     model = curator_model()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -172,16 +172,20 @@ def curate_quiz_with_gemini(
         previous_brief=previous_brief,
     )
 
+    gen_cfg: Dict[str, Any] = {
+        "response_mime_type": "application/json",
+        "response_schema": CURATION_SCHEMA,
+        "temperature": 0.1,
+        "maxOutputTokens": 1200,
+    }
+    tc = thinking_config_rest(model, "minimal")
+    if tc:
+        gen_cfg["thinkingConfig"] = tc
+
     payload = {
         "contents": [{"parts": [{"text": user_text}]}],
         "system_instruction": {"parts": [{"text": _SYSTEM}]},
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "response_schema": CURATION_SCHEMA,
-            "temperature": 0.1,
-            "maxOutputTokens": 1200,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": gen_cfg,
     }
 
     valid_id_set: Set[str] = {c.get("id") for c in candidates if c.get("id")}

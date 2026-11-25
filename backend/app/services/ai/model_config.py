@@ -5,6 +5,7 @@ the tagger and embedder keep their own settings). The optional GEMINI_MODEL_<ROL
 at a different model later without touching code; all are unset by default.
 """
 import os
+from typing import Any, Dict, Optional
 
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 EMBEDDING_MODEL = "gemini-embedding-001"
@@ -39,3 +40,13 @@ def tagger_model() -> str:
 def models_in_use() -> dict:
     return {"interpreter": interpreter_model(), "intent": intent_model(), "curator": curator_model(),
             "tagger": tagger_model(), "embedding": EMBEDDING_MODEL}
+
+
+def thinking_config_rest(model: str, level: str = "minimal") -> Optional[Dict[str, Any]]:
+    """REST generationConfig.thinkingConfig for `model` ('thinkingLevel' on 3.x, 'thinkingBudget' on 2.5)."""
+    lvl = (level or "minimal").lower()
+    if any(tag in model for tag in ("3.1", "3.5", "3.6", "3.8", "4-")):
+        return {"thinkingLevel": lvl.upper()}
+    if "2.5" in model:
+        return {"thinkingBudget": 128 if "pro" in model else (0 if lvl == "minimal" else 128)}
+    return None
