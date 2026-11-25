@@ -361,7 +361,7 @@ function ImageRevealView({ payload, step, resolveMedia, onZoom }: { payload: Ima
             >
               <div className="flex h-full w-full flex-col items-center justify-center gap-2 border border-white/40 bg-gradient-to-br from-blue-500 to-blue-600 text-white">
                 <span className="text-3xl font-black">{s.step}</span>
-                {points && <span className="font-mono text-sm text-slate-600">{points}</span>}
+                {points && <span className="font-mono text-sm text-blue-100">{points}</span>}
               </div>
             </div>
           );
@@ -380,7 +380,7 @@ function ConnectView({ payload, step, revealed, resolveMedia, onZoom }: { payloa
           {payload.text_hint}
         </p>
       )}
-      <div className="grid w-full grid-cols-2 gap-4">
+      <div className={`grid w-full gap-4 ${items.length > 4 ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {items.map((it, i) => {
           const open = i < step;
           const label = payload.item_labels?.[i];
@@ -477,7 +477,7 @@ function ArrangeView({ payload, revealed, resolveMedia, reduceMotion, onZoom }: 
         ))}
       </div>
       {revealed && !orderKnown && (
-        <p className="text-center text-base text-amber-300/80">No stored order — see the answer below.</p>
+        <p className="text-center text-base text-amber-700">No stored order — see the answer below.</p>
       )}
     </div>
   );
@@ -897,13 +897,16 @@ export default function StagePresenter({
       if (tag === 'INPUT' || tag === 'TEXTAREA' || t?.isContentEditable) return;
       const onControl = tag === 'BUTTON' || tag === 'A' || t?.getAttribute('role') === 'button';
 
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (lightbox) setLightbox(null);
+        else if (showHelp) setShowHelp(false);
+        else onClose();
+        return;
+      }
+      if (lightbox || showHelp) return;
+
       switch (e.key) {
-        case 'Escape':
-          e.preventDefault();
-          if (lightbox) setLightbox(null);
-          else if (showHelp) setShowHelp(false);
-          else onClose();
-          break;
         case 'ArrowRight':
           e.preventDefault();
           goNext();
@@ -1056,7 +1059,7 @@ export default function StagePresenter({
               {(current.points_correct != null || current.points_wrong != null) && (
                 <span className="hidden shrink-0 rounded-lg bg-slate-100 px-3 py-1 font-mono text-sm sm:inline">
                   {current.points_correct != null && (
-                    <span className="text-emerald-300">+{current.points_correct}</span>
+                    <span className="text-emerald-700">+{current.points_correct}</span>
                   )}
                   {current.points_wrong != null && (
                     <span className="ml-2 text-red-600">-{Math.abs(current.points_wrong)}</span>
@@ -1133,7 +1136,7 @@ export default function StagePresenter({
                     <button
                       type="button"
                       onClick={() => setStoryOpen((v) => !v)}
-                      className="ml-auto flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
+                      className="ml-auto flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40"
                     >
                       <BookOpen className="h-4 w-4" />
                       {storyOpen ? 'Hide story' : 'Story behind the question'}
@@ -1239,7 +1242,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={() => applyDuration(30)}
                     className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40 ${
-                      duration === 30 ? 'bg-blue-600 text-slate-900' : 'bg-slate-100 hover:bg-slate-200'
+                      duration === 30 ? 'bg-blue-600 text-white' : 'bg-slate-100 hover:bg-slate-200'
                     }`}
                   >
                     30
@@ -1248,7 +1251,7 @@ export default function StagePresenter({
                     type="button"
                     onClick={() => applyDuration(60)}
                     className={`rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40 ${
-                      duration === 60 ? 'bg-blue-600 text-slate-900' : 'bg-slate-100 hover:bg-slate-200'
+                      duration === 60 ? 'bg-blue-600 text-white' : 'bg-slate-100 hover:bg-slate-200'
                     }`}
                   >
                     60

@@ -831,6 +831,12 @@ class IngestionPipeline:
                 # Nov 2 2026: psycopg.errors.ForeignKeyViolation on questions_duplicate_of_id_fkey,
                 # "Key (duplicate_of_id)=(...) is not present in table questions" -- that id was
                 # exactly a sibling candidate in the same deck's batch.)
+                from backend.app.services.ingestion.question_normalizer import normalize_question_dict, validate_before_save
+                q_data["question_format"] = q_fmt
+                normalize_question_dict(q_data)
+                q_fmt = q_data["question_format"]
+                for _err in validate_before_save(q_data):
+                    logger.warning("question validation: %s (deck %s)", _err, doc.id)
                 q_obj = Question(
                     id=q_data.get("id") or generate_uuid(),
                     content_hash=q_data["content_hash"],
@@ -986,8 +992,11 @@ class IngestionPipeline:
                 t0 = _stage_log(document_id, "C2:tagging", t0)
 
             with short_session() as fin:
+                raise_if_cancelled(document_id)
                 fin_doc = fin.query(Document).filter(Document.id == document_id).first()
                 if fin_doc:
+                    if fin_doc.cancel_requested:
+                        raise IngestionCancelled("Cancelled by user")
                     fin_doc.question_count = len(question_models)
                     fin_doc.processing_status = "COMPLETED"
                     if fin_doc.sharepoint_file_id:

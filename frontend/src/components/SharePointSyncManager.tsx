@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   Cloud,
   RefreshCw,
@@ -14,12 +13,14 @@ import {
   Layers,
   X,
   Search,
-  EyeOff
+  EyeOff,
+  Loader2
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem, SpNotImportedResponse, cleanSteps, getActiveStageIndex } from '@/lib/types';
+import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem, IngestionStatus, SpNotImportedResponse, cleanSteps, getActiveStageIndex } from '@/lib/types';
 import SharePointImporter from '@/components/SharePointImporter';
 import { useToast } from '@/components/ui';
+import QT from '@/components/ui/QT';
 
 function getInitialModifiedFilter(): '30d' | '90d' | '1y' | 'older' | 'all' {
   if (typeof window === 'undefined') return '90d';
@@ -55,7 +56,6 @@ interface SharePointSyncManagerProps {
 }
 
 export default function SharePointSyncManager({ showImporter = true, onTransferComplete }: SharePointSyncManagerProps) {
-  const router = useRouter();
   const toast = useToast();
 
   // SharePoint & Jobs state
@@ -87,6 +87,13 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
   const [hiddenFolderToast, setHiddenFolderToast] = useState<{ folderId: string; folderPath: string } | null>(null);
   const [hidingFolderId, setHidingFolderId] = useState<string | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const queueSectionRef = useRef<HTMLDivElement>(null);
+
+  // Live per-document stage progress & QT mascot state for SharePoint queue
+  const [activeDocStatuses, setActiveDocStatuses] = useState<Record<string, IngestionStatus>>({});
+  const prevProcessingJobRef = useRef<{ id: string; filename: string; document_id?: string | null } | null>(null);
+  const [justCompletedJob, setJustCompletedJob] = useState<{ id: string; filename: string; slides?: number; questions?: number } | null>(null);
+  const [cancellingJobDocId, setCancellingJobDocId] = useState<string | null>(null);
 
   const loadSharePointData = async () => {
     try {
@@ -98,8 +105,73 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
       setSyncStatus(sStatus);
       setFiles(sFiles);
       setJobs(sJobs);
+
+      const activeDocs = sJobs
+        .filter((j) => (j.status === 'PROCESSING' || j.status === 'PENDING' || j.status === 'CANCELLING') && j.document_id)
+        .slice(0, 10);
+
+      if (activeDocs.length > 0) {
+        const entries = await Promise.all(
+          activeDocs.map(async (j) => {
+            try {
+              const st = await api.getIngestionStatus(j.document_id!);
+              return [j.document_id!, st] as const;
+            } catch {
+              return null;
+            }
+          })
+        );
+        const valid = entries.filter((e): e is [string, IngestionStatus] => e !== null);
+        setActiveDocStatuses(Object.fromEntries(valid));
+      } else {
+        setActiveDocStatuses({});
+      }
+
+      // Track completion of the previously processing job so QT can curl up asleep
+      const prevProc = prevProcessingJobRef.current;
+      if (prevProc) {
+        const nowJob = sJobs.find((j) => j.id === prevProc.id);
+        if (nowJob && nowJob.status === 'COMPLETED') {
+          setJustCompletedJob({
+            id: nowJob.id,
+            filename: nowJob.filename,
+            slides: nowJob.step_summary?.slides_count,
+            questions: nowJob.step_summary?.questions_count,
+          });
+          setTimeout(() => {
+            setJustCompletedJob((cur) => (cur?.id === nowJob.id ? null : cur));
+          }, 6000);
+        }
+      }
+      const curProc = sJobs.find((j) => j.status === 'PROCESSING') || null;
+      prevProcessingJobRef.current = curProc ? { id: curProc.id, filename: curProc.filename, document_id: curProc.document_id } : null;
     } catch (err) {
       console.error('Failed to load SharePoint data:', err);
+    }
+  };
+
+  const handleLocalTransferComplete = async () => {
+    await Promise.all([
+      fetchNotImported(0, false),
+      loadSharePointData(),
+    ]);
+    onTransferComplete?.();
+    setTimeout(() => {
+      queueSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  };
+
+  const handleCancelActiveJob = async (docId: string) => {
+    if (!docId || cancellingJobDocId) return;
+    setCancellingJobDocId(docId);
+    try {
+      await api.cancelIngestion(docId);
+      toast.info('Stopping deck ingestion...');
+      await loadSharePointData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to cancel deck');
+    } finally {
+      setCancellingJobDocId(null);
     }
   };
 
@@ -274,18 +346,7 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
       toast.success(`Import complete! Transferred ${staged.selected} files.`);
       setDrawerOpen(false);
       setSelectedIds(new Set());
-      if (queuedCount > 0 || remaining === 0) {
-        if (onTransferComplete) {
-          onTransferComplete();
-          return;
-        }
-        router.push('/uploads');
-        return;
-      }
-      await Promise.all([
-        fetchNotImported(0, false),
-        loadSharePointData(),
-      ]);
+      await handleLocalTransferComplete();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Import failed');
     } finally {
@@ -504,10 +565,10 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
       </div>
 
       {/* SharePoint Folder Tree Importer */}
-      {showImporter && <SharePointImporter onTransferComplete={onTransferComplete} />}
+      {showImporter && <SharePointImporter onTransferComplete={handleLocalTransferComplete} />}
 
       {/* Ingestion Jobs Queue Table */}
-      <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden space-y-0">
+      <div ref={queueSectionRef} className="rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-100/50 overflow-hidden space-y-0">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Layers className="h-4 w-4 text-blue-600" />
@@ -523,6 +584,154 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
             Refresh
           </button>
         </div>
+
+        {/* Live Active Deck Processing Card with QShala Cat (QT) */}
+        {(() => {
+          const activeJob =
+            jobs.find((j) => j.status === 'PROCESSING') ||
+            jobs.find((j) => j.status === 'PENDING');
+          const docStatus = activeJob?.document_id ? activeDocStatuses[activeJob.document_id] : undefined;
+
+          if (!activeJob && !justCompletedJob) return null;
+
+          const isCompletedCard = !activeJob && Boolean(justCompletedJob);
+          const pct = isCompletedCard
+            ? 100
+            : Math.max(0, Math.min(100, Math.round(docStatus?.progress_percentage ?? (activeJob?.status === 'PROCESSING' ? 15 : 5))));
+          const stepText = isCompletedCard
+            ? `Indexed ${justCompletedJob?.slides ?? 0} slides & ${justCompletedJob?.questions ?? 0} questions`
+            : docStatus?.current_step || activeJob?.current_step || 'Queued for worker...';
+          const detailText = !isCompletedCard ? docStatus?.detail : undefined;
+          const filename = isCompletedCard ? justCompletedJob?.filename : activeJob?.filename;
+          const activeStage = isCompletedCard ? 4 : getActiveStageIndex(pct, stepText);
+
+          return (
+            <div
+              className={`border-b border-slate-100 p-6 space-y-4 transition-all ${
+                isCompletedCard ? 'bg-emerald-50/30' : 'bg-blue-50/20'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  {isCompletedCard ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                  ) : (
+                    <Loader2 className="h-5 w-5 animate-spin text-blue-600 shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <h4 className="text-[13px] font-semibold text-slate-900 flex items-center gap-2 flex-wrap">
+                      <span>{isCompletedCard ? 'Deck Indexed' : 'Active Deck Processing'}</span>
+                      {filename && (
+                        <span className="font-normal text-slate-500 truncate max-w-md">
+                          · {filename}
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-[12px] text-slate-500 font-normal truncate">
+                      {detailText || stepText}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <span
+                    className={`text-[14px] font-bold tabular-nums ${
+                      isCompletedCard ? 'text-emerald-600' : 'text-blue-600'
+                    }`}
+                  >
+                    {pct}%
+                  </span>
+                  {activeJob?.document_id && !isCompletedCard && (
+                    <button
+                      type="button"
+                      onClick={() => void handleCancelActiveJob(activeJob.document_id!)}
+                      disabled={cancellingJobDocId === activeJob.document_id}
+                      className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-60 cursor-pointer"
+                      title="Stop this ingestion and remove created artifacts"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      {cancellingJobDocId === activeJob.document_id ? 'Cancelling...' : 'Cancel deck'}
+                    </button>
+                  )}
+                  {isCompletedCard && (
+                    <button
+                      type="button"
+                      onClick={() => setJustCompletedJob(null)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11.5px] font-medium text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* QShala Cat chasing progress ball along the progress bar */}
+              <div className="relative pt-7 pb-1">
+                <div
+                  className="absolute top-0 -translate-x-1/2 select-none transition-all duration-300 z-10"
+                  style={{ left: `${Math.max(6, Math.min(94, pct))}%` }}
+                >
+                  <QT
+                    pose={isCompletedCard || pct >= 100 ? 'sleepy' : 'chase-blue'}
+                    height={34}
+                    interactive={true}
+                    motion={isCompletedCard ? 'breathe' : 'pounce'}
+                    speechBubble={
+                      isCompletedCard
+                        ? 'All decks indexed! Time for a catnap.'
+                        : 'Pouncing through slides!'
+                    }
+                    bubblePosition="top"
+                    alt={isCompletedCard ? 'QT sleeping after import' : 'QT chasing the progress ball'}
+                  />
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      isCompletedCard || pct >= 100 ? 'bg-emerald-600' : 'bg-blue-600'
+                    }`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* 5 Clean Stages */}
+              <div className="grid grid-cols-5 gap-2 pt-1 text-center text-xs">
+                {cleanSteps.map((step, idx) => {
+                  const isFinished = isCompletedCard || pct >= 100;
+                  const isPast = !isFinished && idx < activeStage;
+                  const isCurrent = !isFinished && idx === activeStage;
+                  return (
+                    <div key={step} className="space-y-1">
+                      <div
+                        className={`h-1.5 rounded-full transition-all duration-300 ${
+                          isFinished || isPast
+                            ? 'bg-emerald-500'
+                            : isCurrent
+                            ? 'bg-blue-600 animate-pulse'
+                            : 'bg-slate-200'
+                        }`}
+                      />
+                      <span
+                        className={`text-[12px] block truncate ${
+                          isFinished
+                            ? 'text-emerald-700 font-medium'
+                            : isCurrent
+                            ? 'font-bold text-blue-600'
+                            : isPast
+                            ? 'text-slate-700 font-medium'
+                            : 'text-slate-400'
+                        }`}
+                      >
+                        {step}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[13px] border-collapse">
@@ -570,55 +779,69 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
                       </span>
                     </td>
                     <td className="py-3 px-4 min-w-[220px]">
-                      <div className="space-y-1">
-                        <span className="font-mono text-[11.5px] text-slate-700 block truncate max-w-[200px]" title={job.current_step}>
-                          {job.current_step}
-                        </span>
-                        {job.status === 'PROCESSING' || job.status === 'PENDING' ? (
-                          <div className="grid grid-cols-5 gap-1 pt-0.5">
-                            {cleanSteps.map((stName, sIdx) => {
-                              const activeStage = getActiveStageIndex(0, job.current_step);
-                              const isDone = sIdx < activeStage;
-                              const isCur = sIdx === activeStage;
-                              return (
-                                <div key={stName} title={`${stName}: ${isDone ? 'Done' : isCur ? 'In progress' : 'Pending'}`}>
-                                  <div
-                                    className={`h-1.5 rounded-full transition-all ${
-                                      isDone
-                                        ? 'bg-emerald-500'
-                                        : isCur
-                                        ? 'bg-blue-600 animate-pulse'
-                                        : 'bg-slate-200'
-                                    }`}
-                                  />
-                                  <span
-                                    className={`block text-[9.5px] truncate pt-0.5 ${
-                                      isDone
-                                        ? 'text-emerald-700 font-medium'
-                                        : isCur
-                                        ? 'text-blue-600 font-bold'
-                                        : 'text-slate-400'
-                                    }`}
-                                  >
-                                    {stName}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : job.status === 'COMPLETED' ? (
-                          <div className="grid grid-cols-5 gap-1 pt-0.5">
-                            {cleanSteps.map((stName) => (
-                              <div key={stName}>
-                                <div className="h-1.5 rounded-full bg-emerald-500" />
-                                <span className="block text-[9.5px] truncate pt-0.5 text-emerald-700 font-medium">
-                                  {stName}
+                      {(() => {
+                        const docSt = job.document_id ? activeDocStatuses[job.document_id] : undefined;
+                        const rowStep = docSt?.current_step || job.current_step;
+                        const rowPct = Math.max(0, Math.min(100, Math.round(docSt?.progress_percentage ?? 0)));
+                        const activeStage = getActiveStageIndex(rowPct, rowStep);
+                        return (
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-[11.5px] text-slate-700 block truncate max-w-[180px]" title={rowStep}>
+                                {rowStep}
+                              </span>
+                              {(job.status === 'PROCESSING' || job.status === 'PENDING') && docSt && (
+                                <span className="text-[11px] font-bold text-blue-600 tabular-nums shrink-0">
+                                  {rowPct}%
                                 </span>
+                              )}
+                            </div>
+                            {job.status === 'PROCESSING' || job.status === 'PENDING' ? (
+                              <div className="grid grid-cols-5 gap-1 pt-0.5">
+                                {cleanSteps.map((stName, sIdx) => {
+                                  const isDone = sIdx < activeStage;
+                                  const isCur = sIdx === activeStage;
+                                  return (
+                                    <div key={stName} title={`${stName}: ${isDone ? 'Done' : isCur ? 'In progress' : 'Pending'}`}>
+                                      <div
+                                        className={`h-1.5 rounded-full transition-all ${
+                                          isDone
+                                            ? 'bg-emerald-500'
+                                            : isCur
+                                            ? 'bg-blue-600 animate-pulse'
+                                            : 'bg-slate-200'
+                                        }`}
+                                      />
+                                      <span
+                                        className={`block text-[9.5px] truncate pt-0.5 ${
+                                          isDone
+                                            ? 'text-emerald-700 font-medium'
+                                            : isCur
+                                            ? 'text-blue-600 font-bold'
+                                            : 'text-slate-400'
+                                        }`}
+                                      >
+                                        {stName}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            ))}
+                            ) : job.status === 'COMPLETED' ? (
+                              <div className="grid grid-cols-5 gap-1 pt-0.5">
+                                {cleanSteps.map((stName) => (
+                                  <div key={stName}>
+                                    <div className="h-1.5 rounded-full bg-emerald-500" />
+                                    <span className="block text-[9.5px] truncate pt-0.5 text-emerald-700 font-medium">
+                                      {stName}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
-                        ) : null}
-                      </div>
+                        );
+                      })()}
                     </td>
                     <td className="py-3 px-4 text-slate-600">
                       {job.retry_count} / {job.max_retries}

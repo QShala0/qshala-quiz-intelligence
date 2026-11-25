@@ -580,6 +580,7 @@ def interpret(prompt: str, count: Optional[int] = None, options: Optional[Dict[s
 # The bank is rebuilt from the database on every request (2-3 times per request in places). A short cache lets those
 # share one load. PROMPT_QUIZ_BANK_TTL_S=0 turns it off; questions added or edited show up within that many seconds.
 _BANK_CACHE: Dict[str, Any] = {"at": 0.0, "key": None, "bank": None, "index": None}
+_BANK_ENTRIES: Dict[Any, Dict[str, Any]] = {}
 _CACHE_LOCK = threading.Lock()          # guards every read/write of _BANK_CACHE so a refresh can never be seen half-done
 _REFRESH_LOCK = threading.Lock()        # held while one background refresh runs (single-flight)
 _REFRESH_FAILED_AT = 0.0
@@ -608,16 +609,22 @@ def _bank_stale_window() -> float:
 
 def invalidate_bank_cache() -> None:
     with _CACHE_LOCK:
+        _BANK_ENTRIES.clear()
         _BANK_CACHE.update({"at": 0.0, "key": None, "bank": None, "index": None})
 
 
-def _cache_snapshot():
+def _cache_snapshot(key: Any = None):
     with _CACHE_LOCK:
+        if key is not None and key in _BANK_ENTRIES:
+            entry = _BANK_ENTRIES[key]
+            return entry["at"], key, entry["bank"]
         return _BANK_CACHE["at"], _BANK_CACHE["key"], _BANK_CACHE["bank"]
 
 
 def _store_bank(at: float, key: Any, bank: List[Dict[str, Any]]) -> None:
     with _CACHE_LOCK:
+        if key is not None:
+            _BANK_ENTRIES[key] = {"at": at, "bank": bank, "index": None}
         _BANK_CACHE.update({"at": at, "key": key, "bank": bank, "index": None})
 
 
@@ -687,7 +694,7 @@ def _load_bank(db: Session, slots: Optional[tuple] = None) -> List[Dict[str, Any
     key = (str(db.get_bind().url), slots) if ttl > 0 else None
     now = time.monotonic()
     if ttl > 0:
-        at, cached_key, cached = _cache_snapshot()
+        at, cached_key, cached = _cache_snapshot(key)
         if cached is not None and cached_key == key:
             age = now - at
             if age < ttl:
@@ -708,6 +715,11 @@ def _index_for(bank: List[Dict[str, Any]]) -> Index:
     tok = getattr(bank, "token", None)
     if tok is not None:
         with _CACHE_LOCK:
+            for entry in _BANK_ENTRIES.values():
+                if entry.get("at") == tok and entry.get("bank") is not None:
+                    if entry.get("index") is None:
+                        entry["index"] = Index(entry["bank"])
+                    return entry["index"]
             if _BANK_CACHE["bank"] is not None and _BANK_CACHE["at"] == tok:
                 idx, source = _BANK_CACHE["index"], _BANK_CACHE["bank"]
             else:

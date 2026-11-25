@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Check, Plus, RefreshCw, Sparkles, Trash2, Star, Volume2, Video } from 'lucide-react';
+import { ArrowUp, Check, Plus, RefreshCw, Sparkles, Trash2, Star, Volume2, Video, Pin } from 'lucide-react';
 import { getApiBase, resolveMediaUrl } from '../../lib/api';
 import { HistoricalQuestion, SourceCatalog } from '../../lib/types';
 import BankPickerDrawer from '../../components/BankPickerDrawer';
@@ -164,6 +164,7 @@ export default function QuizzerHome() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [qs, setQs] = useState<DraftQ[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [lockedIds, setLockedIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [lastPrompt, setLastPrompt] = useState('');
   // The prompt the quiz was first created from. Follow-ups ("make it harder") change lastPrompt, but the saved
@@ -336,12 +337,19 @@ export default function QuizzerHome() {
         prompt: lastPrompt,
         question_id: id,
         keep_ids: qs.map((q) => q.id),
+        options: quizOptions(),
       });
       setQs((cur) => cur.map((q) => (q.id === id ? nq : q)));
       setChecked((cur) => {
         const next = new Set(cur);
         next.delete(id);
         next.add(nq.id);
+        return next;
+      });
+      setLockedIds((cur) => {
+        if (!cur.has(id)) return cur;
+        const next = new Set(cur);
+        next.delete(id);
         return next;
       });
     } catch {
@@ -409,8 +417,10 @@ export default function QuizzerHome() {
     const textToUse = (overrideText !== undefined ? overrideText : refineText).trim();
     if (!textToUse || loading || !draft) return;
 
-    // Checked questions are kept; unchecked questions are excluded
-    const keptIds = qs.filter((q) => checked.has(q.id)).map((q) => q.id);
+    // Locked questions are explicitly kept; unchecked questions are excluded
+    const keptIds = lockedIds.size > 0
+      ? qs.filter((q) => lockedIds.has(q.id) && checked.has(q.id)).map((q) => q.id)
+      : [];
     const excludedIds = qs.filter((q) => !checked.has(q.id)).map((q) => q.id);
     const currentQuestions = qs.map((q, idx) => ({
       index: idx + 1,
@@ -424,6 +434,7 @@ export default function QuizzerHome() {
       const d = await apiFetch<Draft>('/prompt-quiz/draft', {
         prompt: textToUse,
         previous_brief: draft.brief,
+        options: quizOptions(),
         keep_ids: keptIds,
         exclude_ids: excludedIds,
         current_questions: currentQuestions,
@@ -431,6 +442,7 @@ export default function QuizzerHome() {
       setDraft(d);
       setQs(d.questions);
       setChecked(new Set(d.questions.map((q) => q.id)));
+      setLockedIds((prev) => new Set([...prev].filter((id) => d.questions.some((q) => q.id === id))));
 
       setRefineText('');
       setLastPrompt(textToUse);
@@ -604,18 +616,6 @@ export default function QuizzerHome() {
             </div>
           </div>
         </div>
-
-        {!draft && !loading && (
-          <ul className="mt-6 space-y-1 text-center">
-            {starters.map((s) => (
-              <li key={s}>
-                <button onClick={() => { setPrompt(s); run(s); }} className="text-[14px] text-slate-500 underline-offset-4 hover:text-slate-900 hover:underline">
-                  {s}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
 
         {loading && (
           <div className="mt-8 flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
@@ -1176,6 +1176,15 @@ export default function QuizzerHome() {
                     )}
                   </div>
                   <div className="flex shrink-0 items-start gap-1 text-slate-400 opacity-60 transition group-hover:opacity-100 focus-within:opacity-100">
+                    <button
+                      type="button"
+                      aria-label={lockedIds.has(q.id) ? "Unlock question" : "Lock question"}
+                      onClick={() => toggle(lockedIds, q.id, setLockedIds)}
+                      className={`p-1.5 transition rounded ${lockedIds.has(q.id) ? 'bg-amber-100 text-amber-800' : 'hover:text-amber-700 disabled:opacity-30'}`}
+                      title={lockedIds.has(q.id) ? "Question pinned (will stay on Refine)" : "Pin question (keep during Refine)"}
+                    >
+                      <Pin size={16} className={lockedIds.has(q.id) ? "fill-amber-600 text-amber-700" : ""} />
+                    </button>
                     <button
                       aria-label="Change topic for this question"
                       onClick={() => {

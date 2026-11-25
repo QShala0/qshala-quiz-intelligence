@@ -234,7 +234,7 @@ def _resolve_media_path(rel_url: Optional[str], download_dir: Optional[Path] = N
                 logger.warning(f"R2 fallback failed for {clean_url}: {e}")
     # 2. Storage directory general (/static/...)
     elif clean_url.startswith("/static/"):
-        sub = clean_url.lstrip("/static/").lstrip("/\\")
+        sub = clean_url[len("/static/"):].lstrip("/\\")
         if not _safe_sub(sub):
             return None
         candidates = [
@@ -1873,11 +1873,12 @@ class QuizExporter:
                             p.font.color.rgb = C_TEXT_DARK
                         if options:
                             for opt_idx, opt in enumerate(options):
+                                opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                                 po = tf_q.add_paragraph()
                                 po.alignment = PP_ALIGN.CENTER
                                 po.space_before = Pt(8)
-                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                                po.text = f"{prefix}{opt}"
+                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                                po.text = f"{prefix}{opt_str}"
                                 po.font.name = FONT_BODY
                                 po.font.size = Pt(22)
                                 po.font.color.rgb = C_TEXT_BODY
@@ -1958,11 +1959,12 @@ class QuizExporter:
 
                         if options:
                             for opt_idx, opt in enumerate(options):
+                                opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                                 po = tf_q.add_paragraph()
                                 po.alignment = PP_ALIGN.CENTER
                                 po.space_before = Pt(8)
-                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                                po.text = f"{prefix}{opt}"
+                                prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                                po.text = f"{prefix}{opt_str}"
                                 po.font.name = FONT_BODY
                                 po.font.size = Pt(22)
                                 po.font.color.rgb = C_TEXT_BODY
@@ -2085,11 +2087,12 @@ class QuizExporter:
 
                     if options:
                         for opt_idx, opt in enumerate(options):
+                            opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                             po = tf_q.add_paragraph()
                             po.alignment = PP_ALIGN.CENTER
                             po.space_before = Pt(8)
-                            prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                            po.text = f"{prefix}{opt}"
+                            prefix = f"{chr(65 + opt_idx)}. " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                            po.text = f"{prefix}{opt_str}"
                             po.font.name = FONT_BODY
                             po.font.size = Pt(22)
                             po.font.color.rgb = C_TEXT_BODY
@@ -2114,10 +2117,11 @@ class QuizExporter:
 
                 if options:
                     for opt_idx, opt in enumerate(options):
+                        opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                         po = tf_q.add_paragraph()
                         po.space_before = Pt(8)
-                        prefix = f"{chr(65 + opt_idx)}.  " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                        po.text = f"{prefix}{opt}"
+                        prefix = f"{chr(65 + opt_idx)}.  " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                        po.text = f"{prefix}{opt_str}"
                         po.font.name = FONT_BODY
                         po.font.size = Pt(18)
                         po.font.color.rgb = C_TEXT_BODY
@@ -2197,10 +2201,11 @@ class QuizExporter:
 
                 if options:
                     for opt_idx, opt in enumerate(options):
+                        opt_str = opt.get("text", "") if isinstance(opt, dict) else str(opt)
                         po = tf_q.add_paragraph()
                         po.space_before = Pt(12)
-                        prefix = f"{chr(65 + opt_idx)}.  " if opt_idx < 26 and not opt.startswith(('A.', 'B.', 'C.', 'D.')) else ""
-                        po.text = f"{prefix}{opt}"
+                        prefix = f"{chr(65 + opt_idx)}.  " if opt_idx < 26 and not opt_str.startswith(('A.', 'B.', 'C.', 'D.')) else ""
+                        po.text = f"{prefix}{opt_str}"
                         po.font.name = FONT_BODY
                         po.font.size = Pt(20)
                         po.font.color.rgb = C_TEXT_BODY

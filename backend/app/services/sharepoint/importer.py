@@ -326,7 +326,7 @@ def classify(db: Session, cands: List[Dict[str, Any]]) -> None:
                         c["match_document_id"] = name_match.id
                     else:
                         c["status"] = "NEW"                      # its deck was deleted: import it again
-                elif doc.processing_status == "FAILED":
+                elif doc.processing_status in ("FAILED", "CANCELLED"):
                     c["status"] = "RETRY"
                 else:
                     c["status"] = "ALREADY_IMPORTED" if same else "CHANGED"
@@ -612,7 +612,7 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
             doc_id = str(uuid.uuid4())
             ext = Path(row_name or "").suffix.lower()
             key = f"raw-uploads/{doc_id}{ext}"
-            part_size = int(os.getenv("SHAREPOINT_PART_MB", getattr(settings, "SHAREPOINT_PART_MB", 128))) * 1024 * 1024
+            part_size = int(os.getenv("SHAREPOINT_PART_MB", getattr(settings, "SHAREPOINT_PART_MB", 32))) * 1024 * 1024
             staged_key: Optional[str] = None
             try:
                 async with SHAREPOINT_STREAM_SEMAPHORE:
@@ -663,6 +663,7 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
                     except Exception:
                         pass
                 async with db_lock:
+                    db.rollback()
                     row = db.query(SharePointFile).filter_by(id=row_id).one()
                     _fail(db, row, str(e) or type(e).__name__)
                 return {"status": "failed"}
@@ -694,12 +695,14 @@ async def transfer_next(db: Session, client, limit: int = 3, batch_id: Optional[
                         }
             except httpx.HTTPStatusError as e:
                 async with db_lock:
+                    db.rollback()
                     row = db.query(SharePointFile).filter_by(id=row_id).one()
                     _fail(db, row, _http_message(e))
                 return {"status": "failed"}
             except Exception as e:
                 logger.warning("SharePoint transfer failed for %s: %s", row_name, e)
                 async with db_lock:
+                    db.rollback()
                     row = db.query(SharePointFile).filter_by(id=row_id).one()
                     _fail(db, row, str(e) or type(e).__name__)
                 return {"status": "failed"}

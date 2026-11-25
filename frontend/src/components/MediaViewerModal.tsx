@@ -168,7 +168,7 @@ export default function MediaViewerModal({ question, onClose, startInEditMode = 
   const handleImageError = (rawUrl: string) => {
     const current = getImageSrc(rawUrl);
     const altUrl = getFallbackMediaUrl(current);
-    if (altUrl && !fallbackUrls[rawUrl]) {
+    if (altUrl && altUrl !== current) {
       setFallbackUrls((prev) => ({ ...prev, [rawUrl]: altUrl }));
     } else {
       setImageErrors((prev) => ({ ...prev, [rawUrl]: true }));

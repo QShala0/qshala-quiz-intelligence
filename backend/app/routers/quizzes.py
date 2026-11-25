@@ -3,7 +3,7 @@ import uuid
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Body
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, noload, selectinload
 from backend.app.database import get_db
 from backend.app.models.quiz import Quiz, GeneratedQuestion
 from backend.app.schemas.quiz import (
@@ -91,11 +91,11 @@ async def generate_quiz(
 
 @router.get("", response_model=List[QuizResponse])
 def list_quizzes(db: Session = Depends(get_db)):
-    return db.query(Quiz).order_by(Quiz.created_at.desc()).limit(500).all()
+    return db.query(Quiz).options(noload(Quiz.questions)).order_by(Quiz.created_at.desc()).limit(500).all()
 
 @router.get("/{quiz_id}", response_model=QuizResponse)
 def get_quiz(quiz_id: str, db: Session = Depends(get_db)):
-    quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
+    quiz = db.query(Quiz).options(selectinload(Quiz.questions)).filter(Quiz.id == quiz_id).first()
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     return quiz

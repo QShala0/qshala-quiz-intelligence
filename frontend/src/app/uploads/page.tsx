@@ -203,6 +203,9 @@ export default function UploadPage() {
   useEffect(() => {
     let stop = false;
     const tick = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
       try {
         const docs = await api.listDocuments();
         if (stop) return;
@@ -388,45 +391,9 @@ export default function UploadPage() {
   };
 
   const handleSharePointTransferComplete = async () => {
-    setUploadSource('local');
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      if (url.searchParams.has('tab') || url.hash) {
-        url.searchParams.delete('tab');
-        url.hash = '';
-        window.history.replaceState({}, '', url.pathname + url.search);
-      }
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
     try {
       const docs = await api.listDocuments();
       setDocuments(docs);
-      const active = docs.filter(isActive).slice(0, 10);
-      if (active.length > 0) {
-        const entries = await Promise.all(
-          active.map(async (d) => {
-            try {
-              const st = await api.getIngestionStatus(d.id);
-              return [d.id, st] as const;
-            } catch {
-              return null;
-            }
-          })
-        );
-        const validEntries = entries.filter((e): e is [string, IngestionStatus] => e !== null);
-        setActiveStatuses(Object.fromEntries(validEntries));
-        setProgressById(
-          Object.fromEntries(
-            validEntries.map(([id, st]) => [
-              id,
-              {
-                pct: Math.max(0, Math.min(100, Math.round(st.progress_percentage || 0))),
-                step: st.current_step || '',
-              },
-            ])
-          )
-        );
-      }
     } catch {
       /* Polling will pick up the newly queued decks shortly */
     }
@@ -480,7 +447,7 @@ export default function UploadPage() {
         </p>
       </div>
 
-      {/* Source Mode Switcher: Local Files vs SharePoint Library */}
+      {/* Source Mode Switcher: Upload Files vs SharePoint Library */}
       <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 w-fit">
         <button
           type="button"
@@ -492,7 +459,7 @@ export default function UploadPage() {
           }`}
         >
           <UploadCloud className="h-4 w-4 text-blue-600" />
-          <span>Local Files</span>
+          <span>Upload Files</span>
           {(hasActiveItems || hasActive) && uploadSource !== 'local' && (
             <span className="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse ml-0.5" title="Deck processing on platform" />
           )}
@@ -542,6 +509,7 @@ export default function UploadPage() {
           onChange={(e) => {
             if (e.target.files && e.target.files.length > 0) {
               handleSelectedFiles(Array.from(e.target.files));
+              e.target.value = '';
             }
           }}
         />

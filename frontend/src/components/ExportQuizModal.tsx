@@ -80,6 +80,7 @@ export default function ExportQuizModal({
   // Common Fields
   const [customTitle, setCustomTitle] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (quiz) {
@@ -136,6 +137,7 @@ export default function ExportQuizModal({
 
   const handleDownload = async () => {
     try {
+      setExportError(null);
       setIsExporting(true);
       const effectiveQuizType = templateCategory === 'qshala' ? 'qshala_school' : zsvSubtype;
       await onExport('pptx', {
@@ -152,6 +154,7 @@ export default function ExportQuizModal({
       onClose();
     } catch (err) {
       console.error('Failed to export presentation:', err);
+      setExportError(err instanceof Error ? err.message : 'Export failed. Please try again.');
     } finally {
       setIsExporting(false);
     }
@@ -185,6 +188,12 @@ export default function ExportQuizModal({
 
         {/* Content Body */}
         <div className="space-y-5 px-6 py-5 max-h-[75vh] overflow-y-auto">
+          {exportError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] text-red-700 flex items-center justify-between">
+              <span>{exportError}</span>
+              <button type="button" onClick={() => setExportError(null)} className="text-red-500 hover:text-red-800 text-xs font-semibold ml-2">Dismiss</button>
+            </div>
+          )}
           {/* Top-Level Category Selector */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
@@ -490,7 +499,7 @@ export default function ExportQuizModal({
                   >
                     <GraduationCap className="h-4 w-4 text-orange-600 shrink-0" />
                     <div>
-                      <div className="text-xs font-bold">School Quiz</div>
+                      <div className="text-xs font-bold">School/College Quiz</div>
                       <div className="text-[10px] text-slate-500">Campus Edition & Prizes</div>
                     </div>
                   </button>
@@ -625,7 +634,7 @@ export default function ExportQuizModal({
                 ? (customTemplates.find(t => t.id === selectedTemplateId)?.name || 'Custom Template')
                 : (templateCategory === 'qshala' 
                     ? 'Official QShala School Master' 
-                    : (zsvSubtype === 'school' ? 'Zerodha Varsity School Quiz' : 'Zerodha Varsity Corporate Quiz'))}
+                    : (zsvSubtype === 'school' ? 'Zerodha Varsity School/College Quiz' : 'Zerodha Varsity Corporate Quiz'))}
             </span>
             {selectedTemplateId && (
               <>

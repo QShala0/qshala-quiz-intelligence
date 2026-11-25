@@ -117,7 +117,7 @@ def _sync_progress_once(document_id: str) -> None:
         from backend.app.models.job import IngestionJob
         job = db.query(IngestionJob).filter(
             IngestionJob.document_id == document_id,
-            IngestionJob.status == "PROCESSING"
+            IngestionJob.status.in_(["PROCESSING", "CANCELLING"])
         ).first()
         if job is not None:
             job.updated_at = now
@@ -203,7 +203,7 @@ def _find_processing_job_id(document_id: str) -> "str | None":
         db = SessionLocal()
         try:
             job = (db.query(IngestionJob)
-                   .filter(IngestionJob.document_id == document_id, IngestionJob.status == "PROCESSING")
+                   .filter(IngestionJob.document_id == document_id, IngestionJob.status.in_(["PROCESSING", "CANCELLING"]))
                    .order_by(IngestionJob.created_at.desc()).first())
             return job.id if job is not None else None
         finally:
@@ -229,7 +229,7 @@ def _write_terminal_job_status(document_id: str, error: "str | None" = None, job
             else:
                 job = (
                     db.query(IngestionJob)
-                    .filter(IngestionJob.document_id == document_id, IngestionJob.status == "PROCESSING")
+                    .filter(IngestionJob.document_id == document_id, IngestionJob.status.in_(["PROCESSING", "CANCELLING"]))
                     .order_by(IngestionJob.created_at.desc())
                     .first()
                 )
@@ -311,6 +311,20 @@ async def _run(document_id: str) -> None:
         await asyncio.to_thread(_best_effort_dispatch_next)
 
 
+def _get_doc_status(document_id: str) -> "str | None":
+    from backend.app.database import SessionLocal
+    from backend.app.models.document import Document
+    try:
+        db = SessionLocal()
+        try:
+            doc = db.query(Document).filter(Document.id == document_id).first()
+            return doc.processing_status if doc else None
+        finally:
+            db.close()
+    except Exception:
+        return None
+
+
 def main() -> int:
     document_id = os.environ.get("DOCUMENT_ID") or (sys.argv[1] if len(sys.argv) > 1 else None)
     if not document_id:
@@ -318,6 +332,10 @@ def main() -> int:
         return 1
     try:
         asyncio.run(_run(document_id))
+        final_status = _get_doc_status(document_id)
+        if final_status == "FAILED":
+            logger.error("[WORKER] doc_id=%s ended with FAILED status -- exiting 1", document_id)
+            return 1
         return 0
     except Exception as e:
         # The pipeline itself already marks the Document row FAILED with processing_error on

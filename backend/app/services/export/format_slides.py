@@ -186,8 +186,11 @@ def _answer_marker(prs, blank, bg: Optional[Path] = None, layout=None):
     artwork; otherwise a text box (on the backdrop picture when one is given)."""
     if layout is not None:
         s = prs.slides.add_slide(layout)
-        s.shapes.title.text_frame.text = "Answer"
-        s.shapes.title.name = "Heading"
+        if s.shapes.title is not None and hasattr(s.shapes.title, "text_frame"):
+            s.shapes.title.text_frame.text = "Answer"
+            s.shapes.title.name = "Heading"
+        else:
+            _text(s, 3.0, 2.8, 7.333, 1.8, "ANSWER", size=54, bold=True, align="center", name="Heading")
         return s
     s = prs.slides.add_slide(blank)
     _backdrop(s, bg)

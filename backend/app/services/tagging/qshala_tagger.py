@@ -206,9 +206,12 @@ def _tag_schema() -> Dict[str, Any]:
 
 
 def _user_prompt(question_text: str, answer: str, rules: qshala_rules.RuleSignals,
-                 visual_clues: str = "", deck_year: Optional[int] = None) -> str:
+                 visual_clues: str = "", deck_year: Optional[int] = None,
+                 clarification: Optional[str] = None) -> str:
     if TAXONOMY_VERSION == "v6":
         parts = [f"QUESTION: {question_text}", f"ANSWER: {answer}"]
+        if clarification:
+            parts.append(f"QUIZ MASTER CLARIFICATION (authoritative hint): {clarification}")
         if visual_clues:
             parts.append(f"VISUAL CLUES (from the question's images): {visual_clues[:600]}")
         if deck_year:
@@ -220,6 +223,8 @@ def _user_prompt(question_text: str, answer: str, rules: qshala_rules.RuleSignal
             parts.append("Rule hint: this question may depend on an image that is not shown. Tag from the text and set fit=weak if unsure.")
         return "\n".join(parts)
     hints: List[str] = []
+    if clarification:
+        hints.append(f"Quiz Master Clarification (authoritative): {clarification}")
     if rules.brand_hints_l1:
         hints.append(f"Rule hints — likely topic(s): {', '.join(rules.brand_hints_l1)}. Confirm or override from the question itself.")
     if rules.image_dependent:
@@ -292,10 +297,11 @@ def _canonical_hash(question_text: str, answer: str) -> str:
 async def _call_llm(provider: GeminiLLMProvider, model: str, question_text: str,
                     answer: str, rules: qshala_rules.RuleSignals,
                     thinking_level: str = "low", visual_clues: str = "",
-                    deck_year: Optional[int] = None) -> Tuple[Dict[str, Any], Dict[str, int], int]:
+                    deck_year: Optional[int] = None,
+                    clarification: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, int], int]:
     """One Gemini call. Returns (parsed_json, usage_dict, latency_ms)."""
     system = _system_prompt()
-    user = _user_prompt(question_text, answer, rules, visual_clues=visual_clues, deck_year=deck_year)
+    user = _user_prompt(question_text, answer, rules, visual_clues=visual_clues, deck_year=deck_year, clarification=clarification)
     schema = _tag_schema()
     t0 = time.perf_counter()
     data, usage = await provider.generate_json_schema(
@@ -409,6 +415,7 @@ class QshalaTagger:
         visual_clues: str = "",
         deck_year: Optional[int] = None,
         question: Optional[Any] = None,
+        clarification: Optional[str] = None,
     ) -> QshalaTag:
         """Full pipeline for one question. Returns the inserted QshalaTag row (uncommitted if commit=False).
 
@@ -440,7 +447,8 @@ class QshalaTagger:
                 await _wait_for_slot(self.rpm)
                 llm_out, usage, latency_ms = await _call_llm(
                     self.provider, self.model, question_text, answer, rules,
-                    thinking_level=self.thinking_level, visual_clues=visual_clues, deck_year=deck_year)
+                    thinking_level=self.thinking_level, visual_clues=visual_clues, deck_year=deck_year,
+                    clarification=clarification)
                 break
             except Exception as e:
                 if attempt == max_attempts - 1 or isinstance(e, ValueError) or (not is_rate_limit(e) and attempt >= 2):

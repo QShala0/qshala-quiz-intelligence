@@ -127,7 +127,7 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
   const [cfg, setCfg] = useState<SpConfig | null>(null);
   const [drives, setDrives] = useState<SpDrive[]>([]);
   const [driveId, setDriveId] = useState('');
-  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: null, name: 'Library root' }]);
+  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: null, name: 'Parent Library' }]);
   const [page, setPage] = useState<SpBrowse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -174,7 +174,7 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
   const [adminTab, setAdminTab] = useState<'active' | 'browse'>('active');
   const [adminAllowedFolders, setAdminAllowedFolders] = useState<SpAdminFolder[]>([]);
   const [adminBrowsePage, setAdminBrowsePage] = useState<SpAdminBrowse | null>(null);
-  const [adminBrowseTrail, setAdminBrowseTrail] = useState<Crumb[]>([{ id: null, name: 'Library root' }]);
+  const [adminBrowseTrail, setAdminBrowseTrail] = useState<Crumb[]>([{ id: null, name: 'Parent Library' }]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState('');
   const [adminTogglingId, setAdminTogglingId] = useState<string | null>(null);
@@ -193,7 +193,7 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
       setDrives(r.drives);
       if (r.drives.length > 0) {
         setDriveId(r.drives[0].id);
-        void open(r.drives[0].id, [{ id: null, name: 'Library root' }]);
+        void open(r.drives[0].id, [{ id: null, name: 'Parent Library' }]);
       }
     }).catch((e: Error) => setError(e.message));
   }, [cfg?.configured]);
@@ -243,7 +243,7 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
       ]);
       setAdminAllowedFolders(foldersRes.folders);
       setAdminBrowsePage(browseRes);
-      setAdminBrowseTrail([{ id: null, name: 'Library root' }]);
+      setAdminBrowseTrail([{ id: null, name: 'Parent Library' }]);
     } catch (e) {
       if (e instanceof Error && (e.message.includes('401') || e.message.includes('expired'))) {
         setAdminToken(null);
@@ -381,7 +381,7 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
       const refreshedCfg = await api.spConfig();
       setCfg(refreshedCfg);
       if (driveId) {
-        await open(driveId, [{ id: null, name: 'Library root' }]);
+        await open(driveId, [{ id: null, name: 'Parent Library' }]);
       }
     } catch { /* ignore */ }
   }
@@ -565,10 +565,12 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
     cancelRef.current = false;
     let remaining = total;
     try {
+      let totalQueued = 0;
       setProgress({ total, remaining });
       while (remaining > 0 && !cancelRef.current) {
         const step = await api.spTransferNext(batchId, 25);
         remaining = step.remaining;
+        totalQueued += step.queued;
         setProgress({ total, remaining });
         if (step.queued + step.skipped_duplicate + step.failed === 0) break;
       }
@@ -580,12 +582,18 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
         setError(status.failed.map((f) => `${f.name}: ${f.error}`).join('; '));
         toast.error(`${status.failed.length} file(s) failed to transfer.`);
       }
-      if (status.remaining === 0 && ((status.counts?.QUEUED ?? 0) > 0 || (status.failed.length === 0 && status.skipped_duplicates.length === 0))) {
+      const hasTransferred =
+        totalQueued > 0 ||
+        (status.counts?.QUEUED ?? 0) > 0 ||
+        (status.failed.length === 0 && status.skipped_duplicates.length === 0);
+      if (status.remaining === 0 && hasTransferred) {
+        toast.success(`Transferred ${totalQueued || total} file(s) to the ingestion queue.`);
         if (onTransferComplete) {
           onTransferComplete();
         } else {
-          router.push('/uploads');
+          router.push('/uploads?tab=sharepoint');
         }
+        void open(driveId, crumbs);
         return;
       }
       if (status.skipped_duplicates.length > 0 && (status.counts?.QUEUED ?? 0) === 0) {
@@ -770,7 +778,7 @@ export default function SharePointImporter({ onTransferComplete }: { onTransferC
                 onChange={(e) => {
                   setDriveId(e.target.value);
                   setPicked(new Map());
-                  void open(e.target.value, [{ id: null, name: 'Library root' }]);
+                  void open(e.target.value, [{ id: null, name: 'Parent Library' }]);
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-slate-700 font-medium"
                 aria-label="Library"

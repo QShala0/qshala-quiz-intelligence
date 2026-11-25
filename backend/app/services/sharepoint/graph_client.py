@@ -227,23 +227,44 @@ class SharePointClient:
         client = await self._get_http_client()
         should_close = self._custom_http_client is None
         try:
-            token = await self.get_access_token()
-            target, headers, hops = url, {"Authorization": f"Bearer {token}"}, 0
+            attempt = 0
+            refreshed = False
             while True:
-                async with client.stream("GET", target, headers=headers, follow_redirects=False) as resp:
-                    if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location") and hops < 3:
-                        target, headers, hops = resp.headers["location"], {}, hops + 1   # pre-authenticated URL: send no token
-                        continue
-                    resp.raise_for_status()
-                    declared = int(resp.headers.get("content-length") or 0)
-                    if declared and declared > max_bytes:
-                        raise ValueError(f"File is {declared // (1024 * 1024)} MB, over the {max_bytes // (1024 * 1024)} MB limit")
-                    buf = bytearray()
-                    async for chunk in resp.aiter_bytes():
-                        buf.extend(chunk)
-                        if len(buf) > max_bytes:
-                            raise ValueError(f"File is over the {max_bytes // (1024 * 1024)} MB limit")
-                    return bytes(buf)
+                token = await self.get_access_token()
+                target, headers, hops = url, {"Authorization": f"Bearer {token}"}, 0
+                retry_needed = False
+                while True:
+                    async with client.stream("GET", target, headers=headers, follow_redirects=False) as resp:
+                        if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location") and hops < 3:
+                            target, headers, hops = resp.headers["location"], {}, hops + 1   # pre-authenticated URL: send no token
+                            continue
+                        if resp.status_code == 401 and not refreshed:
+                            self._access_token = None
+                            refreshed = True
+                            retry_needed = True
+                            break
+                        if resp.status_code in (429, 500, 502, 503, 504) and attempt < 3:
+                            try:
+                                wait = float(resp.headers.get("Retry-After") or 0)
+                            except ValueError:
+                                wait = 0.0
+                            attempt += 1
+                            await self._sleep(min(wait or float(2 ** attempt), 30.0))
+                            retry_needed = True
+                            break
+                        resp.raise_for_status()
+                        declared = int(resp.headers.get("content-length") or 0)
+                        if declared and declared > max_bytes:
+                            raise ValueError(f"File is {declared // (1024 * 1024)} MB, over the {max_bytes // (1024 * 1024)} MB limit")
+                        buf = bytearray()
+                        async for chunk in resp.aiter_bytes():
+                            buf.extend(chunk)
+                            if len(buf) > max_bytes:
+                                raise ValueError(f"File is over the {max_bytes // (1024 * 1024)} MB limit")
+                        return bytes(buf)
+                if not retry_needed:
+                    break
+            return b""
         finally:
             if should_close:
                 await client.aclose()
@@ -272,10 +293,19 @@ class SharePointClient:
         try:
             token = await self.get_access_token()
             target, headers, hops = url, {"Authorization": f"Bearer {token}"}, 0
+            refreshed = False
             while True:
                 async with client.stream("GET", target, headers=headers, follow_redirects=False) as resp:
                     if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location") and hops < 3:
                         target, headers, hops = resp.headers["location"], {}, hops + 1
+                        continue
+                    if resp.status_code == 401 and not refreshed:
+                        self._access_token = None
+                        refreshed = True
+                        token = await self.get_access_token()
+                        headers = {"Authorization": f"Bearer {token}"}
+                        target = url
+                        hops = 0
                         continue
                     resp.raise_for_status()
                     declared = int(resp.headers.get("content-length") or 0)

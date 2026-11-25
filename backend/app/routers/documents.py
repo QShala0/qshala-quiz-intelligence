@@ -662,6 +662,11 @@ async def upload_document_chunk(
     """
     if not valid_upload_id(upload_id):
         raise HTTPException(status_code=400, detail="Invalid upload_id.")
+    if total_chunks < 1 or chunk_index < 0 or chunk_index >= total_chunks:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid chunk coordinates: chunk_index={chunk_index}, total_chunks={total_chunks}"
+        )
     if upload_cancel_requested(upload_id):
         remove_chunk_dir(upload_id)
         raise HTTPException(status_code=409, detail={"code": "upload_cancelled", "detail": "Upload was cancelled."})
@@ -873,7 +878,12 @@ def cancel_chunked_upload(upload_id: str, db: Session = Depends(get_db)):
     # storage forever, since nothing else ever completes or expires them.
     from backend.app.models.upload_session import UploadSession
     from backend.app.services.storage.r2_storage import get_r2_service
-    session_rec = db.query(UploadSession).filter(UploadSession.upload_id == upload_id).first()
+    from backend.app.database import is_postgres
+
+    query = db.query(UploadSession).filter(UploadSession.upload_id == upload_id)
+    if is_postgres:
+        query = query.with_for_update()
+    session_rec = query.first()
     if session_rec is None and settings.INGESTION_MODE == "cloud_run_job" and get_r2_service().is_configured:
         # The first slice has not been stored yet, so there is no row to mark. The in-memory flag above only exists in
         # THIS container; leave a cancelled row so any other container refuses the slices that are still on their way.
@@ -913,6 +923,18 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
     if doc.processing_status == "COMPLETED":
         raise HTTPException(status_code=409, detail="Ingestion already completed; delete the document instead.")
 
+    # Cancel any queued or processing ingestion jobs for this document
+    from backend.app.models.job import IngestionJob
+    jobs = db.query(IngestionJob).filter(
+        IngestionJob.document_id == document_id,
+        IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
+    ).all()
+    for j in jobs:
+        j.status = "CANCELLED"
+        j.current_step = "CANCELLED"
+        j.cancel_requested = True
+        j.error_message = "Cancelled by user"
+
     request_doc_cancel(document_id)
     # Also set the DB flag: if ingestion is running in a separate worker process (Cloud Run Job
     # mode), the in-memory CANCELLED_DOCS set above is invisible to it -- the worker's cancel
@@ -922,6 +944,7 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
     reg = INGESTION_STATUS_REGISTRY.get(document_id)
     if reg and reg.get("status") == "PROCESSING":
         reg["current_step"] = "Cancelling..."
+        reg["_ts"] = time.time()
         return {"status": "CANCELLING", "document_id": document_id}
 
     # Cloud Run Job mode: this process never has a registry entry, because the pipeline runs in the worker's
@@ -937,6 +960,7 @@ def cancel_ingestion(document_id: str, db: Session = Depends(get_db)):
     INGESTION_STATUS_REGISTRY[document_id] = {
         "document_id": document_id, "status": "CANCELLED", "progress_percentage": 0,
         "current_step": "Upload cancelled", "slides_processed": 0, "questions_extracted": 0, "error": None,
+        "_ts": time.time(),
     }
     return {"status": "CANCELLED", "document_id": document_id}
 
@@ -1065,6 +1089,18 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     reg = INGESTION_STATUS_REGISTRY.get(document_id)
     if reg and reg.get("status") == "PROCESSING":
         request_doc_cancel(document_id)  # stop the running pipeline instead of orphaning it
+
+    # Cancel any queued or processing ingestion jobs for this document
+    from backend.app.models.job import IngestionJob
+    jobs = db.query(IngestionJob).filter(
+        IngestionJob.document_id == document_id,
+        IngestionJob.status.in_(["PENDING", "PROCESSING", "CANCELLING"])
+    ).all()
+    for j in jobs:
+        j.status = "CANCELLED"
+        j.current_step = "CANCELLED"
+        j.cancel_requested = True
+        j.error_message = "Document deleted"
 
     # A Cloud Run Job worker in another container owns this deck: deleting the rows now would pull them out from
     # under it. Flag it; the worker stops at its next checkpoint and removes the document itself.

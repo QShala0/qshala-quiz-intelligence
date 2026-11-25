@@ -153,7 +153,8 @@ def get_active_rate_card(db: Optional[Session] = None) -> Dict[str, Any]:
     card_with_overrides = apply_env_overrides(card_data)
 
     with _RATE_CARD_LOCK:
-        _CACHED_RATE_CARD = card_with_overrides
+        if db is not None:
+            _CACHED_RATE_CARD = card_with_overrides
 
     return card_with_overrides
 

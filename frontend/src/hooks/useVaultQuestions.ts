@@ -244,6 +244,7 @@ export function useVaultQuestions(
     try {
       if (activeTab === 'review') {
         const data = await api.getReviewCandidates(controller.signal);
+        if (inFlightRequest.current !== controller) return;
         setQuestions(data);
         setReviewCount(data.length);
         setTotal(data.length);
