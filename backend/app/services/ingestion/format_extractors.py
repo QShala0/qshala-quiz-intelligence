@@ -420,8 +420,8 @@ def _reveal_groups(slide: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
-def _agastya_covers(slide: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Agastya layout: 4 top-level numbered rectangles ("1".."4") covering a single picture."""
+def _numbered_box_covers(slide: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Numbered-box covers: 4 top-level numbered rectangles ("1".."4") covering a single picture."""
     shapes = slide.get("shapes") or []
     by_num: Dict[int, Dict[str, Any]] = {}
     for s in shapes:
@@ -437,20 +437,20 @@ def _agastya_covers(slide: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _reveal_covers(slide: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], str]:
-    """Return (covers, layout_kind) for DSU ('dsu') or Agastya ('agastya') Image Reveal slides."""
-    dsu = _reveal_groups(slide)
-    if len(dsu) >= 3:
-        return dsu, "dsu"
-    ag = _agastya_covers(slide)
-    if len(ag) == 4:
+    """Return (covers, layout_kind) for grouped-badge ('grouped') or numbered-box ('numbered') Image Reveal slides."""
+    grouped = _reveal_groups(slide)
+    if len(grouped) >= 3:
+        return grouped, "grouped"
+    numbered = _numbered_box_covers(slide)
+    if len(numbered) == 4:
         # Confirm it's an Image Reveal slide: has exit animations OR at least one non-timer picture
         anims = list(slide.get("animations") or []) + list(slide.get("interactive_animations") or [])
-        cids = {c["id"] for c in ag}
+        cids = {c["id"] for c in numbered}
         has_exits = any(a.get("cls") == "exit" and a.get("preset") == 10 and a.get("target_id") in cids for a in anims)
         has_pic = any(s.get("type") == "PICTURE" and not is_timer_shape(s) and s.get("media_url")
                       for s in slide.get("shapes") or [])
         if has_exits or has_pic:
-            return ag, "agastya"
+            return numbered, "numbered"
     return [], ""
 
 
@@ -485,7 +485,7 @@ def extract_image_reveal(ctx: Ctx) -> Dict[str, Any]:
     by_gid = {g["id"]: g for g in groups}
     gids = {g["id"] for g in groups}
     # Full picture: prefer top-level non-timer PICTURE not inside a cover group; fall back to any non-cover PICTURE
-    # (handles slides like Agastya slide 80 where the full picture is inside a separate non-cover group)
+    # (handles slides where the full picture is inside a separate non-cover group)
     all_pics = [s for s in slide.get("shapes") or [] if s.get("type") == "PICTURE" and s.get("media_url")
                 and not is_timer_shape(s) and not (gids & set(s.get("path_ids") or [])) and s["id"] not in gids]
     top_pics = [s for s in all_pics if not s.get("path")]
@@ -502,7 +502,7 @@ def extract_image_reveal(ctx: Ctx) -> Dict[str, Any]:
             fh = max(b[1] + b[3] for b in boxes) - fy
         else:
             fx = fy = fw = fh = 0.0
-    # reveal order = exit effects of MAIN sequence; for Agastya interactive-seq decks, use numbered 1..4 order
+    # reveal order = exit effects of MAIN sequence; for interactive-seq numbered-box covers, use numbered 1..4 order
     main_exits = [a for a in slide.get("animations") or [] if a.get("cls") == "exit" and a.get("preset") == 10
                   and a.get("target_id") in by_gid]
     inter_exits = [a for a in slide.get("interactive_animations") or [] if a.get("cls") == "exit" and a.get("preset") == 10
@@ -513,8 +513,8 @@ def extract_image_reveal(ctx: Ctx) -> Dict[str, Any]:
         if len(ordered) != len(groups):
             ctx.reasons.append(f"{len(ordered)} exit effects for {len(groups)} covers")
             conf = 0.6
-    elif inter_exits and layout_kind == "agastya":
-        # Agastya decks trigger each quarter independently via interactiveSeq; presenter clicks 1..4 in numbered order
+    elif inter_exits and layout_kind == "numbered":
+        # Numbered-box covers may trigger each quarter independently via interactiveSeq; click 1..4 in numbered order
         ordered = sorted(groups, key=lambda g: g["number"])
         if len(inter_exits) != len(groups):
             ctx.reasons.append(f"{len(inter_exits)} interactive exit effects for {len(groups)} covers")

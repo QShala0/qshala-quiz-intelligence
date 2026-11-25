@@ -1,4 +1,4 @@
-"""Tests for Agastya Image Reveal ingestion, cover/timer exclusion, animated PPTX export, and round-trip."""
+"""Tests for numbered-box & grouped-badge Image Reveal ingestion, cover/timer exclusion, animated PPTX export, and round-trip."""
 import io
 import json
 import shutil
@@ -36,8 +36,8 @@ def _png_bytes(colour=(120, 160, 210), size=(600, 450), label="IMG"):
     return buf.getvalue()
 
 
-def _build_agastya_deck(path: Path, title_text="5. Dwarf planet", with_scores=False):
-    """Build a synthetic Agastya Image Reveal deck: question slide + Answer divider + answer slide."""
+def _build_numbered_box_deck(path: Path, title_text="5. Dwarf planet", with_scores=False):
+    """Build a synthetic numbered-box covers Image Reveal deck: question slide + Answer divider + answer slide."""
     prs = Presentation()
     prs.slide_width = Emu(12192000)
     prs.slide_height = Emu(6858000)
@@ -56,7 +56,7 @@ def _build_agastya_deck(path: Path, title_text="5. Dwarf planet", with_scores=Fa
     )
     full_pic.name = "Picture 4"
 
-    # 4 numbered rectangles ("1".."4") arranged 2x2: 4=TL, 3=TR, 1=BL, 2=BR (matching fdffb192 slide 71)
+    # 4 numbered rectangles ("1".."4") arranged 2x2: 4=TL, 3=TR, 1=BL, 2=BR
     rects = [
         ("4", 4174304, 2205546, 1769293, 1783914, "Rectangle 26"),
         ("3", 5943600, 2205546, 1769293, 1783914, "Rectangle 15"),
@@ -77,7 +77,7 @@ def _build_agastya_deck(path: Path, title_text="5. Dwarf planet", with_scores=Fa
     )
     timer_pic.name = "Timer 1min 1"
 
-    # interactiveSeq click exits on the 4 rectangles (as in Agastya source decks)
+    # interactiveSeq click exits on the 4 rectangles (as in numbered-box cover source decks)
     inter = [(spids[lbl], spids[lbl], "exit", 10) for lbl in ("4", "3", "1", "2")]
     make_test_pptx._set_timing(s1, make_test_pptx._timing_xml([], interactive=inter))
 
@@ -107,13 +107,13 @@ def _build_agastya_deck(path: Path, title_text="5. Dwarf planet", with_scores=Fa
     prs.save(str(path))
 
 
-def test_agastya_reveal_ingestion_and_cover_exclusion(tmp_path):
-    deck = tmp_path / "agastya_test.pptx"
-    _build_agastya_deck(deck, title_text="5. Dwarf planet", with_scores=True)
-    doc_id = f"agtest-{uuid.uuid4().hex[:8]}"
+def test_numbered_box_reveal_ingestion_and_cover_exclusion(tmp_path):
+    deck = tmp_path / "numbered_box_test.pptx"
+    _build_numbered_box_deck(deck, title_text="5. Dwarf planet", with_scores=True)
+    doc_id = f"nbtest-{uuid.uuid4().hex[:8]}"
     try:
         slides = PPTXParser(str(deck), doc_id, write_to_disk=True).parse()
-        qs = QuestionExtractor().extract_from_slides(slides, "agastya", 2026)
+        qs = QuestionExtractor().extract_from_slides(slides, "numbered", 2026)
         q = next(x for x in qs if x["question_format"] == "IMAGE_REVEAL")
         assert q["question_format"] == "IMAGE_REVEAL"
         assert q["question_text"] == "Dwarf planet"
@@ -139,9 +139,9 @@ def test_agastya_reveal_ingestion_and_cover_exclusion(tmp_path):
         shutil.rmtree(settings.SLIDES_DIR / doc_id, ignore_errors=True)
 
 
-def test_dsu_cover_artwork_excluded_from_question_images():
+def test_grouped_badge_cover_artwork_excluded_from_question_images():
     slides = json.loads((FIX / "dsu_mini.json").read_text(encoding="utf-8"))
-    qs = QuestionExtractor().extract_from_slides(slides, "dsu", 2025)
+    qs = QuestionExtractor().extract_from_slides(slides, "grouped", 2025)
     rev = next(q for q in qs if q["question_format"] == "IMAGE_REVEAL")
     P = rev["format_payload"]
     assert P["full_image"] is not None
