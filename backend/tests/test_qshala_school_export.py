@@ -185,7 +185,6 @@ def test_qshala_school_causten_regular_bold_headings_black_answer_and_media_fit(
                     if r.font.color and r.font.color.type is not None:
                         assert str(r.font.color.rgb).upper() != "059669"  # answers are black, not green
     assert pics == 4  # question + answer image for both questions
-    # answer slides carry only the answer: the Answer divider already says "Answer", so there is no "Answer N" heading
     assert set(bold_texts) == {"Quiz Hobby Class!", "Question 1", "Question 2", "Answer"}
 
 
@@ -224,11 +223,13 @@ def test_qshala_school_answer_image_never_on_question_slide(tmp_path):
         for sl in prs.slides:
             if any(sh.has_text_frame and text in sh.text_frame.text for sh in sl.shapes):
                 return sl
+            if any(sh.has_table and any(text in cell.text for row in sh.table.rows for cell in row.cells) for sh in sl.shapes):
+                return sl
         raise AssertionError(f"no slide with {text!r}")
 
     # Q1: answer image dropped from the question, present on the answer
     assert len(content_pics(slide_with("Question 1"))) == 0
-    assert len(content_pics(slide_with("Cornetto"))) >= 1   # the answer slide, found by its answer text
+    assert len(content_pics(slide_with("Cornetto"))) >= 1
     # Q2: distinct clue image stays on the question
     assert len(content_pics(slide_with("Question 2"))) >= 1
 
