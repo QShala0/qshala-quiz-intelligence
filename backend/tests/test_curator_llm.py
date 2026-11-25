@@ -258,3 +258,26 @@ def test_build_draft_reports_curator_fallback_status_on_timeout():
     finally:
         engine.invalidate_bank_cache()
         db.close()
+
+
+def test_dynamic_criteria_and_locality_in_curator_prompt():
+    """Curator prompt includes dynamic must_match_criteria and locality from previous_brief."""
+    from backend.app.services.prompt_quiz.curator_llm import _build_curator_prompt
+    from backend.app.services.prompt_quiz.intent_engine import INTENT_SCHEMA
+
+    assert "must_match_criteria" in INTENT_SCHEMA["properties"]
+    assert "must_match_criteria" in INTENT_SCHEMA["required"]
+    assert "8-12" in INTENT_SCHEMA["properties"]["expansion_terms"]["description"]
+
+    prompt_txt = _build_curator_prompt(
+        prompt="startups in bangalore",
+        target_count=5,
+        candidates=[{"id": "q1", "question_text": "Which Bengaluru startup?", "answer": "Zerodha"}],
+        previous_brief={
+            "must_match_criteria": "Must involve startups based in Bengaluru.",
+            "locality": "Bengaluru",
+        },
+    )
+    assert "CRITERIA: Must involve startups based in Bengaluru." in prompt_txt
+    assert "LOCALITY: Bengaluru" in prompt_txt
+

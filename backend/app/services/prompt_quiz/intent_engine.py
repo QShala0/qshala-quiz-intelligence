@@ -99,7 +99,11 @@ INTENT_SCHEMA: Dict[str, Any] = {
         "expansion_terms": {
             "type": "ARRAY",
             "items": {"type": "STRING"},
-            "description": "15-25 rich semantic search terms: synonyms, famous names/entities, abbreviations, key concepts, and milestones related to the subject. Never include generic words like 'quiz' or 'question'."
+            "description": "8-12 high-specificity semantic search terms: exact entities, proper nouns, domain jargon, and key concepts. Never include generic filler words like 'quiz', 'question', 'company', 'software', 'breakthrough', or 'important'."
+        },
+        "must_match_criteria": {
+            "type": "STRING",
+            "description": "A concise 1-sentence verification rule stating what a question MUST genuinely be about to satisfy this prompt (including topic, locality, or era constraints, and what surface-level false positives to reject)."
         },
         "negative_terms": {
             "type": "ARRAY",
@@ -163,14 +167,14 @@ INTENT_SCHEMA: Dict[str, Any] = {
         "year": {
             "type": "INTEGER",
             "nullable": True,
-            "description": "Specific 4-digit calendar year if requested (e.g. 2024, 2023), otherwise null."
+            "description": "ONLY set if the user explicitly filters by archive/deck year (e.g. 'from 2024 decks', '2025 prelims'). Leave null if the year is part of the topic itself (e.g. 'events in 2026', '1947 independence')."
         },
         "framing": {
             "type": "STRING",
             "description": "A crisp, engaging 1-sentence description of this quiz round."
         }
     },
-    "required": ["normalized_subject", "count", "target_audience", "expansion_terms", "framing"]
+    "required": ["normalized_subject", "count", "target_audience", "expansion_terms", "must_match_criteria", "framing"]
 }
 
 
@@ -194,10 +198,9 @@ def _build_system_prompt(taxonomy: Dict[str, List[str]]) -> str:
         "   - Never include pure country/city names ('india', 'karnataka') in normalized_subject or expansion_terms when a subject exists.\n"
         "   - Never let a geographic scope erase the subject.\n"
         "   - CRITICAL FOR FOLLOW-UPS: When previous_brief is provided and the prompt is a modifier/adjustment ('Focus on India', 'Make it for middle school kids', 'Make it harder', 'Text only', 'Only questions with images', 'Give me 5 more questions'), you MUST preserve normalized_subject, expansion_terms, locality, and mapped_topics_l1 from previous_brief, changing ONLY the adjusted constraint.\n\n"
-        "2. SEMANTIC EXPANSION TERMS (Absolute Priority):\n"
-        "   - Generate 15-25 rich, high-affinity search terms including specific famous entities, pioneers, role models, technical terms, or synonyms.\n"
-        "   - Example: 'important people in India' -> ['kalam', 'ramanujan', 'modi', 'bose', 'wangchuk', 'chanu', 'scientist', 'inventor', 'pioneer', 'leader', 'achiever', 'author', 'freedom fighter', 'isro', 'president', 'nobel'].\n"
-        "   - Example: 'fintech in bangalore' -> ['zerodha', 'phonepe', 'cred', 'navi', 'razorpay', 'upi', 'payments', 'startup', 'fintech', 'kamath'].\n\n"
+        "2. PRECISION EXPANSION & CRITERIA (Absolute Priority):\n"
+        "   - Generate 8-12 high-specificity search terms (proper nouns, domain jargon, key concepts) for whatever subject was asked; skip broad filler words.\n"
+        "   - Write a crisp 1-sentence must_match_criteria stating what a candidate question must genuinely cover to pass verification.\n\n"
         "3. CROSS-CUTTING & THEMATIC PROMPTS (Crucial):\n"
         "   - Thematic prompts (e.g. 'freedom fighters', 'scientists', 'space missions and astronauts', 'women pioneers', 'important people', 'underdogs', 'inventions', 'history', 'culture') span multiple disciplines.\n"
         "   - For ANY thematic, persona, or multidisciplinary prompt, set mapped_topics_l1: [] and mapped_subtopics_l2: [] so retrieval searches across the entire archive using your rich expansion_terms.\n"
@@ -625,6 +628,12 @@ def deconstruct_prompt(
             or False
         )
 
+        must_match_criteria = (
+            (previous_brief or {}).get("must_match_criteria")
+            if is_constraint_refinement and (previous_brief or {}).get("must_match_criteria")
+            else (parsed.get("must_match_criteria") or None)
+        )
+
         from backend.app.services.prompt_quiz.engine import Brief
         brief = Brief(
                 include_reserve=inc_reserve,
@@ -645,6 +654,7 @@ def deconstruct_prompt(
                 topics_l1=l1s,
                 subtopics_l2=l2s,
                 search_terms=expansions,
+                must_match_criteria=must_match_criteria,
                 sort_by=sort_by,
                 corpus_series=corpus_series,
                 round_stage=round_stage,

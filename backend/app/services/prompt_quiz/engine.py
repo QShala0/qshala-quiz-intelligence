@@ -65,6 +65,7 @@ class Brief:
     topics_l1: List[str] = field(default_factory=list)
     subtopics_l2: List[str] = field(default_factory=list)
     search_terms: List[str] = field(default_factory=list)
+    must_match_criteria: Optional[str] = None
     narrative_arc: Optional[str] = None
     # Reserve spares and example slides are left out of a quiz unless asked for
     include_reserve: bool = False
@@ -78,7 +79,10 @@ class Brief:
     source_year: Optional[int] = None
 
     def public(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        if d.get("must_match_criteria") is None:
+            d.pop("must_match_criteria", None)
+        return d
 
 
 # ---------- Interpreter ----------
@@ -1610,8 +1614,9 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     if cands and os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes") and not is_analytical_sort and has_topical_query:
         try:
             from backend.app.services.prompt_quiz.curator_llm import curate_quiz_with_gemini
-            # Cap curator candidates at top 35 to prevent token latency timeouts under serverless
-            curator_pool = cands[:35]
+            # Dynamic candidate pool cap: 18 for 5 Qs, up to 30 for 10+ Qs (saves tokens & latency)
+            pool_limit = min(30, max(18, brief.count * 3))
+            curator_pool = cands[:pool_limit]
             cur_res = curate_quiz_with_gemini(
                 prompt=brief.prompt,
                 target_count=brief.count,

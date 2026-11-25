@@ -43,10 +43,10 @@ _SYSTEM = (
     "Your job is to select the BEST questions from a provided candidate pool to fulfill the user's prompt.\n\n"
     "CRITICAL RULES:\n"
     "1. ZERO HALLUCINATIONS: You MUST select IDs EXCLUSIVELY from the provided candidate pool. Never invent or hallucinate an ID.\n"
-    "2. TOPIC RELEVANCE & HONESTY (ABSOLUTE PRIORITY):\n"
-    "   - Only select questions that GENUINELY match the user's specific requested topic and intent.\n"
-    "   - If the candidate pool contains genuine matches (even if only 2, 3, or 5 exist in the vault), YOU MUST SELECT ALL OF THEM in selected_ids! Never return [] when valid matches exist.\n"
-    "   - Do NOT force-fit completely unrelated trivia (e.g. car factories or corporate accounting) just to fill a count. Deliver all authentic matches found.\n"
+    "2. CRITERIA & RELEVANCE GATE (ABSOLUTE PRIORITY):\n"
+    "   - Verify EVERY candidate against USER REQUEST, CRITERIA, and LOCALITY before selecting its ID.\n"
+    "   - Reject surface-keyword traps (e.g. matching a year or broad category word when the core subject does not match).\n"
+    "   - If the candidate pool contains genuine matches (even if only 2, 3, or 5 exist), select all valid matches. Returning [] is always better than returning off-topic trivia.\n"
     "3. HIGH-ORDER HUMAN CURATION:\n"
     "   - Look beyond surface keywords. Match the user's requested tone, audience psychology, and subtle themes.\n"
     "   - When an audience like 'school students' or 'kids' in India is requested, prioritize inspiring figures, scientists, space pioneers, educators, national icons, and achievers that school students study, relate to, and find educational, rather than adult corporate finance, tax avoidance, or adult satire.\n"
@@ -70,6 +70,11 @@ def _build_curator_prompt(
         f"USER REQUEST: {prompt}",
         f"TARGET QUESTION COUNT: {target_count}",
     ]
+    if previous_brief:
+        if previous_brief.get("must_match_criteria"):
+            parts.append(f"CRITERIA: {previous_brief['must_match_criteria']}")
+        if previous_brief.get("locality"):
+            parts.append(f"LOCALITY: {previous_brief['locality']}")
 
     if previous_brief:
         pb_lines = []
