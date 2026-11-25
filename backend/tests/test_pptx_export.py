@@ -807,3 +807,40 @@ def test_format_question_notes_on_answer_slide_only():
         db.query(Document).filter(Document.id == doc_id).delete()
         db.commit()
         db.close()
+
+
+def test_format_answer_text_color_is_black_not_green():
+    """Verify answer text across format questions and templates is black (#0F172A or #000000) and not green (#059669)."""
+    quiz = {
+        "id": "quiz_fmt_black_answer",
+        "title": "Black Answer Font Test",
+        "questions": [{
+            "id": "q_connect_black",
+            "order_index": 1,
+            "question_text": "Connect these clues",
+            "answer": "Maruti Suzuki",
+            "question_format": "CONNECT",
+            "format_payload": {"type": "CONNECT", "items": [{"order": 1, "image": ""}], "text_hint": "Car Models", "extraction": {"confidence": 1.0}},
+            "is_approved": True,
+        }]
+    }
+    for q_type in ["minimalist", "qshala_school", "varsity"]:
+        pptx_bytes = QuizExporter.to_pptx(quiz, quiz_type=q_type, show_answer_divider=True)
+        prs = Presentation(io.BytesIO(pptx_bytes))
+        ans_slide = prs.slides[-1]
+
+        runs_colors = []
+        for sh in ans_slide.shapes:
+            if sh.has_text_frame:
+                for p in sh.text_frame.paragraphs:
+                    if "Maruti Suzuki" in p.text:
+                        if p.font.color and p.font.color.type is not None and p.font.color.rgb is not None:
+                            runs_colors.append(str(p.font.color.rgb).upper())
+                        for r in p.runs:
+                            if r.font.color and r.font.color.type is not None and r.font.color.rgb is not None:
+                                runs_colors.append(str(r.font.color.rgb).upper())
+        assert len(runs_colors) > 0, f"Expected to find answer run with font color for {q_type}"
+        for c in runs_colors:
+            assert c != "059669", f"Answer font color must not be green 059669 for {q_type}, got: {c}"
+            assert c in ("0F172A", "000000"), f"Answer font color should be black for {q_type}, got: {c}"
+
