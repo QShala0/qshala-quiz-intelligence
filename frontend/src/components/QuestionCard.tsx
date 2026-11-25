@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { GeneratedQuestion, RetrievalSource } from '../lib/types';
 import { resolveMediaUrl, getFallbackMediaUrl } from '../lib/api';
-import { hasStructuredView } from '../lib/formatPayloads';
+import { hasStructuredView, isStepped } from '../lib/formatPayloads';
 import { PawIcon } from './ui/QT';
 import StructuredFormatBody from './formats/StructuredFormatBody';
 
@@ -50,6 +50,9 @@ export default function QuestionCard({
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [activeImageModal, setActiveImageModal] = useState<string | null>(null);
   const [imgFallbackUrls, setImgFallbackUrls] = useState<Record<string, string>>({});
+
+  const isSteppedClue = isStepped(question.format_payload) ||
+    ((question.question_format === 'STEPPED_CLUE' || question.question_format === 'THREE_CLUE') && hasStructuredView(question.format_payload));
 
   const getImageSrc = (rawUrl: string | null | undefined) => {
     if (!rawUrl) return '';
@@ -231,15 +234,15 @@ export default function QuestionCard({
               rows={2}
               className="w-full rounded-lg border border-slate-200 bg-white p-3 text-[14px] text-slate-900 focus:outline-none"
             />
-          ) : (
+          ) : !isSteppedClue ? (
             <h3 className="text-[15px] sm:text-[16px] font-semibold text-slate-900 leading-relaxed">
               {question.question_text}
             </h3>
-          )}
+          ) : null}
 
           {/* The question's own format (List It, Image Reveal, Connect, 3 Clue, Arrange, MCQ) */}
           {!isEditing && hasStructuredView(question.format_payload) && (
-            <div className="mt-3">
+            <div className={isSteppedClue ? "mt-1" : "mt-3"}>
               <StructuredFormatBody
                 q={{ id: question.id, format_payload: question.format_payload, question_videos: question.question_video }}
                 getImageSrc={getImageSrc}
@@ -251,7 +254,7 @@ export default function QuestionCard({
           )}
 
           {/* Clue Images Thumbnails */}
-          {((question.question_images && question.question_images.length > 0) ||
+          {!isSteppedClue && ((question.question_images && question.question_images.length > 0) ||
             (question.image_refs && question.image_refs.length > 0)) && (
             <div className="mt-3 pt-2.5 border-t border-slate-200/60">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2 flex items-center gap-1.5">
