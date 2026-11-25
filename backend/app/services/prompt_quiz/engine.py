@@ -943,7 +943,9 @@ def librarian(bank: List[Dict[str, Any]], brief: Brief, pool: int = 80) -> List[
             hits = real  # enough strong matches — use only those
         elif real:
             hits = real  # some strong matches — use them (may be < count, pad later)
-        # else: zero real matches — keep original hits so stage-2/3 fallback can pad
+        elif not getattr(brief, "cross_topic_padding", False):
+            hits = []  # nothing genuinely matches: report that, do not fill the quiz with stray word overlaps
+        # else: padding was asked for, so keep the original hits for the stage-3 neighbour search
 
     if len(hits) < brief.count:  # Stage 2: relax hard filters other than safety
         relaxed = {k: v for k, v in brief.filters.items() if k in (
@@ -1248,6 +1250,45 @@ def _detect_deck_filter_tokens(prompt_lower: str, bank: List[Dict[str, Any]]) ->
     return _detect_deck_scope(prompt_lower, bank)["tokens"]
 
 
+_GEO_NAMES = {"karnataka", "bengaluru", "bangalore", "mumbai", "delhi", "chennai", "pune", "hyderabad", "kolkata", "india", "bharat"}
+_GEO_CITY_RE = re.compile(r"\b(karnataka|bengaluru|bangalore|mumbai|delhi|chennai|pune|hyderabad|kolkata)\b")
+_GEO_FILLER = {"city", "trivia", "quiz", "facts", "fact", "general", "knowledge", "about", "questions", "question", "the", "of", "on", "in", "a",
+               "i", "me", "my", "us", "we", "need", "want", "make", "build", "give", "please"}
+_NON_GEO_SIGNALS = (
+    "people", "person", "personality", "personalities", "figure", "figures", "leader", "leaders",
+    "scientist", "scientists", "science", "scientific", "experiment", "experiments",
+    "physics", "chemistry", "biology", "space", "astronomy", "agastya", "environment",
+    "nature", "health", "mathematics", "math",
+    "inventor", "inventors", "author", "authors", "food", "dish", "cuisine",
+    "startup", "startups", "company", "companies", "brand", "brands", "tech", "technology", "ai",
+    "finance", "bank", "banking", "cricket", "sport", "sports", "movie", "movies", "film", "music",
+    "history", "heritage", "art", "law", "court", "women", "symbol", "symbols", "freedom", "education"
+)
+
+
+def _mentions_signal(text: str, signal: str) -> bool:
+    # Very short words must stand alone ("ai" is inside "mumbai", "art" inside "smart"); longer ones may sit inside a
+    # compound ("tech" in "fintech").
+    if len(signal) <= 3:
+        return bool(re.search(r"\b" + re.escape(signal) + r"\b", text))
+    return signal in text
+
+
+def _has_topical_subject(prompt_lower: str, query_lower: str) -> bool:
+    return any(_mentions_signal(t, s) for t in (prompt_lower, query_lower) for s in _NON_GEO_SIGNALS)
+
+
+def _is_pure_geo_prompt(prompt_lower: str, query_lower: str) -> bool:
+    """True when the prompt asks about a place itself, with no subject such as finance or food attached."""
+    if _has_topical_subject(prompt_lower, query_lower):
+        return False
+    bare = {w for w in re.findall(r"[a-z]+", query_lower) if w not in _GEO_FILLER}
+    if bare and bare <= _GEO_NAMES:
+        return True
+    return not bare and bool(_GEO_CITY_RE.search(prompt_lower))
+
+
+
 def build_draft(db: Session, prompt: str, count: Optional[int] = None,
                 options: Optional[Dict[str, Any]] = None,
                 previous_brief: Optional[Dict[str, Any]] = None,
@@ -1260,30 +1301,10 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     # Geographic/locality queries: ONLY when the user's prompt is strictly asking for geographic trivia,
     # NOT when geography is just a qualifier for a subject (e.g. "people in india", "food in delhi", "startups in bangalore").
-    geo_names = {"karnataka", "bengaluru", "bangalore", "mumbai", "delhi", "chennai", "pune", "hyderabad", "kolkata", "india", "bharat"}
     q_clean = (brief.query or "").lower().strip()
     p_lower_prompt = (brief.prompt or "").lower().strip()
-
-    # Detect if the prompt has an actual topical subject beyond geography
-    non_geo_signals = (
-        "people", "person", "personality", "personalities", "figure", "figures", "leader", "leaders",
-        "scientist", "scientists", "science", "scientific", "experiment", "experiments",
-        "physics", "chemistry", "biology", "space", "astronomy", "agastya", "environment",
-        "nature", "health", "mathematics", "math",
-        "inventor", "inventors", "author", "authors", "food", "dish", "cuisine",
-        "startup", "startups", "company", "companies", "brand", "brands", "tech", "technology", "ai",
-        "finance", "bank", "banking", "cricket", "sport", "sports", "movie", "movies", "film", "music",
-        "history", "heritage", "art", "law", "court", "women", "symbol", "symbols", "freedom", "education"
-    )
-    has_topical_subject = any(s in p_lower_prompt or s in q_clean for s in non_geo_signals)
-
-    is_pure_geo = (not has_topical_subject) and (
-        q_clean in geo_names
-        or (
-            q_clean in ("", "general knowledge", "trivia", "quiz")
-            and any(re.search(r"\b" + g + r"\b", p_lower_prompt) for g in ["karnataka", "bengaluru", "bangalore", "mumbai", "delhi", "chennai", "pune", "hyderabad", "kolkata"])
-        )
-    )
+    has_topical_subject = _has_topical_subject(p_lower_prompt, q_clean)
+    is_pure_geo = _is_pure_geo_prompt(p_lower_prompt, q_clean)
     if is_pure_geo:
         brief.topics_l1 = []
         brief.subtopics_l2 = []

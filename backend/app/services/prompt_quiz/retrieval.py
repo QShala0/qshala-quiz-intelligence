@@ -197,6 +197,18 @@ def _expand_cached(tokens: tuple) -> Counter:
                     bag[et] = max(bag[et], 0.4)
     return bag
 
+# A place in a deck title says where the quiz was played, not what its questions are about: a
+# "Bangalore Campus Edition" deck would otherwise match a Bengaluru prompt with all of its finance questions.
+_PLACE_WORDS = frozenset({
+    "karnataka", "bengaluru", "bangalore", "mysore", "mysuru", "mumbai", "bombay", "delhi", "chennai", "madras",
+    "kolkata", "calcutta", "hyderabad", "pune",
+})
+
+
+def _title_without_places(title: Optional[str]) -> str:
+    return " ".join(t for t in tokenize(title or "") if t not in _PLACE_WORDS)
+
+
 class Index:
     def __init__(self, questions: List[Dict[str, Any]], k1: float = 1.5, b: float = 0.75):
         self.q = questions
@@ -211,11 +223,11 @@ class Index:
             parts = [item.get("question_text", ""), item.get("answer", ""),
                      " ".join(_kw(item)), item.get("subtopic_l2") or "",
                      " ".join(item.get("secondary_l2") or []), item.get("search_summary") or "",
-                     item.get("topic_l1") or "", item.get("document_title") or ""]
+                     item.get("topic_l1") or "", _title_without_places(item.get("document_title"))]
             # keywords/answer/subtopic/topic repeated so they weigh more than body prose
             toks = tokenize(" ".join(parts)) + tokenize(" ".join(_kw(item))) \
                    + tokenize(item.get("answer", "")) + tokenize(item.get("subtopic_l2") or "") \
-                   + tokenize(item.get("topic_l1") or "") + tokenize(item.get("document_title") or "")
+                   + tokenize(item.get("topic_l1") or "") + tokenize(_title_without_places(item.get("document_title")))
             c = Counter(toks)
             self.docs.append(c)
             self.len.append(sum(c.values()))
@@ -474,7 +486,7 @@ def parse_prompt(prompt: str):
                r"most (?:frequently )?asked|most repeated|frequently asked|popular|top asked|(?:never|not) (?:been )?repeated|zero repeats|unrepeated|unique|fresh|unused|"
                r"zvq|zerodha varsity|varsity|prelims?|preliminary|buzzer|tiebreak(?:er)?|starred|star marked|"
                r"standard|qa|trivia|night|tonight|quick|surprise|some|good|best|great|nice|cool|fun|"
-               r"on|about|a|an|the|of|for|with|give me|pull|me|show me|create|generate|want|make it|across|from|in|that have|been)\b",
+               r"on|about|a|an|the|of|for|with|give me|pull|me|show me|create|generate|want|make it|make|build|prepare|put together|need|please|across|from|in|that have|been)\b",
                " ", q)
     if filters.get("year"):
         q = re.sub(rf"\b{filters['year']}\b", " ", q)

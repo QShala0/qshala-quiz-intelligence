@@ -141,8 +141,8 @@ def test_quizzes_export_api_router_qshala_school():
 
 
 def test_qshala_school_causten_regular_bold_headings_black_answer_and_media_fit(tmp_path):
-    """Style rules: Causten Round (standard weight) for body text, Bold only on headings (cover title, question and
-    answer number, the Answer divider),
+    """Style rules: Causten Round (standard weight) for body text, Bold only on headings (cover title, question
+    number, the Answer divider),
     answers in black (never green), and images sized to the card without leaving the safe area."""
     from PIL import Image
     from pptx.util import Inches

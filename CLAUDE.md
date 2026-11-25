@@ -58,7 +58,7 @@ Read `graphify-out/GRAPH_REPORT.md` before exploring code (run `graphify update 
   the slide master and layouts, never as a picture on a slide. Cover = Title Slide layout, Answer divider = Section
   Header, other slides = Blank. Regenerate the master with `backend/scripts/build_school_master.py`.
 - **Fonts**: Causten Round only. Body `Causten Round` (standard weight), headings `Causten Round Bold`
-  (cover title, Question/Answer N, Answer divider). Answer text is black, never green. Set latin+ea+cs on runs.
+  (cover title, Question N, Answer divider; answer slides carry only the answer). Answer text is black, never green. Set latin+ea+cs on runs.
   OTF fonts cannot be embedded in PPTX, so the viewing machine needs them installed.
 - Startup repair passes (legacy backfill, bilingual repair, `heal_specialized.py`) are OFF on Cloud Run by default
   (`startup_maintenance_mode()` in `database.py`). To run them once, set `STARTUP_MAINTENANCE_MODE=background` for one

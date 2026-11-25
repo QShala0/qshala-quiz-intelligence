@@ -65,6 +65,16 @@ def test_cancel_with_a_live_worker_flags_but_does_not_purge():
         db.close()
 
 
+def test_cancel_with_a_live_worker_leaves_its_job_row_to_the_worker():
+    doc_id, job_id = _doc_with_job(job_age_s=2)
+    client.post(f"/api/v1/documents/{doc_id}/cancel")
+    db = SessionLocal()
+    try:
+        assert db.query(IngestionJob).get(job_id).status == "PROCESSING"
+    finally:
+        db.close()
+
+
 def test_cancel_with_a_stale_job_still_purges_immediately():
     doc_id, _ = _doc_with_job(job_age_s=3600)                   # worker died long ago
     r = client.post(f"/api/v1/documents/{doc_id}/cancel")
