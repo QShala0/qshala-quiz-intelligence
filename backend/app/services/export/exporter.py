@@ -741,6 +741,55 @@ def _send_shape_to_back(shape, slide) -> None:
         logger.debug(f"Could not send shape to back: {e}")
 
 
+# Safe boxes (x, y, w, h in inches) for the Connect loop, measured from each template's own artwork.
+_CONNECT_SAFE = {
+    "default": (0.62, 0.60, 12.07, 6.27),          # QShala School master card (0.37-12.94 x 0.35-7.12) inset 0.25, and plain slides
+    "school": (0.70, 1.65, 11.95, 4.45),           # below the header and logo, above the trophies in the bottom corners
+    "corporate": (0.80, 0.70, 9.40, 6.10),         # left of the logo and of the mascot at the bottom right
+}
+
+
+def _contrast_with_white(hex_colour: str) -> float:
+    h = (hex_colour or "").lstrip("#")
+    try:
+        r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    except Exception:
+        return 0.0
+    lin = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    return 1.05 / (lum + 0.05)
+
+
+def _connect_backdrop(question_bg, is_qshala_school, is_minimalist, master_prs, layout, is_custom=False):
+    """The backdrop picture a Connect slide needs, matching what this template's normal question slides get."""
+    try:
+        if is_minimalist or question_bg is None or not question_bg.exists():
+            return None
+        if master_prs is None:
+            return question_bg                       # plain deck: every question slide carries the picture
+        if is_qshala_school and not is_custom:
+            return None                              # built-in QShala master: artwork is in the master, never a slide picture
+        from types import SimpleNamespace
+        # master-based deck (QShala School master, custom template): same rule as the normal question slide
+        return None if _has_visual_background(SimpleNamespace(slide_layout=layout, shapes=[])) else question_bg
+    except Exception:
+        return None
+
+
+def _connect_theme(quiz_type, is_qshala_school, is_minimalist, custom_template, font_head, font_body):
+    """Fonts, colours and the safe box for the Connect builder (format_slides.CONNECT_DEFAULT_THEME holds the defaults)."""
+    theme = {"font_head": font_head, "font_body": font_body, "bold_head": False, "safe_box": _CONNECT_SAFE["default"]}
+    if is_qshala_school:
+        theme.update(font_head="Causten Round", font_body="Causten Round", bold_head=True)
+    if custom_template is None and not is_qshala_school:
+        theme["safe_box"] = _CONNECT_SAFE.get(quiz_type if quiz_type in ("school", "corporate") else "default")
+    if custom_template is not None:
+        col = (getattr(custom_template, "title_color_hex", None) or "").lstrip("#")
+        if len(col) == 6 and _contrast_with_white(col) >= 4.5:
+            theme.update(line=col.upper(), hint_fill=col.upper(), title_color=col.upper())
+    return theme
+
+
 def _has_visual_background(slide) -> bool:
     """Check if the slide, its layout, or its master already has a background picture or fill."""
     try:
@@ -1760,8 +1809,9 @@ class QuizExporter:
                     options=list(opts_q) if opts_q else None,
                     meta={}, idx=idx,
                     resolve=lambda u: _resolve_media_path(u, download_dir=media_tmp_dir),
-                    question_bg=question_bg if (is_qshala_school and master_prs is None and question_bg.exists()) else None,
+                    question_bg=_connect_backdrop(question_bg, is_qshala_school, is_minimalist, master_prs, blank_layout, custom_template is not None),
                     answer_layout=divider_layout,
+                    theme=_connect_theme(quiz_type, is_qshala_school, is_minimalist, custom_template, FONT_HEAD, FONT_BODY),
                 ):
                     orig_q_notes, orig_a_notes = _get_original_slide_notes(q)
                     fmt_src_notes = _format_question_source_notes(q)

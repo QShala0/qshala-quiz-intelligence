@@ -48,7 +48,9 @@ Read `graphify-out/GRAPH_REPORT.md` before exploring code (run `graphify update 
   every renderer and falls back to the merged question text. Canonical shapes:
   - STEPPED_CLUE: `clues:[{step,text,correct,wrong,images}]` + `scoring_ladder_ok`; one clue per slide everywhere.
   - CONNECT (type is `"CONNECT"`, never `CONNECT_4`): `items:[{order,image}]`, `text_hint`, `answer`; timer media
-    (name contains "timer") is never a clue. Grid on one slide, answer on its own slide.
+    (name contains "timer") is never a clue. Export is a loop on one slide (pictures on a rounded-rectangle line, hint in a
+    box on the line, "N. Connect" in the middle; geometry in `export/connect_layout.py`, per-template safe boxes and theme in
+    `exporter.py` `_connect_theme`); more than 10 pictures fall back to the plain grid. Answer on its own slide.
   - Frontend guards in `frontend/src/lib/formatPayloads.ts` must stay in sync with `backend/.../format_slides.py`.
 - **Answer must never appear on a question slide.** Answer images are excluded from question images in the exporter.
 - **Quiz builder** (`prompt_quiz/engine.py`) excludes `format_needs_review` questions.

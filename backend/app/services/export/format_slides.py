@@ -354,26 +354,195 @@ def _list_it_slides(prs, blank, d, P, resolve, blob, idx):
     _notes(sa, blob)
 
 
+# ------------------------------------------------------------------------------------------------ Connect (loop)
+
+CONNECT_DEFAULT_THEME: Dict[str, Any] = {
+    "font_head": "Causten Round", "font_body": "Causten Round", "bold_head": True,
+    "line": "0B2A3A", "hint_fill": "0B2A3A", "hint_text": "FFFFFF", "card": "FFFFFF", "title_color": "0B2A3A",
+    "safe_box": (0.62, 0.60, 12.07, 6.27),
+}
+
+
+def _set_run_font(run, name: str, size: float, bold: bool, color: str) -> None:
+    """Set latin + east-asian + complex-script typefaces so Devanagari and CJK text keep the template font."""
+    from pptx.util import Pt
+    from lxml import etree
+    run.font.size = Pt(size)
+    run.font.bold = bold
+    run.font.name = name
+    run.font.color.rgb = _rgb(color)
+    rpr = run._r.get_or_add_rPr()
+    ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    for tag in ("ea", "cs"):
+        el = rpr.find(f"{{{ns}}}{tag}")
+        if el is None:
+            el = etree.SubElement(rpr, f"{{{ns}}}{tag}")
+        el.set("typeface", name)
+
+
+def _hint_font_pt(text: str, w: float, h: float) -> float:
+    """Largest size from 28 pt down to 18 pt at which `text` fits the box (about 0.55 em per character, 1.2 line height)."""
+    for size in (28, 26, 24, 22, 20, 18):
+        per_line = max(1, int(max(0.5, w - 0.4) * 72 / (size * 0.55)))
+        lines, cur = 1, 0
+        for wd in str(text).split():
+            ln = len(wd)
+            while ln > per_line:                      # a very long word breaks across lines
+                lines, ln = lines + 1, ln - per_line
+            if cur and cur + 1 + ln > per_line:
+                lines, cur = lines + 1, ln
+            else:
+                cur = cur + 1 + ln if cur else ln
+        if lines * size * 1.2 / 72 <= h - 0.2:
+            return size
+    return 18
+
+
+def _rounded(slide, box, fill: Optional[str], line: Optional[str], line_pt: float, radius: float, name: str):
+    from pptx.util import Inches, Pt
+    from pptx.enum.shapes import MSO_SHAPE
+    shp = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(box.x), Inches(box.y), Inches(box.w), Inches(box.h))
+    shp.name = name
+    shp.adjustments[0] = min(0.5, radius / max(0.01, min(box.w, box.h)))
+    if fill:
+        shp.fill.solid()
+        shp.fill.fore_color.rgb = _rgb(fill)
+    else:
+        shp.fill.background()
+    if line:
+        shp.line.color.rgb = _rgb(line)
+        shp.line.width = Pt(line_pt)
+    else:
+        shp.line.fill.background()
+    shp.shadow.inherit = False
+    return shp
+
+
+def _readable_size(path: Optional[Path]) -> Optional[Tuple[int, int]]:
+    if not path:
+        return None
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            w, h = im.size
+        return (w, h) if w > 0 and h > 0 else None
+    except Exception as e:
+        logger.warning("export: unreadable Connect picture %s: %s", path, e)
+        return None
+
+
+def _prepare_connect_title(slide, text: str, box, theme: Dict[str, Any]):
+    """Put "N. Connect" in the layout's title placeholder when it has one (master styling applies), else a text box;
+    remove every other EMPTY placeholder so no "Click to add text" remains."""
+    from pptx.util import Inches
+    from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+    title_shape = None
+    title_id = slide.shapes.title.shape_id if slide.shapes.title is not None else None
+    for ph in list(slide.placeholders):
+        if ph.shape_id == title_id and title_shape is None and hasattr(ph, "text_frame"):
+            title_shape = ph
+        elif not (ph.has_text_frame and ph.text_frame.text.strip()):
+            ph._element.getparent().remove(ph._element)
+    if title_shape is not None:
+        title_shape.left, title_shape.top = Inches(box.x), Inches(box.y)
+        title_shape.width, title_shape.height = Inches(box.w), Inches(box.h)
+        tf = title_shape.text_frame
+        tf.word_wrap = True
+        tf.text = text
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        title_shape.name = "Heading"
+        tb = title_shape
+    else:
+        tb = _text(slide, box.x, box.y, box.w, box.h, text, size=40, bold=False, color=theme["title_color"], align="center",
+                   font=theme["font_body"], name="Heading")
+        tb.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+    for p in tb.text_frame.paragraphs:
+        p.alignment = PP_ALIGN.CENTER
+        for r in p.runs:
+            _set_run_font(r, theme["font_body"], 40, False, theme["title_color"])
+    return tb
+
+
 def _connect_slides(prs, blank, d, P, resolve, blob, idx):
+    """Connect as a loop: pictures joined by thick lines round a rounded rectangle, the hint in a box on the line and
+    "N. Connect" in the middle (geometry in connect_layout.py). Answer on its own slide, as before."""
+    from .connect_layout import connect_layout
+    from pptx.util import Inches
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+    theme = {**CONNECT_DEFAULT_THEME, **(d.get("theme") or {})}
     bg = d.get("question_bg")
+    paths = [resolve(it.get("image")) for it in (P.get("items") or [])]
+    ready = [p for p in paths if _readable_size(p)]                       # unreadable or missing pictures are skipped
+    hint = (P.get("text_hint") or "").strip()
+    parts = [x.strip() for x in hint.split(" / ") if x.strip()] if hint else []
+    if len(parts) > 2:
+        parts = [parts[0], " ".join(parts[1:])]
+    lay = connect_layout(len(ready), len(parts), theme["safe_box"])
+    if lay["fallback"] == "grid":
+        logger.warning("Connect has %d pictures; using the plain grid", len(ready))
+        return _connect_grid(prs, blank, d, P, blob, idx, ready)
+
     s = prs.slides.add_slide(blank)
     _backdrop(s, bg)
-    _text(s, 1.0, 0.55, 11.3, 0.9, "Connect", size=34, bold=True, name="Heading")
-    if P.get("text_hint"):
-        _text(s, 1.0, 1.4, 11.3, 0.8, P["text_hint"], size=22, color="334155")
-    items = P.get("items") or []
-    n = len(items)
-    cols = 3 if n > 4 else 2 if n > 1 else 1
-    rows = max(1, -(-n // cols))
-    cw, ch = 3.6, min(1.65, 4.0 / rows)
-    for i, it in enumerate(items):
-        col, row = i % cols, i // cols
-        _picture(s, resolve(it.get("image")), 1.1 + col * (cw + 0.3), 2.3 + row * (ch + 0.15), cw, ch, name=f"Picture {i + 1}")
+    if lay["loop"] is not None:
+        _rounded(s, lay["loop"], None, theme["line"], 4.5, 0.35, "QSHALA Loop")
+    for i, (path, box) in enumerate(zip(ready, lay["nodes"]), start=1):
+        iw, ih = _readable_size(path)
+        k = min(box.w / iw, box.h / ih)
+        pw, ph = iw * k, ih * k
+        px, py = box.x + (box.w - pw) / 2, box.y + (box.h - ph) / 2
+        card = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(px), Inches(py), Inches(pw), Inches(ph))
+        card.name = f"QSHALA Card {i}"
+        card.fill.solid()
+        card.fill.fore_color.rgb = _rgb(theme["card"])
+        card.line.fill.background()
+        card.shadow.inherit = False
+        if _picture(s, path, px, py, pw, ph, name=f"Picture {i}") is None:
+            card._element.getparent().remove(card._element)
+    for j, (text, hb) in enumerate(zip(parts, lay["hints"])):
+        shp = _rounded(s, hb, theme["hint_fill"], None, 0, 0.18, "QSHALA Hint" if j == 0 else f"QSHALA Hint {j + 1}")
+        tf = shp.text_frame
+        tf.word_wrap = True
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        r = p.add_run()
+        r.text = text
+        face = theme["font_head"]
+        if face == "Causten Round":                       # the bold face is its own family name (see _text)
+            face = "Causten Round Bold"
+        _set_run_font(r, face, _hint_font_pt(text, hb.w, hb.h), True, theme["hint_text"])
+    _prepare_connect_title(s, f"{idx}. Connect", lay["title"], theme)
+
     _answer_marker(prs, blank, bg, d.get("answer_layout"))
     sa = prs.slides.add_slide(blank)
     _backdrop(sa, bg)
     _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="0F172A", align="center", name="Title 1")
     _notes(sa, blob)
+
+
+def _connect_grid(prs, blank, d, P, blob, idx, paths):
+    """The old plain grid, kept for Connect questions with more pictures than a ring can hold."""
+    bg = d.get("question_bg")
+    s = prs.slides.add_slide(blank)
+    _backdrop(s, bg)
+    _text(s, 1.0, 0.55, 11.3, 0.9, f"{idx}. Connect", size=34, bold=True, name="Heading")
+    if P.get("text_hint"):
+        _text(s, 1.0, 1.4, 11.3, 0.8, P["text_hint"], size=22, color="334155", name="QSHALA Hint")
+    n = len(paths)
+    cols = 3 if n > 4 else 2 if n > 1 else 1
+    rows = max(1, -(-n // cols))
+    cw, ch = 3.6, min(1.65, 4.0 / rows)
+    for i, path in enumerate(paths):
+        col, row = i % cols, i // cols
+        _picture(s, path, 1.1 + col * (cw + 0.3), 2.3 + row * (ch + 0.15), cw, ch, name=f"Picture {i + 1}")
+    _answer_marker(prs, blank, bg, d.get("answer_layout"))
+    sa = prs.slides.add_slide(blank)
+    _backdrop(sa, bg)
+    _text(sa, 1.0, 2.6, 11.3, 2.0, d["answer"], size=40, bold=True, color="0F172A", align="center", name="Title 1")
+    _notes(sa, blob)
+
 
 
 def _stepped_slides(prs, blank, d, P, resolve, blob, idx):
@@ -477,14 +646,15 @@ def export_format_of(payload: Any) -> Optional[str]:
 def add_format_question(prs, blank_layout, *, payload: Dict[str, Any], question_text: str, answer: str, explanation: str,
                         options: Optional[List[str]], meta: Dict[str, Any], idx: int,
                         resolve: Callable[[str], Optional[Path]],
-                        question_bg: Optional[Path] = None, answer_layout=None) -> bool:
+                        question_bg: Optional[Path] = None, answer_layout=None,
+                        theme: Optional[Dict[str, Any]] = None) -> bool:
     """Append the slides of one question. False (nothing added) when the payload cannot be expanded."""
     fmt = export_format_of(payload)
     if not fmt:
         return False
     blob, _urls = build_blob(fmt, payload, question_text, answer, explanation, options, meta)
     before = len(prs.slides)
-    d = {"question_text": question_text, "answer": answer, "question_bg": question_bg, "answer_layout": answer_layout}
+    d = {"question_text": question_text, "answer": answer, "question_bg": question_bg, "answer_layout": answer_layout, "theme": theme}
     try:
         _BUILDERS[fmt](prs, blank_layout, d, payload, resolve, blob, idx)
     except Exception as e:                                     # leave the deck as it was; the caller falls back
