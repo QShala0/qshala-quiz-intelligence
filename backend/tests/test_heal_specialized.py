@@ -180,6 +180,7 @@ def test_heal_specialized_connect4(in_memory_db):
         "Mint Road, Mumbai", "Governor Shaktikanta Das", "Repo Rate & Reverse Repo", "Issue of Banknotes",
     ]
     assert payload["answer"] == "Reserve Bank of India"
+    assert payload["text_hint"] is None            # the generic prompt is an instruction, not a clue
     # accepted as a real connect question, so the structured grid renders everywhere
     from backend.app.services.export import format_slides
     assert format_slides.export_format_of(payload) == "CONNECT"

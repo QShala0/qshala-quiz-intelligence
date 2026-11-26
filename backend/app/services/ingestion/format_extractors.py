@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 LF = chr(10)
 
+from backend.app.services.connect_text import is_connect_clue_text
 from backend.app.services.ingestion.pptx_structure import absolute_box, absolute_centre
 from backend.app.services.ingestion.slide_roles import (
     DeckAnalysis, RoundInfo, Unit, SLOT_EXAMPLE, SECTION_MAIN, is_timer_shape, is_export_shape, parse_rules)
@@ -596,7 +597,9 @@ def extract_connect(ctx: Ctx) -> Dict[str, Any]:
             continue
         if len(t.split()) < 2:
             continue                      # "MIX" style tags
-        hint_parts.append(re.sub(r"^\d+\.\s*connect\s*", "", t, flags=re.I).strip() or t)
+        if not is_connect_clue_text(t):
+            continue                      # the title block, the instruction, "Question for our Audience"
+        hint_parts.append(t)
     hint = " / ".join(h for h in hint_parts if h) or None
     raw_notes_1 = ctx.first.get("speaker_notes") or ""
     if raw_notes_1 and hasattr(ctx.extractor, "_strip_data_uris"):

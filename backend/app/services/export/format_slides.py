@@ -21,6 +21,8 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from backend.app.services.connect_text import SEPARATOR, split_clue_parts
+
 logger = logging.getLogger(__name__)
 
 MARKER = "QSHALA-FORMAT v1"
@@ -474,8 +476,7 @@ def _connect_slides(prs, blank, d, P, resolve, blob, idx):
     bg = d.get("question_bg")
     paths = [resolve(it.get("image")) for it in (P.get("items") or [])]
     ready = [p for p in paths if _readable_size(p)]                       # unreadable or missing pictures are skipped
-    hint = (P.get("text_hint") or "").strip()
-    parts = [x.strip() for x in hint.split(" / ") if x.strip()] if hint else []
+    parts = split_clue_parts(P.get("text_hint"))                           # titles, instructions and labels are not clues
     if len(parts) > 2:
         parts = [parts[0], " ".join(parts[1:])]
     lay = connect_layout(len(ready), len(parts), theme["safe_box"])
@@ -528,8 +529,9 @@ def _connect_grid(prs, blank, d, P, blob, idx, paths):
     s = prs.slides.add_slide(blank)
     _backdrop(s, bg)
     _text(s, 1.0, 0.55, 11.3, 0.9, f"{idx}. Connect", size=34, bold=True, name="Heading")
-    if P.get("text_hint"):
-        _text(s, 1.0, 1.4, 11.3, 0.8, P["text_hint"], size=22, color="334155", name="QSHALA Hint")
+    clues = split_clue_parts(P.get("text_hint"))
+    if clues:
+        _text(s, 1.0, 1.4, 11.3, 0.8, SEPARATOR.join(clues), size=22, color="334155", name="QSHALA Hint")
     n = len(paths)
     cols = 3 if n > 4 else 2 if n > 1 else 1
     rows = max(1, -(-n // cols))

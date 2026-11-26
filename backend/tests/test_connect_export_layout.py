@@ -222,3 +222,43 @@ def test_custom_template_connect_slide(store, media, n, hint):
             assert 0 <= sh.left and 0 <= sh.top and sh.left + sh.width <= prs.slide_width + 10 and sh.top + sh.height <= prs.slide_height + 10
     finally:
         tpl_client.delete(f"/api/v1/templates/{tpl['id']}")
+
+
+# --- text that is not a clue must never be drawn on the loop --------------------------------------------------------
+
+BAD_HINTS = [
+    "What common thread or concept connects all four clues and images?",
+    "Question for our Audience",
+    "3. Connect:\nThe name you can bank",
+]
+
+
+@pytest.mark.parametrize("template", TEMPLATES)
+@pytest.mark.parametrize("hint", BAD_HINTS)
+def test_instructions_and_labels_are_never_drawn_as_a_hint(media, template, hint):
+    make, _ = media
+    prs = export([connect_q([make(i) for i in range(4)], hint)], template)
+    q, _, _ = connect_slides(prs)
+    assert not [sh for sh in q.shapes if sh.name.startswith("QSHALA Hint")]
+    text = slide_text(q)
+    for bad in ("common thread", "Question for our Audience", "name you can bank"):
+        assert bad not in text
+
+
+@pytest.mark.parametrize("template", TEMPLATES)
+def test_only_the_real_clue_is_drawn_from_a_mixed_hint(media, template):
+    make, _ = media
+    hint = "What common thread or concept connects all four clues and images? / The lowest female singing voice / Question for our Audience"
+    prs = export([connect_q([make(i) for i in range(4)], hint)], template)
+    q, _, _ = connect_slides(prs)
+    assert [sh.text_frame.text for sh in q.shapes if sh.name.startswith("QSHALA Hint")] == ["The lowest female singing voice"]
+
+
+def test_the_plain_grid_also_drops_instructions_and_labels(media):
+    make, _ = media
+    prs = export([connect_q([make(i) for i in range(11)], "Question for our Audience")], "qshala_school")
+    q, _, _ = connect_slides(prs)
+    assert "Question for our Audience" not in slide_text(q)
+    prs = export([connect_q([make(i) for i in range(11)], "August 7")], "qshala_school")
+    q, _, _ = connect_slides(prs)
+    assert "August 7" in slide_text(q)

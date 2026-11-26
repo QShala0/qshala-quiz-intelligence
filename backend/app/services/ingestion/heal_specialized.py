@@ -11,6 +11,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 from backend.app.models.question import Question
+from backend.app.services.connect_text import clean_text_hint
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +238,7 @@ def heal_specialized_questions(db: Session) -> Dict[str, int]:
             "type": "CONNECT",
             "badge": "Connect 4 • Common Link",
             "items": items,
-            "text_hint": resolved_prompt,
+            "text_hint": clean_text_hint(resolved_prompt),
             "item_labels": item_labels,
             "scoring": {"correct": None, "wrong": None},
             "answer": q.answer,
