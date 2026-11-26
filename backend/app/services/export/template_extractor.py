@@ -268,6 +268,7 @@ class TemplateExtractor:
 
         # 2. Analyze slide layouts (Cover, Question, Answer)
         layouts_meta = self._analyze_layouts()
+        self._apply_ai_hints(layouts_meta)
 
         # 3. Extract background assets from slides, layouts, and masters
         background_meta = self._extract_backgrounds(dest_dir, layouts_meta)
@@ -381,8 +382,9 @@ class TemplateExtractor:
         body_font = dominant_font or "Causten Round Regular"
         header_font = title_font or "Causten Round Bold"
 
-        avg_title_size = round(sum(title_sizes) / len(title_sizes), 1) if title_sizes else 44.0
-        body_size = 28.0  # Style Guide Standard: uniform 28pt body
+        # Style Guide Standard: title 44pt and body 28pt, always (never averaged from the sample deck).
+        avg_title_size = 44.0
+        body_size = 28.0
 
         sorted_colors = sorted(colors_seen.items(), key=lambda kv: kv[1], reverse=True)
         dominant_color = sorted_colors[0][0] if sorted_colors else "#0F172A"
@@ -459,6 +461,45 @@ class TemplateExtractor:
                 layouts["answer_layout"] = l.name
                 break
         return layouts
+
+    def _apply_ai_hints(self, layouts: Dict[str, Any]) -> None:
+        """One small text-only model call; fills only what the rules left empty or at its default. Never raises."""
+        layouts["ai_used"] = False
+        try:
+            from backend.app.services.export import template_ai
+            slides = list(self.prs.slides)
+            hints = template_ai.classify_template(slides, self.slide_width_in, self.slide_height_in, _short_answer_slide)
+            if not hints:
+                return
+
+            def layout_of(idx):
+                return slides[idx].slide_layout.name if isinstance(idx, int) and 0 <= idx < len(slides) else None
+
+            rule_found_divider = any(_short_answer_slide(sl) for sl in slides[1:MAX_SCAN_SLIDES])
+            reveal = hints.get("answer_reveal_idx")
+            if reveal and not rule_found_divider and layout_of(reveal):
+                layouts["divider_layout"] = layout_of(reveal)
+                layouts["divider_deck_index"] = reveal
+            if not layouts.get("question_layout") and layout_of(hints.get("question_idx")):
+                layouts["question_layout"] = layout_of(hints["question_idx"])
+            ans = layout_of(hints.get("answer_idx"))
+            if ans and not layouts.get("answer_layout") and ans not in (layouts.get("question_layout"), layouts.get("cover_layout")):
+                layouts["answer_layout"] = ans
+
+            default_geo = {
+                "question_box": {"left": 1.0, "top": 1.2, "width": 11.33, "height": 4.5},
+                "media_box": {"left": 6.8, "top": 1.2, "width": 5.5, "height": 4.5},
+                "answer_box": {"left": 1.0, "top": 1.2, "width": 11.33, "height": 4.5},
+            }
+            geo = layouts["geometry"]
+            for key, default in default_geo.items():
+                if hints.get(key) and geo.get(key) == default:
+                    geo[key] = hints[key]
+            if hints.get("spacing_pt"):
+                layouts["spacing_pt"] = hints["spacing_pt"]
+            layouts["ai_used"] = True
+        except Exception as e:  # noqa: BLE001
+            logger.info("Template AI hints skipped: %s", type(e).__name__)
 
     def _all_layouts(self) -> list:
         """Layouts of EVERY slide master (prs.slide_layouts only returns the first master's)."""
@@ -594,6 +635,9 @@ class TemplateExtractor:
         slides = list(clean_prs.slides)
 
         divider_i = next((i for i, sl in enumerate(slides) if i > 0 and _short_answer_slide(sl)), None)
+        ai_div = layouts_meta.get("divider_deck_index")
+        if divider_i is None and isinstance(ai_div, int) and 0 < ai_div < len(slides):
+            divider_i = ai_div   # a reveal slide the text rule missed (other language, image-only, longer text)
         cover_i = 0 if slides and not _short_answer_slide(slides[0]) and len(slides[0].shapes) > 0 else None
         keep = [i for i in (cover_i, divider_i) if i is not None]
 

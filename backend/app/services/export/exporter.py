@@ -2539,9 +2539,9 @@ class QuizExporter:
                 prs,
                 custom_template.body_font or FONT_BODY,
                 custom_template.header_font or FONT_HEAD,
-                title_size_pt=custom_template.title_size_pt,
+                title_size_pt=44.0,   # style guide: title 44pt, body 28pt on every custom template (older templates stored averages)
                 header_size_pt=custom_template.header_size_pt,
-                body_size_pt=custom_template.body_size_pt,
+                body_size_pt=28.0,
                 skip_slide_ids=retained_ids,
             )
         elif is_qshala_school:
