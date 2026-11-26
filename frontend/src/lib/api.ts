@@ -1585,7 +1585,7 @@ export interface AuthUser {
   team: string | null;
   team_id: string | null;
   role: 'admin' | 'member';
-  status: 'active' | 'pending' | 'blocked';
+  status: 'active' | 'pending' | 'blocked' | 'deleted';
   provider: 'microsoft' | 'password';
   must_change_password: boolean;
   failed_logins: number;
@@ -1593,6 +1593,8 @@ export interface AuthUser {
   last_login_at: string | null;
   created_at: string | null;
   created_by: string | null;
+  is_seeded?: boolean;
+  restored?: boolean;
 }
 
 export interface AuditLogEntry {
@@ -1737,6 +1739,18 @@ export async function updateUser(
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
     throw new Error(errorBody.detail || 'Failed to update user');
+  }
+  return res.json();
+}
+
+export async function deleteUser(id: string): Promise<{ ok: boolean; status: string }> {
+  const base = getApiBase();
+  const res = await fetch(`${base}/auth/users/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody.detail || 'Failed to delete user');
   }
   return res.json();
 }

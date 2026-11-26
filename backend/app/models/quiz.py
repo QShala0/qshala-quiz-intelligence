@@ -32,6 +32,9 @@ class Quiz(Base):
     status = Column(String(50), default="READY")  # DRAFT, GENERATING, READY, ARCHIVED
     created_by_user_id = Column(String(36), ForeignKey("auth_users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_by_name = Column(String(255), nullable=True)
+    last_modified_by_user_id = Column(String(36), ForeignKey("auth_users.id", ondelete="SET NULL"), nullable=True, index=True)
+    last_modified_by_name = Column(String(255), nullable=True)
+    last_modified_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

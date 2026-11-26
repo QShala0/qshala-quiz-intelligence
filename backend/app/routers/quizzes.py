@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Body
 from fastapi.responses import JSONResponse
@@ -107,11 +108,20 @@ def get_quiz(quiz_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Quiz not found")
     return quiz
 
+def _touch_quiz_last_modified(quiz: Optional[Quiz], current_user: Optional[AuthUser]) -> None:
+    """Update last_modified metadata on an existing quiz when a signed-in user edits it."""
+    if quiz and current_user:
+        quiz.last_modified_by_user_id = current_user.id
+        quiz.last_modified_by_name = current_user.display_name
+        quiz.last_modified_at = datetime.now(timezone.utc)
+
+
 @router.patch("/{quiz_id}", response_model=QuizResponse)
 def rename_quiz(
     quiz_id: str,
     update_data: QuizRenameRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
     if not quiz:
@@ -124,6 +134,7 @@ def rename_quiz(
         raise HTTPException(status_code=400, detail="Title cannot exceed 255 characters")
 
     quiz.title = title
+    _touch_quiz_last_modified(quiz, current_user)
     db.commit()
     db.refresh(quiz)
     return quiz
@@ -169,7 +180,8 @@ def delete_quiz(quiz_id: str, db: Session = Depends(get_db)):
 def update_question(
     question_id: str,
     update_data: GeneratedQuestionUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     gen_q = db.query(GeneratedQuestion).filter(GeneratedQuestion.id == question_id).first()
     if not gen_q:
@@ -179,6 +191,10 @@ def update_question(
     for field, value in data_dict.items():
         setattr(gen_q, field, value)
 
+    if gen_q.quiz_id and current_user:
+        quiz = db.query(Quiz).filter(Quiz.id == gen_q.quiz_id).first()
+        _touch_quiz_last_modified(quiz, current_user)
+
     db.commit()
     db.refresh(gen_q)
     return gen_q
@@ -187,7 +203,8 @@ def update_question(
 async def execute_question_action(
     question_id: str,
     req: QuestionActionRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
 ):
     try:
         generator = QuizGenerator(db)
@@ -196,6 +213,10 @@ async def execute_question_action(
             action=req.action,
             custom_instruction=req.custom_instruction
         )
+        if updated_q and updated_q.quiz_id and current_user:
+            quiz = db.query(Quiz).filter(Quiz.id == updated_q.quiz_id).first()
+            _touch_quiz_last_modified(quiz, current_user)
+            db.commit()
         return updated_q
     except HTTPException:
         raise
@@ -206,12 +227,20 @@ async def execute_question_action(
         raise HTTPException(status_code=500, detail="Question action failed. Please try again.")
 
 @router.delete("/questions/{question_id}")
-def delete_question(question_id: str, db: Session = Depends(get_db)):
+def delete_question(
+    question_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthUser] = Depends(get_current_user_optional),
+):
     gen_q = db.query(GeneratedQuestion).filter(GeneratedQuestion.id == question_id).first()
     if not gen_q:
         raise HTTPException(status_code=404, detail="Question not found")
+    quiz_id = gen_q.quiz_id
     urls = _generated_picture_urls([gen_q])
     db.delete(gen_q)
+    if quiz_id and current_user:
+        quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
+        _touch_quiz_last_modified(quiz, current_user)
     db.commit()
     _cleanup_pictures(db, urls)
     return {"message": "Question deleted successfully"}

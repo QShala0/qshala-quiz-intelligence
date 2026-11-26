@@ -5,8 +5,8 @@ import {
   AuthUser,
   AuditLogEntry,
   listUsers,
-  createUser,
   updateUser,
+  deleteUser,
   resetUserPassword,
   listAuditLogs,
 } from '@/lib/api';
@@ -25,11 +25,23 @@ import {
   Clock,
   History,
   X,
-  Building2,
+  Trash2,
 } from 'lucide-react';
-import DirectoryAddModal from './DirectoryAddModal';
+import AddPersonModal from './AddPersonModal';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 const TEAMS = ['School', 'Corporate', 'QShala', 'Consultant'] as const;
+
+interface ConfirmModalState {
+  isOpen: boolean;
+  title: string;
+  message: React.ReactNode;
+  confirmLabel: string;
+  isDestructive: boolean;
+  isLoading: boolean;
+  error: string | null;
+  action: () => Promise<void>;
+}
 
 export default function AccessTab() {
   const { user: currentAdmin } = useAuth();
@@ -43,20 +55,20 @@ export default function AccessTab() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Modals state
-  const [showAddUserModal, setShowAddUserModal] = useState(false);
-  const [showDirectoryModal, setShowDirectoryModal] = useState(false);
+  const [showAddPersonModal, setShowAddPersonModal] = useState(false);
   const [resetPasswordTarget, setResetPasswordTarget] = useState<AuthUser | null>(null);
 
-  // Add User Form State
-  const [newDisplayName, setNewDisplayName] = useState('');
-  const [newProvider, setNewProvider] = useState<'microsoft' | 'password'>('microsoft');
-  const [newEmail, setNewEmail] = useState('');
-  const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newTeam, setNewTeam] = useState<string>('QShala');
-  const [newRole, setNewRole] = useState<'admin' | 'member'>('member');
-  const [newMustChangePassword, setNewMustChangePassword] = useState(true);
-  const [isSubmittingNewUser, setIsSubmittingNewUser] = useState(false);
+  // Confirmation Dialog State
+  const [confirmState, setConfirmState] = useState<ConfirmModalState>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmLabel: 'Confirm',
+    isDestructive: false,
+    isLoading: false,
+    error: null,
+    action: async () => {},
+  });
 
   // Reset Password Form State
   const [resetNewPasswordVal, setResetNewPasswordVal] = useState('');
@@ -141,43 +153,135 @@ export default function AccessTab() {
     }
   };
 
-  // Handle Role Change (Admin <-> Member)
-  const handleRoleToggle = async (targetUser: AuthUser) => {
+  // Confirmation Trigger: Role Toggle (Grant / Remove Admin)
+  const triggerRoleToggleConfirm = (targetUser: AuthUser) => {
     if (targetUser.provider !== 'microsoft') {
       setErrorMessage('Only Microsoft provider accounts can be granted Admin privileges.');
       return;
     }
-    const newRole = targetUser.role === 'admin' ? 'member' : 'admin';
+
     if (targetUser.role === 'admin' && activeAdminsCount <= 1) {
       setErrorMessage('Cannot remove the last active administrator.');
       return;
     }
-    try {
-      setErrorMessage(null);
-      await updateUser(targetUser.id, { role: newRole });
-      setSuccessMessage(`Updated ${targetUser.display_name} to ${newRole}`);
-      await loadData();
-    } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to update role');
-    }
+
+    const granting = targetUser.role !== 'admin';
+    const newRole = granting ? 'admin' : 'member';
+
+    setConfirmState({
+      isOpen: true,
+      title: granting
+        ? `Make ${targetUser.display_name} an admin?`
+        : `Remove admin from ${targetUser.display_name}?`,
+      message: granting
+        ? `${targetUser.display_name} will be granted administrator privileges. They will have full access to user management, system settings, and security controls.`
+        : `${targetUser.display_name} will become a standard member. They will lose access to user management and system settings.`,
+      confirmLabel: granting ? 'Grant Admin' : 'Remove Admin',
+      isDestructive: !granting,
+      isLoading: false,
+      error: null,
+      action: async () => {
+        await updateUser(targetUser.id, { role: newRole });
+        setSuccessMessage(`Updated ${targetUser.display_name} to ${newRole}`);
+      },
+    });
   };
 
-  // Handle Status Change (Block <-> Active)
-  const handleStatusToggle = async (targetUser: AuthUser) => {
+  // Confirmation Trigger: Block / Unblock User
+  const triggerStatusToggleConfirm = (targetUser: AuthUser) => {
     if (targetUser.role === 'admin' && targetUser.status === 'active' && activeAdminsCount <= 1) {
       setErrorMessage('Cannot block the last active administrator.');
       return;
     }
-    const nextStatus = targetUser.status === 'active' ? 'blocked' : 'active';
+
+    const isBlocking = targetUser.status === 'active';
+    const nextStatus = isBlocking ? 'blocked' : 'active';
+
+    if (!isBlocking) {
+      // Unblocking can proceed directly or with a mild confirmation
+      updateUser(targetUser.id, { status: 'active' })
+        .then(() => {
+          setSuccessMessage(`Unblocked ${targetUser.display_name}`);
+          loadData();
+        })
+        .catch((err: unknown) => {
+          setErrorMessage(err instanceof Error ? err.message : 'Failed to unblock user');
+        });
+      return;
+    }
+
+    setConfirmState({
+      isOpen: true,
+      title: `Block ${targetUser.display_name}?`,
+      message: `This will immediately revoke all active sessions for ${targetUser.display_name}. They will lose access immediately and will not be able to sign in until unblocked.`,
+      confirmLabel: 'Block User',
+      isDestructive: true,
+      isLoading: false,
+      error: null,
+      action: async () => {
+        await updateUser(targetUser.id, { status: nextStatus });
+        setSuccessMessage(`Blocked ${targetUser.display_name}`);
+      },
+    });
+  };
+
+  // Confirmation Trigger: Soft Delete User
+  const triggerDeleteConfirm = (targetUser: AuthUser) => {
+    setConfirmState({
+      isOpen: true,
+      title: `Delete ${targetUser.display_name}?`,
+      message: (
+        <div className="space-y-2">
+          <p>
+            Are you sure you want to delete <strong className="font-semibold text-slate-900">{targetUser.display_name}</strong>?
+          </p>
+          <p className="text-[12.5px] text-slate-500">
+            Their account will be soft-deleted and all active sessions revoked. Existing quizzes and documents they created will preserve their name. Re-adding them later will restore their account.
+          </p>
+        </div>
+      ),
+      confirmLabel: 'Delete User',
+      isDestructive: true,
+      isLoading: false,
+      error: null,
+      action: async () => {
+        await deleteUser(targetUser.id);
+        setSuccessMessage(`Deleted ${targetUser.display_name}`);
+      },
+    });
+  };
+
+  // Confirmation Trigger: Decline Pending Request
+  const triggerDeclinePendingConfirm = (targetUser: AuthUser) => {
+    setConfirmState({
+      isOpen: true,
+      title: `Decline request from ${targetUser.display_name}?`,
+      message: `This will reject the access request and block ${targetUser.display_name} from signing in.`,
+      confirmLabel: 'Decline Request',
+      isDestructive: true,
+      isLoading: false,
+      error: null,
+      action: async () => {
+        await updateUser(targetUser.id, { status: 'blocked' });
+        setSuccessMessage(`Declined and blocked ${targetUser.display_name}`);
+      },
+    });
+  };
+
+  // Handle Execute Confirmation
+  const handleExecuteConfirm = async () => {
+    setConfirmState((prev) => ({ ...prev, isLoading: true, error: null }));
     try {
-      setErrorMessage(null);
-      await updateUser(targetUser.id, { status: nextStatus });
-      setSuccessMessage(
-        `${nextStatus === 'active' ? 'Unblocked' : 'Blocked'} ${targetUser.display_name}`
-      );
+      await confirmState.action();
+      setConfirmState((prev) => ({ ...prev, isOpen: false, isLoading: false }));
       await loadData();
     } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to change user status');
+      const errorMsg = err instanceof Error ? err.message : 'Operation failed';
+      setConfirmState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: errorMsg,
+      }));
     }
   };
 
@@ -190,36 +294,6 @@ export default function AccessTab() {
       await loadData();
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : 'Failed to approve user');
-    }
-  };
-
-  // Handle Create User Submit
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmittingNewUser(true);
-    setErrorMessage(null);
-    try {
-      await createUser({
-        display_name: newDisplayName.trim(),
-        provider: newProvider,
-        email: newProvider === 'microsoft' ? newEmail.trim().toLowerCase() : undefined,
-        username: newProvider === 'password' ? newUsername.trim() : undefined,
-        password: newProvider === 'password' ? newPassword : undefined,
-        team_id: newTeam,
-        role: newProvider === 'microsoft' ? newRole : 'member',
-        must_change_password: newProvider === 'password' ? newMustChangePassword : false,
-      });
-      setSuccessMessage(`Successfully created user ${newDisplayName}`);
-      setShowAddUserModal(false);
-      setNewDisplayName('');
-      setNewEmail('');
-      setNewUsername('');
-      setNewPassword('');
-      await loadData();
-    } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to create user');
-    } finally {
-      setIsSubmittingNewUser(false);
     }
   };
 
@@ -254,7 +328,7 @@ export default function AccessTab() {
   }
 
   const pendingUsers = users.filter((u) => u.status === 'pending');
-  const activeAndBlockedUsers = users.filter((u) => u.status !== 'pending');
+  const activeAndBlockedUsers = users.filter((u) => u.status !== 'pending' && u.status !== 'deleted');
 
   return (
     <div className="space-y-8">
@@ -310,7 +384,7 @@ export default function AccessTab() {
                 key={pending.id}
                 user={pending}
                 onApprove={handleApprovePending}
-                onBlock={handleStatusToggle}
+                onDecline={triggerDeclinePendingConfirm}
               />
             ))}
           </div>
@@ -342,18 +416,10 @@ export default function AccessTab() {
               <span>Refresh</span>
             </button>
 
+            {/* Single Consolidated "Add Person" button */}
             <button
               type="button"
-              onClick={() => setShowDirectoryModal(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-[#E9DFC9] bg-[#FFFCF5] px-3.5 py-1.5 text-[12.5px] font-semibold text-[#1E222D] shadow-xs transition-colors hover:bg-slate-50 focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20"
-            >
-              <Building2 className="h-3.5 w-3.5 text-amber-600" />
-              <span>Add from directory</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowAddUserModal(true)}
+              onClick={() => setShowAddPersonModal(true)}
               className="flex items-center gap-1.5 rounded-lg bg-[#1E222D] px-3.5 py-1.5 text-[12.5px] font-semibold text-[#FFFCF5] shadow-sm transition-colors hover:bg-[#2B3040] focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20"
             >
               <UserPlus className="h-3.5 w-3.5" />
@@ -485,11 +551,11 @@ export default function AccessTab() {
                       {/* Actions */}
                       <td className="py-3 px-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Toggle Admin (Microsoft only) */}
+                          {/* Toggle Admin (Microsoft only) with Confirmation */}
                           {u.provider === 'microsoft' && (
                             <button
                               type="button"
-                              onClick={() => handleRoleToggle(u)}
+                              onClick={() => triggerRoleToggleConfirm(u)}
                               disabled={isLastAdmin}
                               title={
                                 isLastAdmin
@@ -520,10 +586,10 @@ export default function AccessTab() {
                             </button>
                           )}
 
-                          {/* Block / Unblock Toggle */}
+                          {/* Block / Unblock Toggle with Confirmation */}
                           <button
                             type="button"
-                            onClick={() => handleStatusToggle(u)}
+                            onClick={() => triggerStatusToggleConfirm(u)}
                             disabled={isLastAdmin}
                             title={
                               isLastAdmin
@@ -544,6 +610,18 @@ export default function AccessTab() {
                               <CheckCircle2 className="h-4 w-4" />
                             )}
                           </button>
+
+                          {/* Soft Delete Icon (hidden for self and seeded accounts) */}
+                          {!isCurrent && !u.is_seeded && (
+                            <button
+                              type="button"
+                              onClick={() => triggerDeleteConfirm(u)}
+                              title={`Delete ${u.display_name}`}
+                              className="rounded p-1 text-slate-400 hover:text-red-700 hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -635,177 +713,30 @@ export default function AccessTab() {
         </div>
       </div>
 
-      {/* Add User Modal */}
-      {showAddUserModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl border border-[#E9DFC9] bg-[#FFFCF5] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[#E9DFC9]/80 pb-3">
-              <h3 className="text-[17px] font-bold text-[#1E222D]">Add New Person</h3>
-              <button
-                type="button"
-                onClick={() => setShowAddUserModal(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      {/* Unified Add Person Modal (From directory + Add manually) */}
+      <AddPersonModal
+        isOpen={showAddPersonModal}
+        onClose={() => setShowAddPersonModal(false)}
+        onSuccess={(msg) => setSuccessMessage(msg)}
+        onUsersAdded={loadData}
+      />
 
-            <form onSubmit={handleCreateUser} className="mt-4 space-y-4 text-[13px]">
-              {/* Provider Selection */}
-              <div>
-                <label className="block font-semibold text-[#1E222D]">Account Type</label>
-                <div className="mt-1.5 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewProvider('microsoft');
-                      setNewRole('member');
-                    }}
-                    className={`rounded-xl border py-2 text-center font-semibold transition-all ${
-                      newProvider === 'microsoft'
-                        ? 'border-amber-400 bg-amber-50 text-amber-900 ring-2 ring-amber-400/20'
-                        : 'border-[#E9DFC9] bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    Microsoft SSO
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewProvider('password');
-                      setNewRole('member');
-                    }}
-                    className={`rounded-xl border py-2 text-center font-semibold transition-all ${
-                      newProvider === 'password'
-                        ? 'border-amber-400 bg-amber-50 text-amber-900 ring-2 ring-amber-400/20'
-                        : 'border-[#E9DFC9] bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    Password
-                  </button>
-                </div>
-              </div>
-
-              {/* Display Name */}
-              <div>
-                <label className="block font-semibold text-[#1E222D]">Full Display Name</label>
-                <input
-                  type="text"
-                  required
-                  value={newDisplayName}
-                  onChange={(e) => setNewDisplayName(e.target.value)}
-                  placeholder="e.g. Priya Sharma"
-                  className="mt-1 w-full rounded-xl border border-[#E9DFC9] bg-white px-3 py-2 text-[13.5px] text-[#1E222D] focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20"
-                />
-              </div>
-
-              {/* Microsoft Email or Password Username */}
-              {newProvider === 'microsoft' ? (
-                <div>
-                  <label className="block font-semibold text-[#1E222D]">
-                    Organization Email (@walnuts.co.in)
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="priya@walnuts.co.in"
-                    className="mt-1 w-full rounded-xl border border-[#E9DFC9] bg-white px-3 py-2 text-[13.5px] text-[#1E222D] focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20"
-                  />
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="block font-semibold text-[#1E222D]">Username</label>
-                    <input
-                      type="text"
-                      required
-                      value={newUsername}
-                      onChange={(e) => setNewUsername(e.target.value)}
-                      placeholder="e.g. priya_consultant"
-                      className="mt-1 w-full rounded-xl border border-[#E9DFC9] bg-white px-3 py-2 text-[13.5px] text-[#1E222D] focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-[#1E222D]">Starting Password</label>
-                    <input
-                      type="password"
-                      required
-                      minLength={8}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="At least 8 characters"
-                      className="mt-1 w-full rounded-xl border border-[#E9DFC9] bg-white px-3 py-2 text-[13.5px] text-[#1E222D] focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20"
-                    />
-                  </div>
-                  <label className="flex items-center gap-2 font-medium text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={newMustChangePassword}
-                      onChange={(e) => setNewMustChangePassword(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
-                    />
-                    <span>Must change password on first login</span>
-                  </label>
-                </>
-              )}
-
-              {/* Team Selection */}
-              <div>
-                <label className="block font-semibold text-[#1E222D]">Team</label>
-                <select
-                  value={newTeam}
-                  onChange={(e) => setNewTeam(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-[#E9DFC9] bg-white px-3 py-2 text-[13.5px] text-[#1E222D] focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20"
-                >
-                  {TEAMS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Role (Microsoft only) */}
-              {newProvider === 'microsoft' && (
-                <div>
-                  <label className="block font-semibold text-[#1E222D]">Role</label>
-                  <select
-                    value={newRole}
-                    onChange={(e) => setNewRole(e.target.value as 'admin' | 'member')}
-                    className="mt-1 w-full rounded-xl border border-[#E9DFC9] bg-white px-3 py-2 text-[13.5px] text-[#1E222D] focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20"
-                  >
-                    <option value="member">Member</option>
-                    <option value="admin">Administrator</option>
-                  </select>
-                </div>
-              )}
-
-              <div className="mt-6 flex justify-end gap-2.5 border-t border-[#E9DFC9]/80 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowAddUserModal(false)}
-                  className="rounded-xl border border-[#E9DFC9] bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingNewUser}
-                  className="rounded-xl bg-[#1E222D] px-4 py-2 font-semibold text-[#FFFCF5] hover:bg-[#2B3040] focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-400/20 disabled:opacity-60"
-                >
-                  {isSubmittingNewUser ? 'Creating...' : 'Create Person'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Reusable Confirmation Dialog for Risky Actions */}
+      <ConfirmDialog
+        open={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel={confirmState.confirmLabel}
+        isDestructive={confirmState.isDestructive}
+        isLoading={confirmState.isLoading}
+        error={confirmState.error}
+        onConfirm={handleExecuteConfirm}
+        onClose={() => setConfirmState((prev) => ({ ...prev, isOpen: false, error: null }))}
+      />
 
       {/* Reset Password Modal */}
       {resetPasswordTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
           <div className="w-full max-w-sm rounded-2xl border border-[#E9DFC9] bg-[#FFFCF5] p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-[#E9DFC9]/80 pb-3">
               <h3 className="text-[17px] font-bold text-[#1E222D]">Reset Password</h3>
@@ -868,17 +799,6 @@ export default function AccessTab() {
           </div>
         </div>
       )}
-
-      {/* Microsoft 365 Directory Add Modal */}
-      <DirectoryAddModal
-        isOpen={showDirectoryModal}
-        onClose={() => setShowDirectoryModal(false)}
-        onUsersAdded={loadData}
-        onOpenManualAdd={() => {
-          setShowDirectoryModal(false);
-          setShowAddUserModal(true);
-        }}
-      />
     </div>
   );
 }
@@ -887,11 +807,11 @@ export default function AccessTab() {
 function PendingUserRow({
   user,
   onApprove,
-  onBlock,
+  onDecline,
 }: {
   user: AuthUser;
   onApprove: (u: AuthUser, team: string) => void;
-  onBlock: (u: AuthUser) => void;
+  onDecline: (u: AuthUser) => void;
 }) {
   const [selectedTeam, setSelectedTeam] = useState<string>('QShala');
 
@@ -930,7 +850,7 @@ function PendingUserRow({
 
         <button
           type="button"
-          onClick={() => onBlock(user)}
+          onClick={() => onDecline(user)}
           className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12.5px] font-semibold text-slate-600 hover:bg-red-50 hover:text-red-700 focus:outline-none"
         >
           <Ban className="h-3.5 w-3.5" />

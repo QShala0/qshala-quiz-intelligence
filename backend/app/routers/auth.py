@@ -85,6 +85,20 @@ class ResetPasswordRequest(BaseModel):
     must_change_password: bool = True
 
 
+def is_seeded_user(user: AuthUser) -> bool:
+    """Check if a user is one of the initial seeded accounts (admin or consultant)."""
+    if getattr(user, "created_by", None) == "system_seed":
+        return True
+    if getattr(user, "username", None) == "user":
+        return True
+    if getattr(user, "email", None):
+        raw_admins = settings.AUTH_INITIAL_ADMINS or ""
+        seeded_emails = {entry.split(":", 1)[0].strip().lower() for entry in raw_admins.split(",") if ":" in entry}
+        if user.email.lower() in seeded_emails:
+            return True
+    return False
+
+
 def _serialize_user(user: AuthUser) -> Dict[str, Any]:
     return {
         "id": user.id,
@@ -102,6 +116,7 @@ def _serialize_user(user: AuthUser) -> Dict[str, Any]:
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "created_by": user.created_by,
+        "is_seeded": is_seeded_user(user),
     }
 
 
@@ -147,9 +162,17 @@ def login(
                 user.locked_until = None
                 user.failed_logins = 0
 
-    # User does not exist or is not a password account
-    if not user or user.provider != "password":
+    # User does not exist, is not a password account, or is soft-deleted
+    if not user or user.provider != "password" or user.status == "deleted":
         dummy_verify()
+        if user and user.status == "deleted":
+            log_auth_audit(
+                db,
+                action="login_rejected_deleted",
+                target_user_id=user.id,
+                detail={"identifier": ident, "provider": "password"},
+            )
+            db.commit()
         raise HTTPException(status_code=401, detail=INVALID_CREDENTIALS_MSG)
 
     # Validate password
@@ -330,7 +353,18 @@ async def microsoft_callback(
 
     if user:
         # User found
-        if user.status == "active":
+        if user.status == "deleted":
+            log_auth_audit(
+                db,
+                actor_user_id=user.id,
+                action="login_rejected_deleted",
+                target_user_id=user.id,
+                detail={"email": email, "provider": "microsoft"},
+            )
+            db.commit()
+            return _error_redirect("unauthorized")
+
+        elif user.status == "active":
             if user.ms_oid != ms_oid:
                 user.ms_oid = ms_oid
             if not user.display_name and display_name:
@@ -498,6 +532,7 @@ async def list_directory_users(
 @router.get("/users")
 def list_users(
     team: Optional[str] = Query(None, description="Filter by team"),
+    include_deleted: bool = Query(False, description="Include deleted users"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     _admin: AuthUser = Depends(require_admin),
@@ -505,6 +540,8 @@ def list_users(
 ):
     """Admin-only: list all registered users with pagination and team filter."""
     query = db.query(AuthUser)
+    if not include_deleted:
+        query = query.filter(AuthUser.status != "deleted")
     if team:
         query = query.filter(AuthUser.team_id == team)
     total = query.count()
@@ -562,6 +599,35 @@ def create_user(
                 )
         existing = db.query(AuthUser).filter(AuthUser.email == email).first()
         if existing:
+            if existing.status == "deleted":
+                if req.team_id:
+                    team_exists = db.query(AuthTeam).filter(AuthTeam.id == req.team_id).first()
+                    if not team_exists:
+                        db.add(AuthTeam(id=req.team_id, name=req.team_id, created_at=now))
+                        db.flush()
+                existing.status = "active"
+                existing.display_name = req.display_name.strip()
+                existing.team_id = req.team_id
+                existing.role = role
+                existing.provider = provider
+                log_auth_audit(
+                    db,
+                    action="user_restored",
+                    actor_user_id=admin.id,
+                    target_user_id=existing.id,
+                    detail={
+                        "email": email,
+                        "display_name": existing.display_name,
+                        "role": role,
+                        "provider": provider,
+                        "team": req.team_id,
+                        "reason": "restored_from_deleted",
+                    },
+                )
+                db.commit()
+                res = _serialize_user(existing)
+                res["restored"] = True
+                return res
             raise HTTPException(status_code=400, detail="User with this email already exists")
 
     if provider == "password":
@@ -573,6 +639,39 @@ def create_user(
             raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
         existing = db.query(AuthUser).filter(AuthUser.username == username).first()
         if existing:
+            if existing.status == "deleted":
+                if req.team_id:
+                    team_exists = db.query(AuthTeam).filter(AuthTeam.id == req.team_id).first()
+                    if not team_exists:
+                        db.add(AuthTeam(id=req.team_id, name=req.team_id, created_at=now))
+                        db.flush()
+                existing.status = "active"
+                existing.display_name = req.display_name.strip()
+                existing.team_id = req.team_id
+                existing.role = role
+                existing.provider = provider
+                existing.password_hash = hash_password(req.password)
+                existing.must_change_password = req.must_change_password
+                existing.failed_logins = 0
+                existing.locked_until = None
+                log_auth_audit(
+                    db,
+                    action="user_restored",
+                    actor_user_id=admin.id,
+                    target_user_id=existing.id,
+                    detail={
+                        "username": username,
+                        "display_name": existing.display_name,
+                        "role": role,
+                        "provider": provider,
+                        "team": req.team_id,
+                        "reason": "restored_from_deleted",
+                    },
+                )
+                db.commit()
+                res = _serialize_user(existing)
+                res["restored"] = True
+                return res
             raise HTTPException(status_code=400, detail="User with this username already exists")
 
     if req.team_id:
@@ -654,8 +753,8 @@ def update_user(
     # Status changes
     if req.status is not None:
         new_status = req.status.strip().lower()
-        if new_status not in ("active", "pending", "blocked"):
-            raise HTTPException(status_code=400, detail="Status must be 'active', 'pending', or 'blocked'")
+        if new_status not in ("active", "pending", "blocked", "deleted"):
+            raise HTTPException(status_code=400, detail="Status must be 'active', 'pending', 'blocked', or 'deleted'")
         # Check last active admin blocking/pending
         if target.role == "admin" and target.status == "active" and new_status != "active":
             other_admins = (
@@ -668,8 +767,8 @@ def update_user(
         if target.status != new_status:
             changes["status"] = {"old": target.status, "new": new_status}
             target.status = new_status
-            if new_status == "blocked":
-                # Blocking a user deletes their sessions at once
+            if new_status in ("blocked", "deleted"):
+                # Blocking or deleting a user deletes their sessions at once
                 deleted_sessions = delete_user_sessions(db, target.id)
                 changes["sessions_revoked"] = deleted_sessions
 
@@ -732,6 +831,52 @@ def admin_reset_password(
     db.commit()
 
     return {"ok": True}
+
+
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: str,
+    admin: AuthUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: soft-delete a user account (cannot delete self, last active admin, or seeded user)."""
+    if admin.id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+    target = db.query(AuthUser).filter(AuthUser.id == user_id).first()
+    if not target or target.status == "deleted":
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if is_seeded_user(target):
+        raise HTTPException(status_code=409, detail="Seeded account, block it instead")
+
+    if target.role == "admin" and target.status == "active":
+        other_admins = (
+            db.query(AuthUser)
+            .filter(AuthUser.role == "admin", AuthUser.status == "active", AuthUser.id != target.id)
+            .count()
+        )
+        if other_admins == 0:
+            raise HTTPException(status_code=400, detail="Cannot delete the last active admin")
+
+    target.status = "deleted"
+    deleted_sessions = delete_user_sessions(db, target.id)
+
+    log_auth_audit(
+        db,
+        action="user_deleted",
+        actor_user_id=admin.id,
+        target_user_id=target.id,
+        detail={
+            "display_name": target.display_name,
+            "email": target.email,
+            "username": target.username,
+            "sessions_revoked": deleted_sessions,
+        },
+    )
+    db.commit()
+
+    return {"ok": True, "message": "User soft-deleted successfully"}
 
 
 @router.get("/audit")

@@ -6,6 +6,7 @@ import {
   updateUser,
   createUser,
   resetUserPassword,
+  deleteUser,
   listAuditLogs,
   getDirectoryUsers,
 } from '../api';
@@ -206,5 +207,56 @@ describe('auth api client', () => {
     expect(res).toEqual(mockUsers);
     const [url] = spy.mock.calls[0];
     expect(String(url)).toContain('/auth/directory?q=alice');
+  });
+
+  it('deleteUser sends DELETE /auth/users/:id', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonRes(200, { ok: true, status: 'deleted' }));
+    const res = await deleteUser('user-to-delete-123');
+    expect(res.ok).toBe(true);
+    expect(res.status).toBe('deleted');
+
+    const [url, init] = spy.mock.calls[0];
+    expect(String(url)).toContain('/auth/users/user-to-delete-123');
+    expect(init?.method).toBe('DELETE');
+  });
+
+  it('deleteUser propagates 400 when deleting self or last active admin', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonRes(400, { detail: 'Cannot delete the last active admin' })
+    );
+
+    await expect(deleteUser('last-admin-id')).rejects.toThrow('Cannot delete the last active admin');
+  });
+
+  it('deleteUser propagates 409 when deleting seeded account', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonRes(409, { detail: 'Seeded account, block it instead' })
+    );
+
+    await expect(deleteUser('seeded-admin-id')).rejects.toThrow('Seeded account, block it instead');
+  });
+
+  it('createUser handles restored accounts', async () => {
+    const mockRestored = {
+      id: 'restored-u1',
+      display_name: 'Restored Colleague',
+      email: 'restored@walnuts.co.in',
+      team: 'QShala',
+      role: 'member',
+      status: 'active',
+      provider: 'microsoft',
+      restored: true,
+    };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonRes(200, mockRestored));
+
+    const res = await createUser({
+      display_name: 'Restored Colleague',
+      email: 'restored@walnuts.co.in',
+      team_id: 'QShala',
+      provider: 'microsoft',
+    });
+
+    expect(res.restored).toBe(true);
+    expect(res.display_name).toBe('Restored Colleague');
   });
 });

@@ -220,12 +220,19 @@ export default function QuizzesLibraryPage() {
                       </div>
                     ) : (
                       <div className="flex items-center gap-2 group/title">
-                        <Link
-                          href={`/quizzes/${quiz.id}`}
-                          className="hover:text-blue-600 transition-colors"
-                        >
-                          <span className="line-clamp-2" title={quiz.raw_prompt && quiz.raw_prompt !== quiz.title ? `${quiz.title}\n\nOriginal prompt: ${quiz.raw_prompt}` : quiz.title}>{quiz.title}</span>
-                        </Link>
+                        <div>
+                          <Link
+                            href={`/quizzes/${quiz.id}`}
+                            className="hover:text-blue-600 transition-colors"
+                          >
+                            <span className="line-clamp-2" title={quiz.raw_prompt && quiz.raw_prompt !== quiz.title ? `${quiz.title}\n\nOriginal prompt: ${quiz.raw_prompt}` : quiz.title}>{quiz.title}</span>
+                          </Link>
+                          {quiz.last_modified_at && quiz.last_modified_by_name ? (
+                            <div className="text-[11px] font-normal text-slate-500 mt-0.5">
+                              Last modified by {quiz.last_modified_by_name} · {new Date(quiz.last_modified_at).toLocaleDateString()}
+                            </div>
+                          ) : null}
+                        </div>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -258,9 +265,25 @@ export default function QuizzesLibraryPage() {
                     {quiz.question_count} Qs
                   </td>
                   <td className="py-3.5 px-4 text-slate-600">{quiz.difficulty}</td>
-                  <td className="py-3.5 px-4 text-slate-600">{quiz.created_by_name || '-'}</td>
+                  <td className="py-3.5 px-4 text-slate-600">
+                    {quiz.last_modified_at && quiz.last_modified_by_name ? (
+                      <div>
+                        <div className="font-medium text-slate-800">{quiz.last_modified_by_name}</div>
+                        <div className="text-[11px] text-slate-400">Created by {quiz.created_by_name || 'System'}</div>
+                      </div>
+                    ) : (
+                      quiz.created_by_name || '-'
+                    )}
+                  </td>
                   <td className="py-3.5 px-4 text-slate-400 text-[12px] font-normal">
-                    {quiz.created_at ? new Date(quiz.created_at).toLocaleDateString() : 'Recent'}
+                    {quiz.last_modified_at ? (
+                      <div>
+                        <div className="font-medium text-slate-700">{new Date(quiz.last_modified_at).toLocaleDateString()}</div>
+                        <div className="text-[11px] text-slate-400">Created {quiz.created_at ? new Date(quiz.created_at).toLocaleDateString() : 'Recent'}</div>
+                      </div>
+                    ) : (
+                      quiz.created_at ? new Date(quiz.created_at).toLocaleDateString() : 'Recent'
+                    )}
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     <div className="inline-flex items-center gap-2 opacity-90 group-hover:opacity-100 transition-opacity">
