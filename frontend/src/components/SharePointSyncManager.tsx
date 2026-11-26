@@ -4,7 +4,6 @@ import { useEffect, useState, useRef } from 'react';
 import {
   Cloud,
   RefreshCw,
-  Play,
   RotateCcw,
   CheckCircle2,
   AlertCircle,
@@ -18,7 +17,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { AdminOnly } from '@/context/AuthContext';
-import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem, IngestionStatus, SpNotImportedResponse, cleanSteps, getActiveStageIndex } from '@/lib/types';
+import { SharePointSyncStatus, SharePointFileItem, IngestionJobItem, IngestionStatus, SpNotImportedResponse } from '@/lib/types';
 import SharePointImporter from '@/components/SharePointImporter';
 import { useToast } from '@/components/ui';
 import QT from '@/components/ui/QT';
@@ -64,7 +63,6 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
   const [files, setFiles] = useState<SharePointFileItem[]>([]);
   const [jobs, setJobs] = useState<IngestionJobItem[]>([]);
   const [loadingSync, setLoadingSync] = useState(false);
-  const [loadingWorker, setLoadingWorker] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // Not in platform yet drawer state
@@ -407,25 +405,6 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
     }
   };
 
-  const handleProcessWorker = async () => {
-    setLoadingWorker(true);
-    setActionMessage(null);
-    try {
-      const res = await api.processNextJob();
-      if (res.job) {
-        setActionMessage(`Processed step for job: ${res.job.filename} -> Step: ${res.job.current_step} (${res.job.status})`);
-      } else {
-        setActionMessage('No pending jobs in queue.');
-      }
-      await loadSharePointData();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setActionMessage(`Worker error: ${msg}`);
-    } finally {
-      setLoadingWorker(false);
-    }
-  };
-
   const handleRetryJob = async (jobId: string) => {
     try {
       await api.retryJob(jobId);
@@ -486,16 +465,6 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loadingSync ? 'animate-spin' : ''}`} />
               <span>{loadingSync ? 'Syncing...' : 'Sync Now'}</span>
-            </button>
-
-            <button
-              type="button"
-              disabled={loadingWorker}
-              onClick={handleProcessWorker}
-              className="rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50 px-3.5 py-2 text-[13px] font-semibold text-slate-700 transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <Play className={`h-3.5 w-3.5 text-emerald-600 ${loadingWorker ? 'animate-pulse' : ''}`} />
-              <span>{loadingWorker ? 'Running...' : 'Process Next Job'}</span>
             </button>
           </div>
         </div>
@@ -604,7 +573,6 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
             : docStatus?.current_step || activeJob?.current_step || 'Queued for worker...';
           const detailText = !isCompletedCard ? docStatus?.detail : undefined;
           const filename = isCompletedCard ? justCompletedJob?.filename : activeJob?.filename;
-          const activeStage = isCompletedCard ? 4 : getActiveStageIndex(pct, stepText);
 
           return (
             <div
@@ -695,41 +663,6 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
                   />
                 </div>
               </div>
-
-              {/* 5 Clean Stages */}
-              <div className="grid grid-cols-5 gap-2 pt-1 text-center text-xs">
-                {cleanSteps.map((step, idx) => {
-                  const isFinished = isCompletedCard || pct >= 100;
-                  const isPast = !isFinished && idx < activeStage;
-                  const isCurrent = !isFinished && idx === activeStage;
-                  return (
-                    <div key={step} className="space-y-1">
-                      <div
-                        className={`h-1.5 rounded-full transition-all duration-300 ${
-                          isFinished || isPast
-                            ? 'bg-emerald-500'
-                            : isCurrent
-                            ? 'bg-blue-600 animate-pulse'
-                            : 'bg-slate-200'
-                        }`}
-                      />
-                      <span
-                        className={`text-[12px] block truncate ${
-                          isFinished
-                            ? 'text-emerald-700 font-medium'
-                            : isCurrent
-                            ? 'font-bold text-blue-600'
-                            : isPast
-                            ? 'text-slate-700 font-medium'
-                            : 'text-slate-400'
-                        }`}
-                      >
-                        {step}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
             </div>
           );
         })()}
@@ -779,17 +712,16 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
                         {job.status}
                       </span>
                     </td>
-                    <td className="py-3 px-4 min-w-[220px]">
+                    <td className="py-3 px-4 min-w-[180px]">
                       {(() => {
                         const docSt = job.document_id ? activeDocStatuses[job.document_id] : undefined;
                         const rowStep = docSt?.current_step || job.current_step;
                         const rowPct = Math.max(0, Math.min(100, Math.round(docSt?.progress_percentage ?? 0)));
-                        const activeStage = getActiveStageIndex(rowPct, rowStep);
                         return (
                           <div className="space-y-1">
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-mono text-[11.5px] text-slate-700 block truncate max-w-[180px]" title={rowStep}>
-                                {rowStep}
+                                {rowStep || '—'}
                               </span>
                               {(job.status === 'PROCESSING' || job.status === 'PENDING') && docSt && (
                                 <span className="text-[11px] font-bold text-blue-600 tabular-nums shrink-0">
@@ -797,49 +729,14 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
                                 </span>
                               )}
                             </div>
-                            {job.status === 'PROCESSING' || job.status === 'PENDING' ? (
-                              <div className="grid grid-cols-5 gap-1 pt-0.5">
-                                {cleanSteps.map((stName, sIdx) => {
-                                  const isDone = sIdx < activeStage;
-                                  const isCur = sIdx === activeStage;
-                                  return (
-                                    <div key={stName} title={`${stName}: ${isDone ? 'Done' : isCur ? 'In progress' : 'Pending'}`}>
-                                      <div
-                                        className={`h-1.5 rounded-full transition-all ${
-                                          isDone
-                                            ? 'bg-emerald-500'
-                                            : isCur
-                                            ? 'bg-blue-600 animate-pulse'
-                                            : 'bg-slate-200'
-                                        }`}
-                                      />
-                                      <span
-                                        className={`block text-[9.5px] truncate pt-0.5 ${
-                                          isDone
-                                            ? 'text-emerald-700 font-medium'
-                                            : isCur
-                                            ? 'text-blue-600 font-bold'
-                                            : 'text-slate-400'
-                                        }`}
-                                      >
-                                        {stName}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
+                            {(job.status === 'PROCESSING' || job.status === 'PENDING') && (
+                              <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                                  style={{ width: `${rowPct}%` }}
+                                />
                               </div>
-                            ) : job.status === 'COMPLETED' ? (
-                              <div className="grid grid-cols-5 gap-1 pt-0.5">
-                                {cleanSteps.map((stName) => (
-                                  <div key={stName}>
-                                    <div className="h-1.5 rounded-full bg-emerald-500" />
-                                    <span className="block text-[9.5px] truncate pt-0.5 text-emerald-700 font-medium">
-                                      {stName}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
+                            )}
                           </div>
                         );
                       })()}
@@ -873,15 +770,6 @@ export default function SharePointSyncManager({ showImporter = true, onTransferC
                         >
                           <RotateCcw className="h-3 w-3" />
                           <span>Retry</span>
-                        </button>
-                      ) : job.status === 'PENDING' || job.status === 'PROCESSING' ? (
-                        <button
-                          type="button"
-                          onClick={handleProcessWorker}
-                          className="inline-flex items-center gap-1 rounded bg-blue-50 border border-blue-200 hover:bg-blue-100 px-2 py-1 text-[11px] font-semibold text-blue-700 cursor-pointer"
-                        >
-                          <Play className="h-3 w-3 text-blue-600" />
-                          <span>Step</span>
                         </button>
                       ) : null}
                     </td>
