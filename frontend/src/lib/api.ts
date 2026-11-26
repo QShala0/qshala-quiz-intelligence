@@ -527,7 +527,9 @@ export const api = {
     const chunkSize = isVercel ? 3.5 * 1024 * 1024 : 12 * 1024 * 1024;
     const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
     const uploadId = `tpl_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const uploadApiBase = getUploadApiBase();
+    // With login enforced, a browser request straight to the Cloud Run address carries no session cookie (it belongs to the
+    // Vercel site) and gets a 401. The 3.5 MB Vercel slices fit through the same-origin /api proxy, which does carry it.
+    const uploadApiBase = isVercel ? getApiBase() : getUploadApiBase();
 
     let lastResult: CustomPptTemplate | null = null;
 
@@ -600,8 +602,8 @@ export const api = {
       return api.extractTemplateChunked(file, name, category, description, onProgress);
     }
 
-    // Direct upload path for small files (sent to uploadApiBase)
-    const res = await fetch(`${getUploadApiBase()}/templates/extract`, {
+    // Small files (<= 3.5 MB) fit through the same-origin proxy, which carries the login cookie
+    const res = await fetch(`${getApiBase()}/templates/extract`, {
       method: 'POST',
       body: formData,
     });
