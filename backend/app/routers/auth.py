@@ -722,7 +722,7 @@ def update_user(
 ):
     """Admin-only: update user team, role, status, or display name with last-admin guard."""
     target = db.query(AuthUser).filter(AuthUser.id == user_id).first()
-    if not target:
+    if not target or target.status == "deleted":
         raise HTTPException(status_code=404, detail="User not found")
 
     changes = {}
@@ -753,8 +753,8 @@ def update_user(
     # Status changes
     if req.status is not None:
         new_status = req.status.strip().lower()
-        if new_status not in ("active", "pending", "blocked", "deleted"):
-            raise HTTPException(status_code=400, detail="Status must be 'active', 'pending', 'blocked', or 'deleted'")
+        if new_status not in ("active", "pending", "blocked"):
+            raise HTTPException(status_code=400, detail="Status must be 'active', 'pending', or 'blocked'")
         # Check last active admin blocking/pending
         if target.role == "admin" and target.status == "active" and new_status != "active":
             other_admins = (
@@ -767,8 +767,8 @@ def update_user(
         if target.status != new_status:
             changes["status"] = {"old": target.status, "new": new_status}
             target.status = new_status
-            if new_status in ("blocked", "deleted"):
-                # Blocking or deleting a user deletes their sessions at once
+            if new_status == "blocked":
+                # Blocking a user deletes their sessions at once
                 deleted_sessions = delete_user_sessions(db, target.id)
                 changes["sessions_revoked"] = deleted_sessions
 

@@ -560,3 +560,65 @@ def test_alembic_migration_0017_upgrade_downgrade():
 
     assert migration.revision == "0017_quiz_last_modified"
     assert migration.down_revision == "0016_document_uploaded_by"
+
+
+# ---------------------------------------------------------------------------
+# 8. PATCH User Status Restrictions and Deleted User Guard
+# ---------------------------------------------------------------------------
+
+def test_patch_user_status_deleted_returns_400():
+    _, _, admin_token = _get_admin_token()
+    client = _client(admin_token)
+
+    target = _create_test_member(username="patch_status_deleted_target")
+    res = client.patch(
+        f"/api/v1/auth/users/{target.id}",
+        json={"status": "deleted"},
+    )
+    assert res.status_code == 400
+    assert "Status must be 'active', 'pending', or 'blocked'" in res.json()["detail"]
+
+
+def test_patch_user_on_deleted_user_returns_404():
+    _, _, admin_token = _get_admin_token()
+    client = _client(admin_token)
+
+    target = _create_test_member(username="patch_on_deleted_target")
+    # Soft-delete target
+    res_del = client.delete(f"/api/v1/auth/users/{target.id}")
+    assert res_del.status_code == 200
+
+    # Attempt to PATCH the deleted user (e.g. try to reactivate or update display name)
+    res_patch_status = client.patch(
+        f"/api/v1/auth/users/{target.id}",
+        json={"status": "active"},
+    )
+    assert res_patch_status.status_code == 404
+    assert res_patch_status.json()["detail"] == "User not found"
+
+    res_patch_name = client.patch(
+        f"/api/v1/auth/users/{target.id}",
+        json={"display_name": "New Name"},
+    )
+    assert res_patch_name.status_code == 404
+    assert res_patch_name.json()["detail"] == "User not found"
+
+
+def test_patch_cannot_delete_seeded_user_account():
+    _, _, admin_token = _get_admin_token()
+    client = _client(admin_token)
+
+    db = SessionLocal()
+    try:
+        consultant = db.query(AuthUser).filter(AuthUser.username == "user").first()
+        assert consultant is not None
+        consultant_id = consultant.id
+    finally:
+        db.close()
+
+    res = client.patch(
+        f"/api/v1/auth/users/{consultant_id}",
+        json={"status": "deleted"},
+    )
+    assert res.status_code == 400
+    assert "Status must be 'active', 'pending', or 'blocked'" in res.json()["detail"]
