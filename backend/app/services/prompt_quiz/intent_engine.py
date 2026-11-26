@@ -116,6 +116,18 @@ INTENT_SCHEMA: Dict[str, Any] = {
             "nullable": True,
             "description": "ONLY set if the user explicitly requested a specialized format: 'CONNECT_4' for connect 4; 'STEPPED_CLUE' for 3-clues; 'ARRANGE_ORDER' for ordering. MUST BE NULL/NONE for normal prompts so all formats can be included."
         },
+        "format_mix": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "format": {"type": "STRING", "enum": ["CONNECT_4", "STEPPED_CLUE", "VISUAL_CLUE", "ARRANGE_ORDER", "BUZZER", "STANDARD_QA"]},
+                    "count": {"type": "INTEGER"},
+                },
+                "required": ["format", "count"],
+            },
+            "description": "ONLY when the user asks for a number of questions per format, e.g. '10 picture, 10 connect, 10 stepped clue' -> [{VISUAL_CLUE,10},{CONNECT_4,10},{STEPPED_CLUE,10}]. 'Picture/image round' = VISUAL_CLUE. Leave [] otherwise."
+        },
         "hard_bias": {
             "type": "STRING",
             "enum": ["easy", "medium", "hard", "balanced", "spicy"],
@@ -528,6 +540,30 @@ def deconstruct_prompt(
         if fmt_filter in ("STANDARD_QA", "STANDARD", "", "NONE", None):
             fmt_filter = (previous_brief or {}).get("format_filter") if is_constraint_refinement else None
 
+        # Per-format quotas ("10 picture, 10 connect, 10 stepped clue"). The prompt's own words win over Gemini's reading.
+        from backend.app.services.prompt_quiz.format_mix import resolve_mix, parse_format_mix
+        format_mix = resolve_mix(prompt or "", parsed.get("format_mix"), final_count)
+        if not format_mix and is_constraint_refinement and previous_brief:
+            format_mix = dict(previous_brief.get("format_mix") or {})
+        if format_mix:
+            fmt_filter = None  # a split replaces the single-format filter
+            final_count = max(final_count, min(50, sum(format_mix.values())))
+            left = final_count
+            trimmed = {}
+            for f_, n_ in format_mix.items():  # a quota total over the 50 cap loses its last formats
+                take = min(n_, left)
+                if take > 0:
+                    trimmed[f_] = take
+                left -= take
+            format_mix = trimmed
+            if len(format_mix) > 1 and filters.get("require_images"):
+                filters.pop("require_images", None)  # pictures were asked for in the VISUAL_CLUE share only
+        elif fmt_filter is None:
+            # one format asked for the whole quiz ("10 connect questions") when Gemini left the filter empty
+            only = parse_format_mix(prompt or "")
+            if len(only) == 1 and next(iter(only.values())) >= final_count:
+                fmt_filter = next(iter(only))
+
         # Detect Karnataka / Indian localities deterministically (handles glued typos like 'quizkarnataka')
         locality = parsed.get("locality")
         if not locality and "karnataka" in p_lower:
@@ -691,6 +727,7 @@ def deconstruct_prompt(
                 repeat_filter=repeat_filter,
                 source_year=year,
                 source_deck=source_deck,
+                format_mix=format_mix,
         )
         logger.info(
                 f"Dynamic Intent parsed: subject='{subject}', expansions={len(expansions)}, aud='{target_aud}', l1={brief.topics_l1}"

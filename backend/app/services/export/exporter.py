@@ -908,6 +908,11 @@ def _apply_causten_style(prs) -> None:
         _walk(slide.shapes)
 
 
+def _heading_font(name: str) -> str:
+    """Style guide: Causten headings are always 'Causten Round Bold', whatever heavier weight the sample deck's cover used."""
+    return "Causten Round Bold" if name and name.lower().startswith("causten round") else name
+
+
 def _apply_custom_style(
     prs,
     font_regular: str,
@@ -2334,6 +2339,7 @@ class QuizExporter:
             # (C) ANSWER REVEAL SLIDE (uses answer_bg: Red border 2.png)
             # ---------------------------------------------------------
             sa = prs.slides.add_slide(blank_layout)
+            pic_a = None
             if master_prs is not None:
                 if (custom_template or not _has_visual_background(sa)) and not is_minimalist and answer_bg.exists():
                     pic_a = sa.shapes.add_picture(str(answer_bg), 0, 0, prs.slide_width, prs.slide_height)
@@ -2373,6 +2379,16 @@ class QuizExporter:
             )
             explanation = "" if is_dup_explanation else raw_exp
             has_ans_img = bool(ans_img_path)
+
+            if custom_template and has_ans_img and pic_a is not None and question_bg.exists() and question_bg != answer_bg:
+                # The sample deck's answer slide only had a small card for a short text answer; a picture would spill out of it.
+                # The question background carries the large content card, so use it when the answer has a picture.
+                try:
+                    pic_a._element.getparent().remove(pic_a._element)
+                    pic_a = sa.shapes.add_picture(str(question_bg), 0, 0, prs.slide_width, prs.slide_height)
+                    _send_shape_to_back(pic_a, sa)
+                except Exception:
+                    logger.debug("answer card swap skipped", exc_info=True)
 
             if is_qshala_school:
                 # QShala School Answer Reveal Layout (answer separator slide is enough; no redundant "Answer {idx}" header)
@@ -2538,10 +2554,10 @@ class QuizExporter:
             _apply_custom_style(
                 prs,
                 custom_template.body_font or FONT_BODY,
-                custom_template.header_font or FONT_HEAD,
-                title_size_pt=custom_template.title_size_pt,
+                _heading_font(custom_template.header_font or FONT_HEAD),
+                title_size_pt=44.0,   # style guide: title 44pt, body 28pt on every custom template (older templates stored averages)
                 header_size_pt=custom_template.header_size_pt,
-                body_size_pt=custom_template.body_size_pt,
+                body_size_pt=28.0,
                 skip_slide_ids=retained_ids,
             )
         elif is_qshala_school:

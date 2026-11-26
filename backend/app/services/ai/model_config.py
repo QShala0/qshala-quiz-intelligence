@@ -33,6 +33,10 @@ def curator_model() -> str:
     return _role("GEMINI_MODEL_CURATOR")
 
 
+def template_model() -> str:
+    return _role("GEMINI_MODEL_TEMPLATE")
+
+
 def tagger_model() -> str:
     return getattr(_settings(), "QSHALA_TAGGER_MODEL", None) or DEFAULT_MODEL
 

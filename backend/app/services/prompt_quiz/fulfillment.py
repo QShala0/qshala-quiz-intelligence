@@ -71,7 +71,8 @@ def blocked_counts(on_all: List[Candidate], filters: Dict[str, Any], format_filt
 
 
 def build_fulfillment(*, requested: int, picked: List[Candidate], padded: int, adjacent_available: int,
-                      blocked: Dict[str, int], hard_bias: Optional[str], padding_allowed: bool) -> Dict[str, Any]:
+                      blocked: Dict[str, int], hard_bias: Optional[str], padding_allowed: bool,
+                      format_breakdown: Optional[Dict[str, Dict[str, int]]] = None) -> Dict[str, Any]:
     delivered = len(picked)
     off_diff = sum(1 for c in picked if difficulty_penalty(c, hard_bias) >= 0.5)
     short = delivered < requested
@@ -82,7 +83,21 @@ def build_fulfillment(*, requested: int, picked: List[Candidate], padded: int, a
         for flag, n in blocked.items():
             suggestions.append({"action": "relax", "flag": flag, "count": n})
 
-    if not short:
+    if format_breakdown:
+        from backend.app.services.prompt_quiz.format_mix import FORMAT_LABELS
+        parts = []
+        for f, v in format_breakdown.items():
+            label = FORMAT_LABELS.get(f, f.lower())
+            parts.append(f"{v['delivered']} {label}" if v["delivered"] >= v["requested"] else f"{v['delivered']} of {v['requested']} {label}")
+        rest = delivered - sum(v["delivered"] for v in format_breakdown.values())
+        if rest > 0:
+            parts.append(f"{rest} other")
+        lead = f"Here are {delivered} questions" if not short else f"Found {delivered} of {requested} that fit"
+        note = f"{lead}: {', '.join(parts)}."
+        lacking = [FORMAT_LABELS.get(f, f.lower()) for f, v in format_breakdown.items() if v["delivered"] < v["requested"]]
+        if lacking:
+            note += f" The bank doesn't have enough {' or '.join(lacking)} questions for your request."
+    elif not short:
         note = f"Here are {delivered} questions."
     else:
         note = f"Found {delivered} of {requested} that fit."
@@ -94,5 +109,8 @@ def build_fulfillment(*, requested: int, picked: List[Candidate], padded: int, a
             note += " That is everything the bank has for this request."
     if off_diff:
         note += f" {off_diff} sit outside the difficulty you asked for."
-    return {"requested": requested, "delivered": delivered, "short": short, "padded": padded,
-            "off_difficulty": off_diff, "suggestions": suggestions, "note": note}
+    out = {"requested": requested, "delivered": delivered, "short": short, "padded": padded,
+           "off_difficulty": off_diff, "suggestions": suggestions, "note": note}
+    if format_breakdown:
+        out["by_format"] = format_breakdown
+    return out

@@ -23,7 +23,7 @@ import threading
 import time
 from functools import lru_cache
 from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, defer
@@ -38,7 +38,7 @@ except Exception:  # pragma: no cover
 from backend.app.services.prompt_quiz.retrieval import Index, normalize_compound_typos, parse_prompt, tokenize, WORD_NUMS, SYNONYMS
 from backend.app.services.prompt_quiz.interpreter_llm import V6_THEMES
 from backend.app.services.prompt_quiz.audience import (
-    audience_score, defaults_for_audience, difficulty_penalty, passes_hard
+    audience_score, canon_format, defaults_for_audience, difficulty_penalty, passes_hard
 )
 from backend.app.services.prompt_quiz.fulfillment import (
     blocked_counts, build_fulfillment, split_pools
@@ -78,6 +78,8 @@ class Brief:
     repeat_filter: Optional[str] = "all"
     source_year: Optional[int] = None
     source_deck: Optional[str] = None
+    # Per-format quotas, e.g. {'VISUAL_CLUE': 10, 'CONNECT': 10, 'STEPPED_CLUE': 10}; empty means no split was asked for.
+    format_mix: Dict[str, int] = field(default_factory=dict)
 
     def public(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -85,6 +87,8 @@ class Brief:
             d.pop("must_match_criteria", None)
         if d.get("source_deck") is None:
             d.pop("source_deck", None)
+        if not d.get("format_mix"):
+            d.pop("format_mix", None)
         return d
 
 
@@ -1188,6 +1192,54 @@ def editor(cands: List[Dict[str, Any]], brief: Brief, preserve_slot1_id: Optiona
     return chosen
 
 
+def pick_with_mix(cands: List[Dict[str, Any]], adjacent: List[Dict[str, Any]], brief: Brief,
+                  allow_adjacent: bool = False) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, int]]]:
+    """Fill each format's quota from the ranked candidates, then top the rest of the quiz up from any format.
+    Rounds stay together in the order the quizmaster listed them. A format the bank cannot fill stays short (reported, never
+    padded with another format). Returns (questions, {format: {requested, delivered}})."""
+    from dataclasses import replace
+    chosen: List[Dict[str, Any]] = []
+    used_ids: Set[str] = set()
+    used_ents: Set[str] = set()
+    common_geo = {"bengaluru", "bangalore", "mumbai", "delhi", "india", "chennai", "kolkata", "hyderabad", "pune"}
+    breakdown: Dict[str, Dict[str, int]] = {}
+
+    def _fresh(pool: List[Dict[str, Any]], fmt: Optional[str] = None) -> List[Dict[str, Any]]:
+        out = []
+        for c in pool:
+            if c["id"] in used_ids:
+                continue
+            if fmt and canon_format(c.get("question_format")) != fmt:
+                continue
+            ent = _normalize_answer_entity(c.get("answer") or "")
+            if ent and ent not in common_geo and ent in used_ents:
+                continue
+            out.append(c)
+        return out
+
+    def _take(got: List[Dict[str, Any]]) -> None:
+        for c in got:
+            used_ids.add(c["id"])
+            ent = _normalize_answer_entity(c.get("answer") or "")
+            if ent:
+                used_ents.add(ent)
+        chosen.extend(got)
+
+    for fmt, n in brief.format_mix.items():
+        got = editor(_fresh(cands, fmt), replace(brief, count=n)) if n > 0 else []
+        _take(got)
+        if len(got) < n and allow_adjacent:
+            extra = editor(_fresh(adjacent, fmt), replace(brief, count=n - len(got)))
+            _take(extra)
+            got = got + extra
+        breakdown[fmt] = {"requested": n, "delivered": len(got)}
+
+    rest = brief.count - sum(v["requested"] for v in breakdown.values())
+    if rest > 0:
+        _take(editor(_fresh(cands), replace(brief, count=rest)))
+    return chosen[:brief.count], breakdown
+
+
 # ---------- Host ----------
 def host(brief: Brief, picked: List[Dict[str, Any]], bank_size: int) -> str:
     if not picked:
@@ -1635,7 +1687,11 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
 
     cur_res = None
     # AI Curator: Evaluate candidates for genuine relevance and curate narrative flow
-    if cands and os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes") and not is_analytical_sort and has_topical_query:
+    mix_breakdown: Optional[Dict[str, Dict[str, int]]] = None
+    if cands and brief.format_mix:
+        # A per-format split is a hard quota: the curator picks freely across formats, so it is skipped.
+        picked, mix_breakdown = pick_with_mix(cands, [], brief)
+    elif cands and os.getenv("ENABLE_AI_CURATOR", "true").lower() in ("1", "true", "yes") and not is_analytical_sort and has_topical_query:
         try:
             from backend.app.services.prompt_quiz.curator_llm import curate_quiz_with_gemini
             # Dynamic candidate pool cap: 18 for 5 Qs, up to 30 for 10+ Qs (saves tokens & latency)
@@ -1673,7 +1729,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         except Exception as e:
             logger.warning(f"AI Curator invocation failed ({e}), falling back to deterministic editor")
 
-    if not picked and (cur_res is None or not has_topical_query):
+    if not picked and not brief.format_mix and (cur_res is None or not has_topical_query):
         picked = editor(cands, brief, preserve_slot1_id=preserve_slot1_id)
         if picked and cur_res is not None:
             narrative_arc = None
@@ -1681,7 +1737,12 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
     _timer.mark("select")
     # 6. Padding if requested and short
     padded = 0
-    if brief.cross_topic_padding and len(picked) < brief.count:
+    if brief.format_mix and brief.cross_topic_padding and len(picked) < brief.count:
+        adj_ok = guardian(adjacent, brief, exclude_ids=effective_exclude)
+        on_topic_ids = {c["id"] for c in cands}
+        picked, mix_breakdown = pick_with_mix(cands, adj_ok, brief, allow_adjacent=True)
+        padded = sum(1 for c in picked if c["id"] not in on_topic_ids)
+    elif brief.cross_topic_padding and len(picked) < brief.count:
         needed = brief.count - len(picked)
         picked_ids = effective_exclude | {p["id"] for p in picked}
         adj_cands = guardian(adjacent, brief, exclude_ids=picked_ids)
@@ -1700,10 +1761,19 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         blocked=blocked,
         hard_bias=brief.hard_bias,
         padding_allowed=brief.cross_topic_padding,
+        format_breakdown=mix_breakdown,
     )
 
     # 8. Host message
-    msg = fulfillment["note"] if fulfillment.get("short") else host(brief, picked, len(bank))
+    from backend.app.services.prompt_quiz.honesty import honesty_notes
+    notes = honesty_notes(brief.prompt or prompt, brief)
+    if fulfillment.get("short") or brief.format_mix or notes:
+        # Gemini's framing is written before retrieval, so it can promise things the draft does not contain
+        msg = fulfillment["note"]
+    else:
+        msg = host(brief, picked, len(bank))
+    if notes:
+        msg = f"{msg} {' '.join(notes)}"
 
     stages = ["Interpreter", "Librarian", "Guardian"]
     if narrative_arc:
@@ -1739,6 +1809,7 @@ def build_draft(db: Session, prompt: str, count: Optional[int] = None,
         "brief": brief.public(),
         "questions": [_view(p) for p in picked],
         "message": msg,
+        "notes": notes,
         "bank_size": len(bank),
         "stages": stages,
         "fulfillment": fulfillment,
