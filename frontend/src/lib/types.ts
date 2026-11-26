@@ -423,6 +423,9 @@ export interface Quiz {
   status: string;
   created_by_user_id?: string | null;
   created_by_name?: string | null;
+  last_modified_by_user_id?: string | null;
+  last_modified_by_name?: string | null;
+  last_modified_at?: string | null;
   created_at: string;
   updated_at: string;
   questions: GeneratedQuestion[];

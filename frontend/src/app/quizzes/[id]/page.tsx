@@ -468,6 +468,23 @@ ${err.message}` : ''),
           <span className="text-emerald-600 font-medium">Question → Next Slide Answer Format</span>
         </div>
 
+        {/* Author / Last Modified info */}
+        <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-slate-500 font-normal pt-0.5">
+          {quiz.last_modified_at && quiz.last_modified_by_name ? (
+            <span>
+              Last modified by <strong className="font-semibold text-slate-700">{quiz.last_modified_by_name}</strong> · {new Date(quiz.last_modified_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+          ) : quiz.created_by_name ? (
+            <span>
+              Created by <span className="font-medium text-slate-600">{quiz.created_by_name}</span> · {quiz.created_at ? new Date(quiz.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
+            </span>
+          ) : quiz.created_at ? (
+            <span>
+              Created {new Date(quiz.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+          ) : null}
+        </div>
+
         {quiz.tags && quiz.tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-[12px]">
             <div className="flex flex-wrap items-center gap-1">

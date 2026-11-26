@@ -50,7 +50,7 @@ class AuthUser(Base):
     display_name = Column(String(255), nullable=False)
     team_id = Column(String(50), ForeignKey("auth_teams.id", ondelete="SET NULL"), nullable=True)
     role = Column(String(20), nullable=False, default="member")  # 'admin' or 'member'
-    status = Column(String(20), nullable=False, default="active")  # 'active', 'pending', 'blocked'
+    status = Column(String(20), nullable=False, default="active")  # 'active', 'pending', 'blocked', 'deleted'
     provider = Column(String(20), nullable=False)  # 'microsoft' or 'password'
     password_hash = Column(String(255), nullable=True)
     ms_oid = Column(String(64), nullable=True)  # unique

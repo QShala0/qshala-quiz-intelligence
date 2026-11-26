@@ -252,10 +252,12 @@ async def get_directory_users(
     """
     all_users = await fetch_directory_users_from_graph(http_client=http_client)
 
-    # Exclude emails already present in auth_users
+    # Exclude emails already present in auth_users (excluding deleted accounts so deleted users can be re-added)
     existing_emails = {
         row[0].strip().lower()
-        for row in db.query(AuthUser.email).filter(AuthUser.email.isnot(None)).all()
+        for row in db.query(AuthUser.email)
+        .filter(AuthUser.email.isnot(None), AuthUser.status != "deleted")
+        .all()
         if row[0]
     }
     available = [u for u in all_users if u["email"].lower() not in existing_emails]

@@ -167,6 +167,9 @@ class QuizResponse(BaseModel):
     status: Optional[str] = "COMPLETED"
     created_by_user_id: Optional[str] = None
     created_by_name: Optional[str] = None
+    last_modified_by_user_id: Optional[str] = None
+    last_modified_by_name: Optional[str] = None
+    last_modified_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     questions: List[GeneratedQuestionResponse] = []
