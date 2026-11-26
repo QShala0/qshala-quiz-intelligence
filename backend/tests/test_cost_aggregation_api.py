@@ -266,3 +266,33 @@ def test_all_time_greater_than_or_equal_current_month():
     assert data["last_month"]["headline_inr"] == 200.0
     assert data["periods"]["all_time"]["headline_inr"] == 300.0
 
+
+
+def test_all_time_greater_than_or_equal_current_month():
+    """All-time headline must always be >= current month, even across historical invoices."""
+    client = TestClient(app)
+    curr_period = datetime.now(timezone.utc).strftime("%Y-%m")
+    prev_period = "2026-10"
+
+    # Current month has 100 INR events
+    record_event(category="gemini", operation="ingest_vision", cost_inr=100.0, period=curr_period)
+
+    # Previous month has an invoice of 200 INR
+    record_event(category="neon", operation="invoice", cost_inr=200.0, period=prev_period, source="billed")
+
+    res = client.get("/costs/summary")
+    assert res.status_code == 200
+    data = res.json()
+
+    # Top-level direct keys and periods keys both populated
+    assert "current_month" in data
+    assert "last_month" in data
+    assert "all_time" in data
+
+    # All time must include current month + historical invoice
+    assert data["all_time"]["headline_inr"] >= data["current_month"]["headline_inr"]
+    assert data["all_time"]["headline_inr"] == 300.0
+    assert data["current_month"]["headline_inr"] == 100.0
+    assert data["last_month"]["headline_inr"] == 200.0
+    assert data["periods"]["all_time"]["headline_inr"] == 300.0
+

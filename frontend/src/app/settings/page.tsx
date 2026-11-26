@@ -1,18 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import {
   HardDrive,
-  Cloud,
   Layers,
-  ArrowRight,
   Shield,
 } from 'lucide-react';
 import { getApiBase } from '@/lib/api';
 import { useIsAdmin } from '@/context/AuthContext';
 import CustomTemplateManager from '@/components/CustomTemplateManager';
 import AccessTab from '@/components/settings/AccessTab';
+import CostPanel from '@/components/CostPanel';
 
 export default function SettingsPage() {
   const isAdmin = useIsAdmin();
@@ -116,29 +114,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* SharePoint Library & Import Info Card */}
-          <div className="rounded-xl border border-blue-200/80 bg-blue-50/50 p-6 shadow-sm shadow-blue-50 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="flex items-start sm:items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
-                  <Cloud className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-[15px] font-bold text-slate-900">SharePoint Library & Import</h3>
-                  <p className="text-[12.5px] text-slate-500 font-normal mt-0.5">
-                    SharePoint importing and folder browsing has been integrated directly into the Upload Center for a unified ingestion experience.
-                  </p>
-                </div>
-              </div>
-              <Link
-                href="/uploads?tab=sharepoint"
-                className="inline-flex items-center gap-1.5 shrink-0 rounded-lg bg-blue-600 hover:bg-blue-700 px-4 py-2 text-[13px] font-semibold text-white transition-colors cursor-pointer shadow-sm"
-              >
-                <span>Go to Upload Center</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-          </div>
+          {isAdmin && <CostPanel />}
         </div>
       ) : activeTab === 'templates' ? (
         <CustomTemplateManager />
